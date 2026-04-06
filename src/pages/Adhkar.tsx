@@ -898,14 +898,19 @@ const Adhkar = () => {
       const exists = old.some((g) => g.id === saved.id);
       return exists ? old.map((g) => (g.id === saved.id ? saved : g)) : [...old, saved];
     });
-    if (oldName && (oldName !== saved.name || (oldPrayerTime && oldPrayerTime !== saved.prayer_time))) {
+    // Update cached adhkar entries when group name or prayer time changes.
+    // Use saved.name as the group key to match entries regardless of whether name changed.
+    const resolvedOldName = oldName ?? saved.name;
+    const nameChanged = !!oldName && oldName !== saved.name;
+    const timeChanged = !!oldPrayerTime && oldPrayerTime !== saved.prayer_time;
+    if (nameChanged || timeChanged) {
       queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
         old.map((d) => {
-          if (d.group_name !== oldName) return d;
+          if (d.group_name !== resolvedOldName) return d;
           return {
             ...d,
-            group_name: saved.name,
-            ...(saved.prayer_time && oldPrayerTime !== saved.prayer_time ? { prayer_time: saved.prayer_time } : {}),
+            ...(nameChanged ? { group_name: saved.name } : {}),
+            ...(timeChanged && saved.prayer_time ? { prayer_time: saved.prayer_time } : {}),
           };
         })
       );
