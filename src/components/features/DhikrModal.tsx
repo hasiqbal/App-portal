@@ -479,13 +479,17 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="prayer_time">Prayer Time *</Label>
-              <select id="prayer_time" value={form.prayer_time} onChange={(e) => set('prayer_time', e.target.value)}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
-                {PRAYER_TIME_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
-                ))}
-              </select>
+              <Label htmlFor="prayer_time">Prayer Time</Label>
+              <div
+                id="prayer_time"
+                className="flex items-center gap-2 h-9 rounded-md border border-border bg-muted/40 px-3 text-sm text-muted-foreground select-none"
+                title="Prayer time is set at the group level — edit the group to change it"
+              >
+                <span className="text-base leading-none">🔒</span>
+                <span>{PRAYER_TIME_LABELS[form.prayer_time] ?? form.prayer_time}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground/60 font-medium">group-level</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">Change via the group's ⚙ Edit button.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="count">Count / Repetitions</Label>
