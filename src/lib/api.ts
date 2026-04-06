@@ -80,35 +80,24 @@ function sanitizeDhikrPayload(data: Partial<DhikrPayload>): Record<string, unkno
   return rest;
 }
 
-// Confirmed valid prayer_time values on the external backend (ucpmwygyuvbfehjpucpm).
-// The adhkar table has a check constraint `adhkar_prayer_time_check`.
-// The app uses 'jumuah' and 'after-jumuah' — the external backend dev must add these
-// to the constraint: ALTER TABLE adhkar DROP CONSTRAINT adhkar_prayer_time_check;
-// ALTER TABLE adhkar ADD CONSTRAINT adhkar_prayer_time_check
-//   CHECK (prayer_time IN ('after-fajr','after-asr','after-maghrib','jumuah','after-jumuah'));
+// All valid prayer_time values on the external backend (ucpmwygyuvbfehjpucpm).
+// Constraint updated to accept the full portal slug set.
 const EXTERNAL_PRAYER_TIMES = new Set([
-  'after-fajr', 'after-asr', 'after-maghrib', 'jumuah', 'after-jumuah',
+  'before-fajr', 'fajr', 'after-fajr',
+  'ishraq', 'duha',
+  'zuhr', 'after-zuhr',
+  'asr', 'after-asr',
+  'maghrib', 'after-maghrib',
+  'isha', 'after-isha',
+  'before-sleep', 'morning', 'evening',
+  'jumuah', 'after-jumuah',
+  'general',
 ]);
 
-// Fallback map for any other portal slugs not accepted by the external backend
+// Legacy slug aliases only — all canonical slugs are now accepted natively.
 const PRAYER_TIME_OVERRIDE: Record<string, string> = {
-  'before-fajr':  'after-fajr',
-  'fajr':         'after-fajr',
-  'ishraq':       'after-fajr',
-  'duha':         'after-fajr',
-  'zuhr':         'after-fajr',
-  'after-zuhr':   'after-fajr',
-  'asr':          'after-asr',
-  'maghrib':      'after-maghrib',
-  'isha':         'after-maghrib',
-  'after-isha':   'after-maghrib',
-  'before-sleep': 'after-maghrib',
-  'morning':      'after-fajr',
-  'evening':      'after-maghrib',
-  'general':      'after-fajr',
-  // Legacy slug aliases (portal was renamed to match app slugs)
-  'jumu-ah':      'jumuah',
-  'after-jumu-ah':'after-jumuah',
+  'jumu-ah':       'jumuah',
+  'after-jumu-ah': 'after-jumuah',
 };
 
 function sanitizePrayerTime(pt: unknown): string {
