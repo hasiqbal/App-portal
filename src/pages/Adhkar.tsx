@@ -44,6 +44,8 @@ const CATEGORY_COLORS: Record<string, { pill: string; dot: string }> = {
   'before-sleep':  { pill: 'bg-indigo-100 text-indigo-800 border-indigo-200', dot: '#6366f1' },
   'morning':       { pill: 'bg-cyan-100 text-cyan-800 border-cyan-200',       dot: '#06b6d4' },
   'evening':       { pill: 'bg-red-100 text-red-800 border-red-200',          dot: '#ef4444' },
+  'jumuah':        { pill: 'bg-emerald-100 text-emerald-800 border-emerald-200', dot: '#10b981' },
+  'after-jumuah':  { pill: 'bg-green-100 text-green-800 border-green-200',   dot: '#16a34a' },
   'general':       { pill: 'bg-gray-100 text-gray-700 border-gray-200',       dot: '#6b7280' },
 };
 
@@ -550,7 +552,14 @@ const Adhkar = () => {
     return matchCat && matchSearch;
   });
 
-  const presentCategories = PRAYER_TIME_CATEGORIES.filter((cat) => adhkar.some((d) => d.prayer_time === cat));
+  // Always show core daily categories so users can add entries even if empty.
+  const CORE_CATEGORIES = [
+    'after-fajr', 'ishraq', 'duha', 'after-zuhr', 'after-asr', 'after-maghrib', 'after-isha',
+    'jumuah', 'after-jumuah',
+  ];
+  const presentCategories = PRAYER_TIME_CATEGORIES.filter(
+    (cat) => CORE_CATEGORIES.includes(cat) || adhkar.some((d) => d.prayer_time === cat)
+  );
   const unknownCategories = [...new Set(adhkar.map((d) => d.prayer_time))].filter(
     (cat) => !PRAYER_TIME_CATEGORIES.includes(cat as typeof PRAYER_TIME_CATEGORIES[number])
   );
