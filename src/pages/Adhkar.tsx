@@ -1007,8 +1007,16 @@ const Adhkar = () => {
                   onDeleteEntry={handleDelete} onToggleActive={handleToggleActive}
                   onMoveEntry={handleOpenMove}
                   onEditGroup={(name, meta) => {
-                    if (meta?.id) setEditGroup(meta);
-                    else setEditGroup({ name } as AdhkarGroup);
+                    if (meta?.id) {
+                      // If the group has full metadata, use it — but also pull the live
+                      // prayer_time from the entries in case it was changed externally.
+                      const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time;
+                      setEditGroup(liveTime && liveTime !== meta.prayer_time ? { ...meta, prayer_time: liveTime } : meta);
+                    } else {
+                      // No metadata record yet — seed prayer_time from the entries
+                      const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time ?? cat;
+                      setEditGroup({ name, prayer_time: liveTime } as AdhkarGroup);
+                    }
                     setGroupModalOpen(true);
                   }}
                   onRenameGroup={handleRenameGroup}
