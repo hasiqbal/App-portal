@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, RefreshCw, Pencil, Trash2, Search, BookOpen, ChevronDown, ChevronRight,
   ToggleLeft, ToggleRight, GripVertical, ImageIcon, Copy, Loader2, ArrowRightLeft,
+  AlignLeft, CheckCheck, Filter,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -168,8 +169,6 @@ const SortableGroupSection = ({
   const iconBg = groupMeta?.icon_bg_color ?? '#6366f1';
   const badgeText = groupMeta?.badge_text;
   const badgeColor = groupMeta?.badge_color ?? '#6366f1';
-  // Fall back to the description stored on individual entries (cascaded from group saves)
-  // when no local adhkar_groups metadata record exists.
   const description = groupMeta?.description ?? items[0]?.description ?? null;
   const isUngrouped = groupName === '(Ungrouped)';
   const entryDragActiveItem = entryDragActiveId ? items.find((d) => d.id === entryDragActiveId) : null;
@@ -287,7 +286,6 @@ const SortableGroupSection = ({
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           {!isUngrouped && (
             <>
-              {/* Inline rename button */}
               <button
                 onClick={() => { setRenameValue(groupName); setRenaming(true); setCollapsed(false); }}
                 className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors"
@@ -295,7 +293,6 @@ const SortableGroupSection = ({
               >
                 <Pencil size={13} className="text-purple-500" />
               </button>
-              {/* Full style edit (icon, colours, etc.) */}
               <button
                 onClick={() => onEditGroup(groupName, groupMeta)}
                 className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors"
@@ -516,6 +513,14 @@ const Adhkar = () => {
   const [moveNewPrayerTime, setMoveNewPrayerTime] = useState('after-fajr');
   const [moveSaving, setMoveSaving] = useState(false);
 
+  // Bulk description editor state
+  const [bulkDescOpen, setBulkDescOpen] = useState(false);
+  const [bulkDescSearch, setBulkDescSearch] = useState('');
+  const [bulkDescFilter, setBulkDescFilter] = useState<string>('all');
+  const [bulkDescEdits, setBulkDescEdits] = useState<Record<string, string>>({});
+  const [bulkDescSaving, setBulkDescSaving] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
+  const [bulkSavingAll, setBulkSavingAll] = useState(false);
+
   // Duplicate group state
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [duplicateSource, setDuplicateSource] = useState<{ name: string; items: Dhikr[]; meta: AdhkarGroup | undefined } | null>(null);
@@ -535,8 +540,7 @@ const Adhkar = () => {
     queryFn: () => fetchAdhkarGroups(),
   });
 
-  // Seed known group descriptions on first load (only if entries have no description yet).
-  // Uses the sync-group Edge Function in bulk-seed mode — skips groups already described.
+  // Seed known group descriptions on first load
   const seededRef = useRef(false);
   useEffect(() => {
     if (seededRef.current || adhkar.length === 0) return;
@@ -553,7 +557,6 @@ const Adhkar = () => {
           "The Litany of the Sea (حزب البحر) — composed by Imam Abul-Hasan al-Shadhili. A renowned du'a for protection, safety, and divine mercy, widely recited in the Shadhili tradition.",
       },
     ];
-    // Only seed groups that actually exist in the current adhkar data
     const existingGroupNames = new Set(adhkar.map((d) => d.group_name).filter(Boolean));
     const toSeed = knownDescriptions.filter((g) => existingGroupNames.has(g.groupName));
     if (toSeed.length === 0) return;
@@ -565,7 +568,6 @@ const Adhkar = () => {
         const seeded = results.filter((r) => !r.skipped && r.cascaded > 0);
         if (seeded.length > 0) {
           console.log('[Adhkar] Seeded descriptions for:', seeded.map((r) => r.group).join(', '));
-          // Update local cache so descriptions appear immediately
           queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
             old.map((d) => {
               const seed = seeded.find((r) => r.group === d.group_name);
@@ -599,7 +601,6 @@ const Adhkar = () => {
     return matchCat && matchSearch;
   });
 
-  // Always show core daily categories so users can add entries even if empty.
   const CORE_CATEGORIES = [...ADHKAR_PRAYER_TIME_CATEGORIES];
   const presentCategories = PRAYER_TIME_CATEGORIES.filter(
     (cat) => CORE_CATEGORIES.includes(cat) || adhkar.some((d) => d.prayer_time === cat)
@@ -624,7 +625,6 @@ const Adhkar = () => {
     setModalOpen(true);
   };
 
-  // Modal always creates new entries (copy-on-edit)
   const handleSaved = (dhikr: Dhikr) => {
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => [...old, dhikr]);
     setModalOpen(false);
@@ -645,7 +645,6 @@ const Adhkar = () => {
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.map((d) => (d.id === tempId ? real : d)));
   };
 
-  // Modal always creates; revert just removes the temp row
   const handleRevert = (id: string) => {
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.id !== id));
   };
@@ -711,7 +710,6 @@ const Adhkar = () => {
       console.error('[Adhkar] Delete failed:', err);
       const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to delete "${row.title}": ${msg}`);
-      // Revert optimistic removal
       queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => {
         const restored = [...(old ?? []), row];
         return restored.sort((a, b) => {
@@ -872,17 +870,12 @@ const Adhkar = () => {
 
   // ─── Inline description save ─────────────────────────────────────────────
   const handleDescriptionSave = async (groupName: string, description: string, meta: AdhkarGroup | undefined) => {
-    // Optimistically update the cache
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
       old.map((g) => (g.name === groupName ? { ...g, description } : g))
     );
-    // Also update the local adhkar entries cache so the description shows immediately
-    // for groups without a local metadata record (description is read from entries as fallback).
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
       old.map((d) => (d.group_name === groupName ? { ...d, description } : d))
     );
-    // Always cascade description to external backend entries via Edge Function.
-    // Even groups without a local metadata record have entries on the external backend.
     const cascadePromise = supabase.functions.invoke('sync-group', {
       body: { groupName, payload: { description }, descriptionOnly: true },
     }).then((res) => {
@@ -897,24 +890,21 @@ const Adhkar = () => {
         toast.success('Group description updated.');
         refetch();
       } catch (err) {
-        // Revert on failure
         queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
           old.map((g) => (g.name === groupName ? { ...g, description: meta.description ?? null } : g))
         );
         toast.error(`Failed to save description: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
     } else {
-      // No local metadata record — cascade to external entries only
       await cascadePromise;
       toast.success('Group description updated.');
       refetch();
     }
   };
 
-  // ─── Inline rename (saves directly without opening modal) ─────────────────
+  // ─── Inline rename ────────────────────────────────────────────────────────
   const handleRenameGroup = async (oldGroupName: string, newName: string, meta: AdhkarGroup | undefined) => {
     if (newName === oldGroupName) return;
-    // Optimistically update the cache
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
       old.map((g) => (g.name === oldGroupName ? { ...g, name: newName } : g))
     );
@@ -924,7 +914,6 @@ const Adhkar = () => {
     if (meta?.id) {
       try {
         await updateAdhkarGroup(meta.id, { name: newName });
-        // Cascade rename on external backend: updates adhkar_groups name + all adhkar entries
         supabase.functions.invoke('sync-group', {
           body: { groupName: newName, payload: { name: newName }, oldGroupName },
         }).then((res) => {
@@ -934,7 +923,6 @@ const Adhkar = () => {
         }).catch((e) => console.warn('[Adhkar] Rename sync (non-critical):', e));
         toast.success(`Group renamed to "${newName}".`);
       } catch (err) {
-        // Revert on failure
         queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
           old.map((g) => (g.name === newName ? { ...g, name: oldGroupName } : g))
         );
@@ -953,8 +941,6 @@ const Adhkar = () => {
       const exists = old.some((g) => g.id === saved.id);
       return exists ? old.map((g) => (g.id === saved.id ? saved : g)) : [...old, saved];
     });
-    // Update cached adhkar entries when group name or prayer time changes.
-    // Use saved.name as the group key to match entries regardless of whether name changed.
     const resolvedOldName = oldName ?? saved.name;
     const nameChanged = !!oldName && oldName !== saved.name;
     const timeChanged = !!oldPrayerTime && oldPrayerTime !== saved.prayer_time;
@@ -979,6 +965,89 @@ const Adhkar = () => {
       ? allCategories.filter((cat) => filtered.some((d) => d.prayer_time === cat))
       : [filterCategory];
 
+  // ─── Bulk description editor ──────────────────────────────────────────────
+  const allGroupRows = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: {
+      name: string; prayerTime: string; description: string;
+      meta: AdhkarGroup | undefined; entryCount: number; icon: string; iconBg: string;
+    }[] = [];
+    const catOrder = PRAYER_TIME_CATEGORIES.reduce<Record<string, number>>((acc, cat, i) => { acc[cat] = i; return acc; }, {});
+    const sorted = [...adhkar].sort((a, b) => {
+      const pc = (catOrder[a.prayer_time] ?? 99) - (catOrder[b.prayer_time] ?? 99);
+      if (pc !== 0) return pc;
+      return (a.group_order ?? 9999) - (b.group_order ?? 9999);
+    });
+    sorted.forEach((d) => {
+      const name = d.group_name;
+      if (!name || seen.has(name)) return;
+      seen.add(name);
+      const meta = groupMap[name];
+      const description = meta?.description ?? d.description ?? '';
+      const entryCount = adhkar.filter((x) => x.group_name === name).length;
+      rows.push({
+        name,
+        prayerTime: meta?.prayer_time ?? d.prayer_time,
+        description,
+        meta,
+        entryCount,
+        icon: meta?.icon ?? '📋',
+        iconBg: meta?.icon_bg_color ?? '#6366f1',
+      });
+    });
+    return rows;
+  }, [adhkar, groupMap]);
+
+  const bulkFilteredRows = useMemo(() => {
+    return allGroupRows.filter((row) => {
+      const q = bulkDescSearch.toLowerCase();
+      const matchSearch = !q || row.name.toLowerCase().includes(q) || row.description.toLowerCase().includes(q);
+      const currentDesc = bulkDescEdits[row.name] !== undefined ? bulkDescEdits[row.name] : row.description;
+      const matchFilter =
+        bulkDescFilter === 'all' ||
+        (bulkDescFilter === 'missing' && !currentDesc.trim()) ||
+        bulkDescFilter === row.prayerTime;
+      return matchSearch && matchFilter;
+    });
+  }, [allGroupRows, bulkDescSearch, bulkDescFilter, bulkDescEdits]);
+
+  const dirtyGroups = Object.keys(bulkDescEdits).filter((name) => {
+    const original = allGroupRows.find((r) => r.name === name)?.description ?? '';
+    return bulkDescEdits[name] !== original;
+  });
+
+  const handleBulkOpen = () => {
+    setBulkDescEdits({});
+    setBulkDescSaving({});
+    setBulkDescSearch('');
+    setBulkDescFilter('all');
+    setBulkDescOpen(true);
+  };
+
+  const handleBulkSaveOne = async (groupName: string) => {
+    const row = allGroupRows.find((r) => r.name === groupName);
+    if (!row) return;
+    const newDesc = (bulkDescEdits[groupName] ?? row.description).trim();
+    setBulkDescSaving((prev) => ({ ...prev, [groupName]: 'saving' }));
+    try {
+      await handleDescriptionSave(groupName, newDesc, row.meta);
+      setBulkDescSaving((prev) => ({ ...prev, [groupName]: 'saved' }));
+      setBulkDescEdits((prev) => ({ ...prev, [groupName]: newDesc }));
+    } catch {
+      setBulkDescSaving((prev) => ({ ...prev, [groupName]: 'error' }));
+    }
+  };
+
+  const handleBulkSaveAll = async () => {
+    if (dirtyGroups.length === 0) return;
+    setBulkSavingAll(true);
+    await Promise.allSettled(dirtyGroups.map((name) => handleBulkSaveOne(name)));
+    setBulkSavingAll(false);
+    toast.success(`Saved ${dirtyGroups.length} group description${dirtyGroups.length !== 1 ? 's' : ''}.`);
+  };
+
+  const missingDescCount = allGroupRows.filter((r) => !(r.meta?.description ?? r.description)).length;
+
   return (
     <div className="flex min-h-screen" style={{ background: 'hsl(var(--background))' }}>
       <Sidebar />
@@ -993,6 +1062,14 @@ const Adhkar = () => {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={handleBulkOpen} className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50">
+              <AlignLeft size={14} /> Bulk Edit Descriptions
+              {missingDescCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700">
+                  {missingDescCount} missing
+                </span>
+              )}
+            </Button>
             {undoStack.length > 0 && (
               <Button variant="outline" size="sm" onClick={handleUndo}
                 className="gap-2 border-amber-400/60 text-amber-700 hover:bg-amber-50 hover:border-amber-500"
@@ -1062,12 +1139,9 @@ const Adhkar = () => {
                   onMoveEntry={handleOpenMove}
                   onEditGroup={(name, meta) => {
                     if (meta?.id) {
-                      // If the group has full metadata, use it — but also pull the live
-                      // prayer_time from the entries in case it was changed externally.
                       const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time;
                       setEditGroup(liveTime && liveTime !== meta.prayer_time ? { ...meta, prayer_time: liveTime } : meta);
                     } else {
-                      // No metadata record yet — seed prayer_time from the entries
                       const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time ?? cat;
                       setEditGroup({ name, prayer_time: liveTime } as AdhkarGroup);
                     }
@@ -1079,16 +1153,13 @@ const Adhkar = () => {
                     const groupEntries = adhkar.filter((d) => d.group_name === name);
                     const entryCount = groupEntries.length;
                     if (!confirm(`Delete group "${name}"?\n\nThis will also permanently delete all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} inside it. This cannot be undone.`)) return;
-                    // Remove from local cache immediately
                     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.group_name !== name));
                     if (meta?.id) {
                       queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((g) => g.id !== meta.id));
                     }
-                    // Delete metadata record if it exists
                     if (meta?.id) {
                       import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
                     }
-                    // Delete all entries from external backend
                     const { deleteDhikr } = await import('@/lib/api');
                     const results = await Promise.allSettled(groupEntries.map((d) => deleteDhikr(d.id)));
                     const failed = results.filter((r) => r.status === 'rejected').length;
@@ -1176,6 +1247,213 @@ const Adhkar = () => {
               {moveSaving ? 'Moving…' : 'Move Entry'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulk Description Editor ── */}
+      <Dialog open={bulkDescOpen} onOpenChange={(v) => { if (!bulkSavingAll) setBulkDescOpen(v); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-bold flex items-center gap-2">
+                <AlignLeft size={16} className="text-violet-500" />
+                Bulk Edit Group Descriptions
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {allGroupRows.length} groups total
+                {dirtyGroups.length > 0 && (
+                  <span className="ml-2 text-amber-600 font-medium">· {dirtyGroups.length} unsaved change{dirtyGroups.length !== 1 ? 's' : ''}</span>
+                )}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleBulkSaveAll}
+              disabled={dirtyGroups.length === 0 || bulkSavingAll}
+              className="gap-1.5 border-emerald-400/60 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 shrink-0"
+            >
+              {bulkSavingAll
+                ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                : <><CheckCheck size={13} /> Save All Changes ({dirtyGroups.length})</>}
+            </Button>
+          </div>
+
+          {/* Filters */}
+          <div className="px-6 py-3 border-b border-border bg-muted/20 flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[180px] max-w-xs">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={bulkDescSearch}
+                onChange={(e) => setBulkDescSearch(e.target.value)}
+                placeholder="Filter groups…"
+                className="pl-8 h-8 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Filter size={12} className="text-muted-foreground" />
+              {(['all', 'missing', ...ADHKAR_PRAYER_TIME_CATEGORIES] as const).map((f) => {
+                const label = f === 'all' ? 'All' : f === 'missing' ? '⚠ Missing' : (PRAYER_TIME_LABELS[f] ?? f);
+                const count = f === 'all'
+                  ? allGroupRows.length
+                  : f === 'missing'
+                  ? allGroupRows.filter((r) => {
+                      const d = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
+                      return !d.trim();
+                    }).length
+                  : allGroupRows.filter((r) => r.prayerTime === f).length;
+                if (f !== 'all' && f !== 'missing' && count === 0) return null;
+                return (
+                  <button
+                    key={f}
+                    onClick={() => setBulkDescFilter(f)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                      bulkDescFilter === f
+                        ? 'border-violet-400 bg-violet-100 text-violet-800'
+                        : 'border-border bg-background text-muted-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {label} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="flex-1 overflow-y-auto">
+            {bulkFilteredRows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
+                <AlignLeft size={28} className="opacity-20" />
+                <p className="text-sm">{bulkDescSearch ? 'No groups match your search.' : 'No groups in this filter.'}</p>
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30 sticky top-0">
+                    <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-2 w-[220px]">Group</th>
+                    <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2 w-[130px]">Prayer Time</th>
+                    <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Description</th>
+                    <th className="w-[80px] px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkFilteredRows.map((row, idx) => {
+                    const currentVal = bulkDescEdits[row.name] !== undefined ? bulkDescEdits[row.name] : row.description;
+                    const isDirty = bulkDescEdits[row.name] !== undefined && bulkDescEdits[row.name] !== row.description;
+                    const saveStatus = bulkDescSaving[row.name];
+                    const colors = CATEGORY_COLORS[row.prayerTime];
+                    return (
+                      <tr
+                        key={row.name}
+                        className={`border-b border-border/40 transition-colors ${
+                          isDirty ? 'bg-amber-50/60' : idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'
+                        }`}
+                      >
+                        {/* Group name + icon */}
+                        <td className="px-4 py-2.5 align-top">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className="w-7 h-7 rounded-md flex items-center justify-center text-base shrink-0"
+                              style={{ background: row.iconBg }}
+                            >
+                              {row.icon}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-xs text-foreground leading-snug truncate max-w-[140px]" title={row.name}>{row.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{row.entryCount} entr{row.entryCount !== 1 ? 'ies' : 'y'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        {/* Prayer time badge */}
+                        <td className="px-3 py-2.5 align-top">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${colors?.pill ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                            {PRAYER_TIME_LABELS[row.prayerTime] ?? row.prayerTime}
+                          </span>
+                        </td>
+                        {/* Editable description */}
+                        <td className="px-3 py-2 align-top">
+                          <div className="relative">
+                            <textarea
+                              value={currentVal}
+                              onChange={(e) => {
+                                setBulkDescEdits((prev) => ({ ...prev, [row.name]: e.target.value }));
+                                setBulkDescSaving((prev) => { const next = { ...prev }; delete next[row.name]; return next; });
+                              }}
+                              placeholder="Add a description shown in the app…"
+                              rows={2}
+                              className={`w-full rounded-md border px-2.5 py-1.5 text-xs text-foreground bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
+                                isDirty
+                                  ? 'border-amber-400 ring-1 ring-amber-300/60'
+                                  : saveStatus === 'saved'
+                                  ? 'border-emerald-400'
+                                  : saveStatus === 'error'
+                                  ? 'border-red-400'
+                                  : 'border-input'
+                              }`}
+                            />
+                            {isDirty && (
+                              <span className="absolute top-1 right-1.5 text-[9px] font-bold text-amber-600 bg-amber-50 px-1 rounded">edited</span>
+                            )}
+                            {saveStatus === 'saved' && !isDirty && (
+                              <span className="absolute top-1 right-1.5 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">✓ saved</span>
+                            )}
+                            {saveStatus === 'error' && (
+                              <span className="absolute top-1 right-1.5 text-[9px] font-bold text-red-600 bg-red-50 px-1 rounded">error</span>
+                            )}
+                          </div>
+                        </td>
+                        {/* Per-row save button */}
+                        <td className="px-3 py-2.5 align-top">
+                          <button
+                            onClick={() => handleBulkSaveOne(row.name)}
+                            disabled={!isDirty || saveStatus === 'saving'}
+                            className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-all ${
+                              saveStatus === 'saving'
+                                ? 'border-border text-muted-foreground opacity-60'
+                                : isDirty
+                                ? 'border-primary/60 bg-primary/5 text-primary hover:bg-primary/10'
+                                : 'border-border text-muted-foreground opacity-30 cursor-default'
+                            }`}
+                          >
+                            {saveStatus === 'saving' ? (
+                              <span className="flex items-center gap-1">
+                                <Loader2 size={10} className="animate-spin" /> Saving
+                              </span>
+                            ) : 'Save'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Changes cascade to all entries in each group and sync to the mobile app.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setBulkDescOpen(false)} disabled={bulkSavingAll}>
+                Close
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleBulkSaveAll}
+                disabled={dirtyGroups.length === 0 || bulkSavingAll}
+                className="gap-1.5"
+                style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+              >
+                {bulkSavingAll
+                  ? <><Loader2 size={13} className="animate-spin" /> Saving All…</>
+                  : <><CheckCheck size={13} /> Save All ({dirtyGroups.length})</>}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
