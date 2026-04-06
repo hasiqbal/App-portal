@@ -14,7 +14,7 @@ import DhikrModal from '@/components/features/DhikrModal';
 import DhikrDetailPanel from '@/components/features/DhikrDetailPanel';
 import AdhkarGroupModal from '@/components/features/AdhkarGroupModal';
 import {
-  fetchAdhkar, deleteDhikr, deleteAdhkarByGroup, fetchAdhkarGroups, createAdhkarGroup, createDhikr, updateDhikr, updateAdhkarGroup,
+  fetchAdhkar, deleteDhikr, fetchAdhkarGroups, createAdhkarGroup, createDhikr, updateDhikr, updateAdhkarGroup,
 } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { Dhikr, AdhkarGroup, PRAYER_TIME_CATEGORIES, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
@@ -1019,25 +1019,14 @@ const Adhkar = () => {
                   onRenameGroup={handleRenameGroup}
                   onDescriptionSave={handleDescriptionSave}
                   onDeleteGroup={async (name, meta) => {
-                    const entryCount = catItems.filter((d) => d.group_name === name).length;
-                    if (!confirm(`Delete group "${name}" and all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} inside it? This cannot be undone.`)) return;
-                    // Optimistically remove entries from cache
-                    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.group_name !== name));
-                    // Delete entries on external backend
-                    try {
-                      await deleteAdhkarByGroup(name);
-                    } catch (err) {
-                      toast.error(`Failed to delete entries: ${err instanceof Error ? err.message : 'Unknown error'}`);
-                      // Revert cache on failure
-                      queryClient.invalidateQueries({ queryKey: ['adhkar'] });
-                      return;
-                    }
-                    // Delete group metadata if it exists
+                    if (!confirm(`Delete group "${name}" metadata? Adhkar entries in this group will NOT be deleted.`)) return;
                     if (meta?.id) {
-                      await import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
+                      await import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id));
                       queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((g) => g.id !== meta.id));
+                      toast.success(`Group "${name}" deleted.`);
+                    } else {
+                      toast.error('Group has no metadata record to delete.');
                     }
-                    toast.success(`Group "${name}" and ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} deleted.`);
                   }}
                   onDuplicateGroup={handleDuplicateGroup}
                   onAddToGroup={(name, pt) => handleOpenAdd(name, pt)}

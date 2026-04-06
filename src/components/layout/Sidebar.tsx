@@ -2,9 +2,7 @@ import { useState } from 'react';
 import { CalendarDays, BookOpen, Database, Bell, Menu, X, Home, FileSpreadsheet, Star } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
-type NavItem = { to: string; icon: React.ElementType; label: string; temp?: boolean };
-
-const NAV_ITEMS: NavItem[] = [
+const NAV_ITEMS = [
   { to: '/',               icon: Home,         label: 'Dashboard'    },
   { to: '/prayer-times',   icon: CalendarDays, label: 'Prayer Times' },
   { to: '/adhkar',         icon: BookOpen,     label: 'Adhkar'       },
@@ -57,7 +55,7 @@ const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => (
       <p className="text-[9px] font-bold uppercase tracking-[0.15em] px-3 mb-3 text-[hsl(var(--sidebar-foreground))] opacity-50">
         Management
       </p>
-      {NAV_ITEMS.map(({ to, icon: Icon, label, temp }) => (
+      {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
         <NavLink
           key={to}
           to={to}
@@ -67,8 +65,6 @@ const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => (
             `flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all relative ${
               isActive
                 ? 'nav-active-glow bg-[hsl(var(--sidebar-accent))] text-[hsl(40_60%_58%)]'
-                : temp
-                ? 'text-amber-400 hover:bg-amber-900/30 hover:text-amber-300'
                 : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-accent-foreground))]'
             }`
           }
@@ -77,10 +73,9 @@ const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => (
             <>
               <Icon
                 size={15}
-                className={isActive ? 'text-[hsl(40_60%_58%)]' : temp ? 'text-amber-400' : 'opacity-70'}
+                className={isActive ? 'text-[hsl(40_60%_58%)]' : 'opacity-70'}
               />
               {label}
-              {temp && <span className="ml-auto text-[9px] font-bold uppercase tracking-wider text-amber-400 opacity-70">temp</span>}
             </>
           )}
         </NavLink>
