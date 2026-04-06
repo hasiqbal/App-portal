@@ -220,8 +220,9 @@ export async function deleteAdhkarGroup(id: string): Promise<void> {
 const ANN_URL = `${BASE_URL}/announcements`;
 
 export async function fetchAnnouncements(): Promise<Announcement[]> {
+  // Note: external backend announcements table does not have display_order — order by created_at only
   const res = await fetch(
-    `${ANN_URL}?order=display_order.asc,created_at.desc`,
+    `${ANN_URL}?order=created_at.desc`,
     { headers: readHeaders }
   );
   if (!res.ok) throw new Error(`Failed to fetch announcements: ${res.status}`);
@@ -229,7 +230,9 @@ export async function fetchAnnouncements(): Promise<Announcement[]> {
 }
 
 export async function createAnnouncement(data: Partial<AnnouncementPayload>): Promise<Announcement> {
-  const payload = { display_order: 0, is_active: true, ...data };
+  // Strip display_order — column doesn't exist on external backend
+  const { display_order: _d, ...rest } = data as Record<string, unknown>;
+  const payload = { is_active: true, ...rest };
   const res = await fetch(ANN_URL, {
     method: 'POST',
     headers: writeHeaders,
@@ -244,10 +247,12 @@ export async function createAnnouncement(data: Partial<AnnouncementPayload>): Pr
 }
 
 export async function updateAnnouncement(id: string, data: Partial<AnnouncementPayload>): Promise<Announcement> {
+  // Strip display_order — column doesn't exist on external backend
+  const { display_order: _d, ...safeData } = data as Record<string, unknown>;
   const res = await fetch(`${ANN_URL}?id=eq.${id}`, {
     method: 'PATCH',
     headers: writeHeaders,
-    body: JSON.stringify(data),
+    body: JSON.stringify(safeData),
   });
   if (!res.ok) {
     const body = await res.text();
