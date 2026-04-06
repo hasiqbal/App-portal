@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { PrayerTime, PrayerTimeUpdate } from '@/types';
 import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv } from '@/lib/api';
 import { toast } from 'sonner';
-import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, Globe, Calendar, ClipboardPaste, FileUp } from 'lucide-react';
+import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 
 // ─── CSV columns — matching user's CSV column order ───────────────────────────
@@ -300,7 +300,7 @@ type Stage = 'idle' | 'validating' | 'parsed' | 'saving' | 'done';
 type InputMode = 'upload' | 'paste';
 
 const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, preloadedCsv }: CsvImportModalProps) => {
-  const [scope, setScope] = useState<'year' | 'month'>('year');
+  const scope: 'year' | 'month' = 'year';
   const [stage, setStage] = useState<Stage>('idle');
   const [inputMode, setInputMode] = useState<InputMode>('upload');
   const [pasteText, setPasteText] = useState('');
@@ -474,40 +474,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
           </div>
         )}
 
-        {/* ── Scope selector ── */}
-        {stage === 'idle' && (
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setScope('year')}
-              className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border-2 transition-all text-left ${
-                scope === 'year' ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/30'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Globe size={14} className={scope === 'year' ? 'text-primary' : 'text-muted-foreground'} />
-                <span className={`text-xs font-semibold ${scope === 'year' ? 'text-primary' : 'text-foreground'}`}>Entire Year</span>
-                <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary">Default</span>
-              </div>
-              <p className="text-[10px] text-muted-foreground leading-snug">
-                DATE column like <code className="font-mono bg-muted px-1 rounded">01-Jan</code> includes month. Imports all 12 months at once.
-              </p>
-            </button>
-            <button
-              onClick={() => setScope('month')}
-              className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border-2 transition-all text-left ${
-                scope === 'month' ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/30'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Calendar size={14} className={scope === 'month' ? 'text-primary' : 'text-muted-foreground'} />
-                <span className={`text-xs font-semibold ${scope === 'month' ? 'text-primary' : 'text-foreground'}`}>{monthName} Only</span>
-              </div>
-              <p className="text-[10px] text-muted-foreground leading-snug">
-                DATE column with plain numbers or month-abbr. Imports into {monthName} {year} only.
-              </p>
-            </button>
-          </div>
-        )}
+
 
         {/* ── Column hint ── */}
         {stage === 'idle' && (
@@ -536,10 +503,6 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
           <div className="flex gap-2 flex-wrap">
             <button onClick={() => downloadTemplate('year', year, month)} className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
               <Download size={12} /> Full Year {year}
-            </button>
-            <span className="text-muted-foreground/40 text-xs">·</span>
-            <button onClick={() => downloadTemplate('month', year, month)} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:underline">
-              <Download size={12} /> {monthName} Only
             </button>
           </div>
         </div>
