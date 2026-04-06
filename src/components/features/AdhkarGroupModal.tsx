@@ -6,65 +6,22 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { createAdhkarGroup, updateAdhkarGroup } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
-const EXT_BASE = 'https://ucpmwygyuvbfehjpucpm.backend.onspace.ai/rest/v1';
-const EXT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcG13eWd5dXZiZmVoanB1Y3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.i8tlNr0s9g7D7VhWKUFxXBwU_YhWEarUOBsmCIi-lEA';
-const EXT_HEADERS = { 'Content-Type': 'application/json', 'apikey': EXT_KEY, 'Prefer': 'return=representation' };
-
-/** Sync group metadata (description, icon, badge, etc.) to the external backend's adhkar_groups table.
- *  Falls back to stripping unknown columns if the first attempt fails with a column error. */
+/** Sync group metadata to external backend via Edge Function (bypasses CORS). */
 async function syncGroupToExternal(
   groupName: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  const doUpsert = async (data: Record<string, unknown>): Promise<void> => {
-    const patchRes = await fetch(
-      `${EXT_BASE}/adhkar_groups?name=eq.${encodeURIComponent(groupName)}`,
-      { method: 'PATCH', headers: EXT_HEADERS, body: JSON.stringify(data) },
-    );
-    if (!patchRes.ok) {
-      const body = await patchRes.text();
-      if (patchRes.status === 404 || body.includes('does not exist')) {
-        console.warn('[AdhkarGroupModal] External adhkar_groups table not found — skipping sync.');
-        return;
-      }
-      // Column not found — retry without description
-      if (body.includes('Could not find') && data.description !== undefined) {
-        console.warn('[AdhkarGroupModal] description column missing on external backend — retrying without it.');
-        const { description: _d, ...rest } = data;
-        return doUpsert(rest);
-      }
-      throw new Error(`External group sync failed: ${patchRes.status} — ${body}`);
-    }
-    const rows = await patchRes.json();
-    // No rows updated → insert new record
-    if (Array.isArray(rows) && rows.length === 0) {
-      const insertRes = await fetch(`${EXT_BASE}/adhkar_groups`, {
-        method: 'POST',
-        headers: EXT_HEADERS,
-        body: JSON.stringify({ ...data, name: groupName }),
-      });
-      if (!insertRes.ok) {
-        const insertBody = await insertRes.text();
-        // Column not found on insert — retry without description
-        if (insertBody.includes('Could not find') && data.description !== undefined) {
-          console.warn('[AdhkarGroupModal] description column missing on insert — retrying without it.');
-          const { description: _d, ...rest } = data;
-          const retryRes = await fetch(`${EXT_BASE}/adhkar_groups`, {
-            method: 'POST',
-            headers: EXT_HEADERS,
-            body: JSON.stringify({ ...rest, name: groupName }),
-          });
-          if (!retryRes.ok) throw new Error(`External group insert failed: ${retryRes.status}`);
-          return;
-        }
-        throw new Error(`External group insert failed: ${insertRes.status} — ${insertBody}`);
-      }
-    }
-  };
-
-  await doUpsert(payload);
+  const { error } = await supabase.functions.invoke('sync-group', {
+    body: { groupName, payload },
+  });
+  if (error) {
+    console.warn('[AdhkarGroupModal] Edge Function sync failed (non-critical):', error?.message ?? error);
+  } else {
+    console.log('[AdhkarGroupModal] External group synced via Edge Function:', groupName);
+  }
 }
 
 /** Bulk-update group_name and/or prayer_time on all adhkar entries that match oldGroupName */
