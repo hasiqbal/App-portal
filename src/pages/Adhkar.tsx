@@ -16,6 +16,7 @@ import AdhkarGroupModal from '@/components/features/AdhkarGroupModal';
 import {
   fetchAdhkar, deleteDhikr, fetchAdhkarGroups, createAdhkarGroup, createDhikr, updateDhikr, updateAdhkarGroup,
 } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { Dhikr, AdhkarGroup, PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { toast } from 'sonner';
 import {
@@ -825,6 +826,10 @@ const Adhkar = () => {
     if (meta?.id) {
       try {
         await updateAdhkarGroup(meta.id, { description });
+        // Also sync description to external backend via Edge Function
+        supabase.functions.invoke('sync-group', {
+          body: { groupName, payload: { description } },
+        }).catch((e) => console.warn('[Adhkar] Description sync (non-critical):', e));
         toast.success('Group description updated.');
       } catch (err) {
         // Revert on failure
@@ -851,6 +856,14 @@ const Adhkar = () => {
     if (meta?.id) {
       try {
         await updateAdhkarGroup(meta.id, { name: newName });
+        // Cascade rename on external backend: updates adhkar_groups name + all adhkar entries
+        supabase.functions.invoke('sync-group', {
+          body: { groupName: newName, payload: { name: newName }, oldGroupName },
+        }).then((res) => {
+          const cascaded = (res.data as Record<string, unknown>)?.cascadedEntries;
+          if (typeof cascaded === 'number' && cascaded > 0)
+            console.log(`[Adhkar] Cascaded ${cascaded} entries on external backend.`);
+        }).catch((e) => console.warn('[Adhkar] Rename sync (non-critical):', e));
         toast.success(`Group renamed to "${newName}".`);
       } catch (err) {
         // Revert on failure

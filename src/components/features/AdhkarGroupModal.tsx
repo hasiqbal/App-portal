@@ -13,39 +13,18 @@ import { toast } from 'sonner';
 async function syncGroupToExternal(
   groupName: string,
   payload: Record<string, unknown>,
-): Promise<void> {
-  const { error } = await supabase.functions.invoke('sync-group', {
-    body: { groupName, payload },
+  oldGroupName?: string,
+  newPrayerTime?: string,
+): Promise<unknown> {
+  const { data, error } = await supabase.functions.invoke('sync-group', {
+    body: { groupName, payload, oldGroupName, newPrayerTime },
   });
   if (error) {
     console.warn('[AdhkarGroupModal] Edge Function sync failed (non-critical):', error?.message ?? error);
-  } else {
-    console.log('[AdhkarGroupModal] External group synced via Edge Function:', groupName);
+    return null;
   }
-}
-
-/** Bulk-update group_name and/or prayer_time on all adhkar entries that match oldGroupName */
-async function cascadeGroupRename(
-  oldName: string,
-  newName: string,
-  oldPrayerTime: string | null | undefined,
-  newPrayerTime: string | null | undefined,
-): Promise<number> {
-  const patch: Record<string, string> = {};
-  if (newName !== oldName) patch.group_name = newName;
-  if (newPrayerTime && newPrayerTime !== oldPrayerTime) patch.prayer_time = newPrayerTime;
-  if (Object.keys(patch).length === 0) return 0;
-
-  const res = await fetch(
-    `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(oldName)}`,
-    { method: 'PATCH', headers: EXT_HEADERS, body: JSON.stringify(patch) },
-  );
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Cascade update failed: ${res.status} — ${body}`);
-  }
-  const rows = await res.json();
-  return Array.isArray(rows) ? rows.length : 0;
+  console.log('[AdhkarGroupModal] External group synced via Edge Function:', groupName, data);
+  return data;
 }
 
 interface AdhkarGroupModalProps {
@@ -120,7 +99,10 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
         ? await updateAdhkarGroup(group!.id, payload)
         : await createAdhkarGroup(payload);
 
-      // Always sync metadata to the external backend (description, icon, badge, etc.)
+      // Sync to external backend via Edge Function (bypasses CORS; handles cascade rename + group metadata)
+      const nameChanged = isEdit && payload.name !== originalName;
+      const timeChanged = isEdit && payload.prayer_time !== originalPrayerTime;
+
       const externalPayload: Record<string, unknown> = {
         description: payload.description ?? null,
         icon: payload.icon,
@@ -131,32 +113,20 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
         display_order: payload.display_order ?? 0,
         prayer_time: payload.prayer_time ?? null,
       };
-      syncGroupToExternal(payload.name!, externalPayload)
-        .then(() => console.log('[AdhkarGroupModal] External group synced:', payload.name))
-        .catch((err) => {
-          // Best-effort sync — log silently, don't interrupt the user
-          console.warn('[AdhkarGroupModal] External sync skipped (non-critical):', err?.message ?? err);
-        });
 
-      // If name or prayer time changed, cascade-update all matching adhkar entries
-      if (isEdit) {
-        const nameChanged = payload.name !== originalName;
-        const timeChanged = payload.prayer_time !== originalPrayerTime;
-        if (hasRealId && (nameChanged || timeChanged)) {
-          try {
-            const count = await cascadeGroupRename(
-              originalName,
-              payload.name,
-              originalPrayerTime,
-              payload.prayer_time ?? undefined,
-            );
-            toast.success(
-              `Group updated · ${count} entr${count === 1 ? 'y' : 'ies'} moved to ${PRAYER_TIME_LABELS[payload.prayer_time ?? ''] ?? payload.prayer_time ?? 'new section'}.`,
-            );
-          } catch (cascadeErr) {
-            console.error('[AdhkarGroupModal] Cascade rename failed:', cascadeErr);
-            toast.warning('Group saved, but some entries may not have updated. Refresh to check.');
+      // Fire-and-forget: pass oldGroupName so the edge function can cascade rename adhkar entries
+      syncGroupToExternal(payload.name!, externalPayload, nameChanged ? originalName : undefined, timeChanged ? payload.prayer_time ?? undefined : undefined)
+        .then((result) => {
+          const cascaded = (result as Record<string, unknown>)?.cascadedEntries;
+          if (typeof cascaded === 'number' && cascaded > 0) {
+            console.log(`[AdhkarGroupModal] Cascaded ${cascaded} adhkar entries on external backend.`);
           }
+        })
+        .catch((err) => console.warn('[AdhkarGroupModal] External sync (non-critical):', err?.message ?? err));
+
+      if (isEdit) {
+        if (nameChanged || timeChanged) {
+          toast.success(`Group updated · entries moved to ${PRAYER_TIME_LABELS[payload.prayer_time ?? ''] ?? payload.prayer_time ?? 'new section'}.`);
           onSaved(saved, originalName, originalPrayerTime);
         } else {
           toast.success('Group updated.');
