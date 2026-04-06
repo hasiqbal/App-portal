@@ -41,14 +41,23 @@ Deno.serve(async (req) => {
     console.log(`Fetched ${adhkar.length} adhkar entries`);
 
     if (adhkar.length > 0) {
-      // Insert in batches of 100
+      // Sanitize: cast count to integer (external backend may return string)
+      const sanitizedAdhkar = adhkar.map((row) => ({
+        ...row,
+        count: row.count != null ? parseInt(String(row.count), 10) || 1 : 1,
+        group_order: row.group_order != null ? parseInt(String(row.group_order), 10) || 0 : 0,
+        display_order: row.display_order != null ? parseInt(String(row.display_order), 10) || 0 : 0,
+        // Ensure sections is null or valid JSONB (not a string)
+        sections: row.sections === 'null' || row.sections === '' ? null : row.sections,
+      }));
+
       let adhkarInserted = 0;
-      for (let i = 0; i < adhkar.length; i += 100) {
-        const batch = adhkar.slice(i, i + 100);
+      for (let i = 0; i < sanitizedAdhkar.length; i += 100) {
+        const batch = sanitizedAdhkar.slice(i, i + 100);
         const { error } = await supabase.from('adhkar').upsert(batch, { onConflict: 'id' });
         if (error) {
-          console.error('adhkar batch error:', error);
-          throw new Error(`adhkar upsert failed: ${error.message}`);
+          console.error('adhkar batch error:', JSON.stringify(error));
+          throw new Error(`adhkar upsert failed: ${error.message} | code: ${error.code} | details: ${error.details} | hint: ${error.hint}`);
         }
         adhkarInserted += batch.length;
       }
