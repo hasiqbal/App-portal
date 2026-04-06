@@ -134,7 +134,7 @@ const SortableEntryRow = ({
 const SortableGroupSection = ({
   groupName, groupMeta, items,
   onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
-  onEditGroup, onRenameGroup, onAddToGroup, onDeleteGroup, onDuplicateGroup,
+  onEditGroup, onRenameGroup, onDescriptionSave, onAddToGroup, onDeleteGroup, onDuplicateGroup,
   onEntriesReordered, deleting, toggling, isDragOverlay,
 }: {
   groupName: string; groupMeta: AdhkarGroup | undefined; items: Dhikr[];
@@ -143,6 +143,7 @@ const SortableGroupSection = ({
   onMoveEntry: (d: Dhikr) => void;
   onEditGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onRenameGroup: (groupName: string, newName: string, meta: AdhkarGroup | undefined) => void;
+  onDescriptionSave: (groupName: string, description: string, meta: AdhkarGroup | undefined) => void;
   onAddToGroup: (groupName: string, prayerTime: string) => void;
   onDeleteGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onDuplicateGroup: (groupName: string, items: Dhikr[], meta: AdhkarGroup | undefined) => void;
@@ -154,6 +155,9 @@ const SortableGroupSection = ({
   const [entryDragActiveId, setEntryDragActiveId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [descEditing, setDescEditing] = useState(false);
+  const [descValue, setDescValue] = useState('');
+  const [descSaving, setDescSaving] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const icon = groupMeta?.icon ?? '📋';
@@ -229,7 +233,50 @@ const SortableGroupSection = ({
             )}
             {!renaming && <span className="text-xs text-muted-foreground">{items.length} {items.length === 1 ? 'dhikr' : 'adhkar'}</span>}
           </div>
-          {!renaming && description && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xl">{description}</p>}
+          {!renaming && (
+            descEditing ? (
+              <div className="mt-1.5 flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+                <textarea
+                  value={descValue}
+                  onChange={(e) => setDescValue(e.target.value)}
+                  placeholder="Short description shown under the group title…"
+                  className="w-full max-w-xl rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                  rows={2}
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Escape') setDescEditing(false); }}
+                />
+                <div className="flex gap-1.5">
+                  <button
+                    disabled={descSaving}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setDescSaving(true);
+                      await onDescriptionSave(groupName, descValue.trim(), groupMeta);
+                      setDescSaving(false);
+                      setDescEditing(false);
+                    }}
+                    className="px-2.5 h-6 rounded text-[11px] font-semibold bg-primary text-primary-foreground disabled:opacity-60"
+                  >
+                    {descSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDescEditing(false); }}
+                    className="px-2 h-6 rounded text-[11px] border border-input text-muted-foreground hover:bg-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p
+                className="text-xs text-muted-foreground mt-0.5 max-w-xl cursor-text hover:text-foreground transition-colors"
+                title="Click to edit description"
+                onClick={(e) => { e.stopPropagation(); setDescValue(description ?? ''); setDescEditing(true); setCollapsed(false); }}
+              >
+                {description ? description : <span className="italic opacity-50">+ add description…</span>}
+              </p>
+            )
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           {!isUngrouped && (
@@ -320,6 +367,7 @@ interface PrayerTimeSectionProps {
   onMoveEntry: (d: Dhikr) => void;
   onEditGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onRenameGroup: (groupName: string, newName: string, meta: AdhkarGroup | undefined) => void;
+  onDescriptionSave: (groupName: string, description: string, meta: AdhkarGroup | undefined) => void;
   onAddToGroup: (groupName: string, prayerTime: string) => void;
   onDeleteGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onDuplicateGroup: (groupName: string, items: Dhikr[], meta: AdhkarGroup | undefined) => void;
@@ -331,7 +379,7 @@ interface PrayerTimeSectionProps {
 const PrayerTimeSection = ({
   cat, catItems, groupMap,
   onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
-  onEditGroup, onRenameGroup, onAddToGroup, onDeleteGroup, onDuplicateGroup,
+  onEditGroup, onRenameGroup, onDescriptionSave, onAddToGroup, onDeleteGroup, onDuplicateGroup,
   onGroupsReordered, onEntriesReordered, deleting, toggling,
 }: PrayerTimeSectionProps) => {
   const [groupDragActiveId, setGroupDragActiveId] = useState<string | null>(null);
@@ -413,7 +461,7 @@ const PrayerTimeSection = ({
                   onClickRow={onClickRow} onEditEntry={onEditEntry}
                   onDeleteEntry={onDeleteEntry} onToggleActive={onToggleActive}
                   onMoveEntry={onMoveEntry}
-                  onEditGroup={onEditGroup} onRenameGroup={onRenameGroup} onAddToGroup={onAddToGroup}
+                  onEditGroup={onEditGroup} onRenameGroup={onRenameGroup} onDescriptionSave={onDescriptionSave} onAddToGroup={onAddToGroup}
                   onDeleteGroup={onDeleteGroup} onDuplicateGroup={onDuplicateGroup}
                   onEntriesReordered={(reorderedItems) => onEntriesReordered(groupName, reorderedItems)}
                   deleting={deleting} toggling={toggling}
@@ -428,7 +476,7 @@ const PrayerTimeSection = ({
                 items={grouped[activeGroupName]}
                 onClickRow={() => {}} onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
                 onMoveEntry={() => {}}
-                onEditGroup={() => {}} onRenameGroup={() => {}} onAddToGroup={() => {}} onDeleteGroup={() => {}} onDuplicateGroup={() => {}}
+                onEditGroup={() => {}} onRenameGroup={() => {}} onDescriptionSave={() => {}} onAddToGroup={() => {}} onDeleteGroup={() => {}} onDuplicateGroup={() => {}}
                 onEntriesReordered={() => {}} deleting={null} toggling={null} isDragOverlay
               />
             )}
@@ -768,6 +816,28 @@ const Adhkar = () => {
     }
   };
 
+  // ─── Inline description save ─────────────────────────────────────────────
+  const handleDescriptionSave = async (groupName: string, description: string, meta: AdhkarGroup | undefined) => {
+    // Optimistically update the cache
+    queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
+      old.map((g) => (g.name === groupName ? { ...g, description } : g))
+    );
+    if (meta?.id) {
+      try {
+        await updateAdhkarGroup(meta.id, { description });
+        toast.success('Group description updated.');
+      } catch (err) {
+        // Revert on failure
+        queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
+          old.map((g) => (g.name === groupName ? { ...g, description: meta.description ?? null } : g))
+        );
+        toast.error(`Failed to save description: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    } else {
+      toast.success('Description updated locally (no metadata record).');
+    }
+  };
+
   // ─── Inline rename (saves directly without opening modal) ─────────────────
   const handleRenameGroup = async (oldGroupName: string, newName: string, meta: AdhkarGroup | undefined) => {
     if (newName === oldGroupName) return;
@@ -910,6 +980,7 @@ const Adhkar = () => {
                     setGroupModalOpen(true);
                   }}
                   onRenameGroup={handleRenameGroup}
+                  onDescriptionSave={handleDescriptionSave}
                   onDeleteGroup={async (name, meta) => {
                     if (!confirm(`Delete group "${name}" metadata? Adhkar entries in this group will NOT be deleted.`)) return;
                     if (meta?.id) {
