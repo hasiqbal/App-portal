@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, RefreshCw, Pencil, Trash2, Search, Star, ChevronDown, ChevronRight,
   ToggleLeft, ToggleRight, GripVertical, ImageIcon, AlignLeft, Hash, Link2,
-  ArrowRightLeft, Copy, Loader2,
+  ArrowRightLeft, Copy, Loader2, CheckCheck, Filter, Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import {
   fetchSunnahGroups, createSunnahGroup, updateSunnahGroup, deleteSunnahGroup,
   createSunnahReminder,
 } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import {
   SunnahReminder, SunnahGroup,
   SUNNAH_CATEGORIES, SUNNAH_CATEGORY_LABELS, SUNNAH_CATEGORY_COLORS,
@@ -31,7 +32,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-// ─── Group Edit Modal (inline name + style) ───────────────────────────────────
+// ─── Group Edit Modal ─────────────────────────────────────────────────────────
 
 const GROUP_ICON_OPTIONS = ['⭐','🌙','☀️','📿','🤲','📖','🕌','💫','🌿','🎯','🔖','✨','🕋','🌺','📋'];
 const GROUP_COLOR_PRESETS = [
@@ -88,17 +89,15 @@ const SunnahGroupModal = ({
     try {
       let saved: SunnahGroup;
       if (isEdit) {
-        const { data: rows, error } = await import('@/lib/supabase').then(({ supabase }) =>
-          supabase.from('sunnah_groups').update(payload).eq('id', group!.id).select().single()
-        );
+        const { data: rows, error } = await supabase
+          .from('sunnah_groups').update(payload).eq('id', group!.id).select().single();
         if (error) throw error;
         saved = rows as SunnahGroup;
         toast.success(`Group updated.`);
         onSaved(saved, originalName !== saved.name ? originalName : undefined);
       } else {
-        const { data: rows, error } = await import('@/lib/supabase').then(({ supabase }) =>
-          supabase.from('sunnah_groups').insert(payload).select().single()
-        );
+        const { data: rows, error } = await supabase
+          .from('sunnah_groups').insert(payload).select().single();
         if (error) throw error;
         saved = rows as SunnahGroup;
         toast.success('Group created.');
@@ -132,7 +131,7 @@ const SunnahGroupModal = ({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Group Name *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Morning Adhkar" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Morning Sunnahs" />
             </div>
             <div className="space-y-1.5">
               <Label>Category</Label>
@@ -204,9 +203,6 @@ const SunnahGroupModal = ({
     </Dialog>
   );
 };
-
-// Need useEffect for SunnahGroupModal
-import { useEffect } from 'react';
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
 
@@ -338,7 +334,20 @@ const SortableEntryRow = ({
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
       className={`border-t border-border/60 ${isDragOverlay ? 'bg-card shadow-lg rounded-lg' : ''}`}>
       <div className="px-3 py-3 flex items-center gap-2 hover:bg-secondary/10 transition-colors select-none">
-        <button {...attributes} {...listeners} className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground p-0.5" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        {/* Drag handle — stop propagation to prevent outer group DnD capturing the pointer */}
+        <button
+          {...attributes}
+          className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground p-0.5"
+          tabIndex={-1}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            listeners?.onPointerDown?.(e as never);
+          }}
+          onPointerMove={listeners?.onPointerMove}
+          onPointerUp={listeners?.onPointerUp}
+          onKeyDown={listeners?.onKeyDown}
+        >
           <GripVertical size={13} />
         </button>
         <button className="text-muted-foreground shrink-0" onClick={() => setExpanded((e) => !e)}>
@@ -412,17 +421,23 @@ const SortableGroupCard = ({
   const isUngrouped = groupName === '(Ungrouped)';
   const entryDragItem = entryDragActiveId ? items.find((d) => d.id === entryDragActiveId) : null;
 
+  // Sort entries by display_order so reorder takes effect after drop
+  const sortedItems = useMemo(
+    () => [...items].sort((a, b) => (a.display_order ?? 9999) - (b.display_order ?? 9999)),
+    [items]
+  );
+
   const handleEntryDragEnd = async (event: DragEndEvent) => {
     setEntryDragActiveId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIdx = items.findIndex((d) => d.id === active.id);
-    const newIdx = items.findIndex((d) => d.id === over.id);
+    const oldIdx = sortedItems.findIndex((d) => d.id === active.id);
+    const newIdx = sortedItems.findIndex((d) => d.id === over.id);
     if (oldIdx === -1 || newIdx === -1) return;
-    const reordered = arrayMove(items, oldIdx, newIdx).map((d, i) => ({ ...d, display_order: (i + 1) * 10 }));
+    const reordered = arrayMove(sortedItems, oldIdx, newIdx).map((d, i) => ({ ...d, display_order: (i + 1) * 10 }));
     onEntriesReordered(reordered);
     try {
-      await Promise.all(reordered.filter((d, i) => d.display_order !== items[i]?.display_order)
+      await Promise.all(reordered.filter((d, i) => d.display_order !== sortedItems[i]?.display_order)
         .map((d) => updateSunnahReminder(d.id, { display_order: d.display_order ?? 0 })));
     } catch { toast.error('Failed to save order. Please refresh.'); }
   };
@@ -469,7 +484,7 @@ const SortableGroupCard = ({
                 <Pencil size={13} className="text-purple-500" />
               </button>
               <button onClick={() => onEditGroup(groupName, groupMeta)}
-                className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors" title="Edit group style (icon, colours, badge)">
+                className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors" title="Edit group style">
                 <span className="text-[11px] font-bold" style={{ color: 'hsl(var(--accent))' }}>⚙</span>
               </button>
               <button onClick={() => onDeleteGroup(groupName, groupMeta)} className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors" title="Delete group">
@@ -483,13 +498,14 @@ const SortableGroupCard = ({
         </div>
       </div>
 
-      {!collapsed && !isDragOverlay && (
+      {/* Entry DnD — disabled while group is being dragged */}
+      {!collapsed && !isDragOverlay && !isDragging && (
         <div className="bg-background">
           <DndContext sensors={sensors} collisionDetection={closestCenter}
             onDragStart={(e) => setEntryDragActiveId(e.active.id as string)}
             onDragEnd={handleEntryDragEnd}>
-            <SortableContext items={items.map((d) => d.id)} strategy={verticalListSortingStrategy}>
-              {items.map((row, idx) => (
+            <SortableContext items={sortedItems.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+              {sortedItems.map((row, idx) => (
                 <SortableEntryRow key={row.id} row={row} idx={idx}
                   onClickRow={onClickRow} onEdit={onEdit} onDelete={onDelete} onToggle={onToggle}
                   onMove={onMove}
@@ -636,6 +652,15 @@ const SunnahReminders = () => {
   const [dupNewCategory, setDupNewCategory] = useState('general');
   const [dupSaving, setDupSaving] = useState(false);
 
+  // Bulk description editor state
+  const [bulkDescOpen, setBulkDescOpen] = useState(false);
+  const [bulkDescSearch, setBulkDescSearch] = useState('');
+  const [bulkDescFilter, setBulkDescFilter] = useState<string>('all');
+  const [bulkDescEdits, setBulkDescEdits] = useState<Record<string, string>>({});
+  const [bulkDescSaving, setBulkDescSaving] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
+  const [bulkSavingAll, setBulkSavingAll] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+
   const queryClient = useQueryClient();
 
   const { data: reminders = [], isFetching, refetch } = useQuery({
@@ -673,7 +698,153 @@ const SunnahReminders = () => {
     ? allCategories.filter((cat) => filtered.some((r) => r.category === cat))
     : [filterCat];
 
-  // Modal always creates new entries (copy-on-edit)
+  // ─── All group rows for bulk edit ────────────────────────────────────────
+  const allGroupRows = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: {
+      name: string; category: string; description: string;
+      meta: SunnahGroup | undefined; entryCount: number; icon: string; iconBg: string;
+    }[] = [];
+    const catOrder = SUNNAH_CATEGORIES.reduce<Record<string, number>>((acc, cat, i) => { acc[cat] = i; return acc; }, {});
+    const sorted = [...reminders].sort((a, b) => {
+      const pc = (catOrder[a.category] ?? 99) - (catOrder[b.category] ?? 99);
+      if (pc !== 0) return pc;
+      return (a.group_order ?? 9999) - (b.group_order ?? 9999);
+    });
+    sorted.forEach((r) => {
+      const name = r.group_name;
+      if (!name || seen.has(name)) return;
+      seen.add(name);
+      const meta = groupMap[name];
+      const description = meta?.description ?? r.description ?? '';
+      const entryCount = reminders.filter((x) => x.group_name === name).length;
+      rows.push({
+        name, category: meta?.category ?? r.category,
+        description, meta, entryCount,
+        icon: meta?.icon ?? '📋',
+        iconBg: meta?.icon_bg_color ?? '#0f766e',
+      });
+    });
+    return rows;
+  }, [reminders, groupMap]);
+
+  const missingDescCount = allGroupRows.filter((r) => !(r.meta?.description ?? r.description)).length;
+
+  const bulkFilteredRows = useMemo(() => {
+    return allGroupRows.filter((row) => {
+      const q = bulkDescSearch.toLowerCase();
+      const matchSearch = !q || row.name.toLowerCase().includes(q) || row.description.toLowerCase().includes(q);
+      const currentDesc = bulkDescEdits[row.name] !== undefined ? bulkDescEdits[row.name] : row.description;
+      const matchFilter =
+        bulkDescFilter === 'all' ||
+        (bulkDescFilter === 'missing' && !currentDesc.trim()) ||
+        bulkDescFilter === row.category;
+      return matchSearch && matchFilter;
+    });
+  }, [allGroupRows, bulkDescSearch, bulkDescFilter, bulkDescEdits]);
+
+  const dirtyGroups = Object.keys(bulkDescEdits).filter((name) => {
+    const original = allGroupRows.find((r) => r.name === name)?.description ?? '';
+    return bulkDescEdits[name] !== original;
+  });
+
+  // ─── Description save (for bulk editor) ──────────────────────────────────
+  const handleDescriptionSave = async (groupName: string, description: string, meta: SunnahGroup | undefined) => {
+    // Optimistic update
+    queryClient.setQueryData<SunnahGroup[]>(['sunnah-groups'], (old = []) =>
+      old.map((g) => (g.name === groupName ? { ...g, description } : g))
+    );
+    queryClient.setQueryData<SunnahReminder[]>(['sunnah-reminders'], (old = []) =>
+      old.map((r) => (r.group_name === groupName ? { ...r, description } : r))
+    );
+    if (meta?.id) {
+      await updateSunnahGroup(meta.id, { description });
+    }
+    toast.success(`Description updated for "${groupName}".`);
+    refetch();
+  };
+
+  const handleBulkOpen = () => {
+    setBulkDescEdits({});
+    setBulkDescSaving({});
+    setBulkDescSearch('');
+    setBulkDescFilter('all');
+    setBulkDescOpen(true);
+  };
+
+  const handleBulkSaveOne = async (groupName: string) => {
+    const row = allGroupRows.find((r) => r.name === groupName);
+    if (!row) return;
+    const newDesc = (bulkDescEdits[groupName] ?? row.description).trim();
+    setBulkDescSaving((prev) => ({ ...prev, [groupName]: 'saving' }));
+    try {
+      await handleDescriptionSave(groupName, newDesc, row.meta);
+      setBulkDescSaving((prev) => ({ ...prev, [groupName]: 'saved' }));
+      setBulkDescEdits((prev) => ({ ...prev, [groupName]: newDesc }));
+    } catch {
+      setBulkDescSaving((prev) => ({ ...prev, [groupName]: 'error' }));
+    }
+  };
+
+  const handleBulkSaveAll = async () => {
+    if (dirtyGroups.length === 0) return;
+    setBulkSavingAll(true);
+    await Promise.allSettled(dirtyGroups.map((name) => handleBulkSaveOne(name)));
+    setBulkSavingAll(false);
+    toast.success(`Saved ${dirtyGroups.length} group description${dirtyGroups.length !== 1 ? 's' : ''}.`);
+  };
+
+  // ─── AI generation ────────────────────────────────────────────────────────
+  const handleGenerateWithAI = async () => {
+    const groupsToGenerate = allGroupRows.filter((row) => {
+      const current = bulkDescEdits[row.name] !== undefined ? bulkDescEdits[row.name] : row.description;
+      return !current.trim();
+    });
+    if (groupsToGenerate.length === 0) {
+      toast('All groups already have descriptions.');
+      return;
+    }
+    setAiGenerating(true);
+    toast(`Generating descriptions for ${groupsToGenerate.length} group${groupsToGenerate.length !== 1 ? 's' : ''}…`);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-group-desc', {
+        body: {
+          groups: groupsToGenerate.map((r) => ({
+            name: r.name,
+            prayerTime: r.category,
+            entryCount: r.entryCount,
+          })),
+        },
+      });
+      if (error) throw new Error(error.message);
+      const results = (data as { results?: { name: string; description: string; error?: string }[] })?.results ?? [];
+      const succeeded = results.filter((r) => !r.error && r.description);
+      const failed = results.filter((r) => r.error || !r.description);
+      if (succeeded.length > 0) {
+        setBulkDescEdits((prev) => {
+          const next = { ...prev };
+          succeeded.forEach((r) => { next[r.name] = r.description; });
+          return next;
+        });
+        setBulkDescSaving((prev) => {
+          const next = { ...prev };
+          succeeded.forEach((r) => { delete next[r.name]; });
+          return next;
+        });
+        if (bulkDescFilter !== 'all') setBulkDescFilter('all');
+        toast.success(`Generated ${succeeded.length} description${succeeded.length !== 1 ? 's' : ''}. Review and click Save All.`);
+      }
+      if (failed.length > 0) {
+        toast.error(`${failed.length} group${failed.length !== 1 ? 's' : ''} failed to generate.`);
+      }
+    } catch (err) {
+      toast.error(`AI generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  // ─── Entry/group event handlers ───────────────────────────────────────────
   const handleSaved = (reminder: SunnahReminder) => {
     queryClient.setQueryData<SunnahReminder[]>(['sunnah-reminders'], (old = []) => [...old, reminder]);
     setModalOpen(false);
@@ -774,7 +945,7 @@ const SunnahReminders = () => {
       });
   };
 
-  // ─── Move to group ──────────────────────────────────────────────────────────
+  // ─── Move to group ─────────────────────────────────────────────────────────
   const handleOpenMove = (row: SunnahReminder) => {
     setMoveTarget(row);
     setMoveNewGroup(row.group_name ?? '');
@@ -813,7 +984,6 @@ const SunnahReminders = () => {
       const exists = old.some((g) => g.id === saved.id);
       return exists ? old.map((g) => (g.id === saved.id ? saved : g)) : [...old, saved];
     });
-    // Cascade name change to cached reminders
     if (oldName && oldName !== saved.name) {
       queryClient.setQueryData<SunnahReminder[]>(['sunnah-reminders'], (old = []) =>
         old.map((r) => r.group_name === oldName ? { ...r, group_name: saved.name } : r)
@@ -913,6 +1083,15 @@ const SunnahReminders = () => {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Bulk Edit Descriptions */}
+            <Button variant="outline" size="sm" onClick={handleBulkOpen} className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50">
+              <AlignLeft size={14} /> Bulk Edit Descriptions
+              {missingDescCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700">
+                  {missingDescCount} missing
+                </span>
+              )}
+            </Button>
             {undoStack.length > 0 && (
               <Button variant="outline" size="sm" onClick={handleUndo}
                 className="gap-2 border-amber-400/60 text-amber-700 hover:bg-amber-50"
@@ -1097,6 +1276,206 @@ const SunnahReminders = () => {
               {dupSaving ? <><Loader2 size={13} className="animate-spin" /> Duplicating…</> : <><Copy size={13} /> Duplicate Group</>}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulk Description Editor ── */}
+      <Dialog open={bulkDescOpen} onOpenChange={(v) => { if (!bulkSavingAll && !aiGenerating) setBulkDescOpen(v); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-bold flex items-center gap-2">
+                <AlignLeft size={16} className="text-violet-500" />
+                Bulk Edit Group Descriptions
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {allGroupRows.length} groups total
+                {missingDescCount > 0 && <span className="ml-2 text-orange-600 font-medium">· {missingDescCount} missing</span>}
+                {dirtyGroups.length > 0 && (
+                  <span className="ml-2 text-amber-600 font-medium">· {dirtyGroups.length} unsaved change{dirtyGroups.length !== 1 ? 's' : ''}</span>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button size="sm" variant="outline"
+                onClick={handleGenerateWithAI}
+                disabled={aiGenerating || bulkSavingAll || allGroupRows.filter((r) => {
+                  const cur = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
+                  return !cur.trim();
+                }).length === 0}
+                className="gap-1.5 border-violet-400/70 text-violet-700 hover:bg-violet-50 disabled:opacity-40">
+                {aiGenerating
+                  ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
+                  : <><Sparkles size={13} /> Generate with AI</>}
+              </Button>
+              <Button size="sm" variant="outline"
+                onClick={handleBulkSaveAll}
+                disabled={dirtyGroups.length === 0 || bulkSavingAll || aiGenerating}
+                className="gap-1.5 border-emerald-400/60 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">
+                {bulkSavingAll
+                  ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                  : <><CheckCheck size={13} /> Save All ({dirtyGroups.length})</>}
+              </Button>
+            </div>
+          </div>
+
+          {/* AI generating banner */}
+          {aiGenerating && (
+            <div className="px-6 py-2.5 bg-violet-50 border-b border-violet-200 flex items-center gap-2.5">
+              <Loader2 size={13} className="animate-spin text-violet-600 shrink-0" />
+              <p className="text-xs text-violet-700 font-medium">
+                OnSpace AI is generating descriptions for {allGroupRows.filter((r) => {
+                  const cur = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
+                  return !cur.trim();
+                }).length} groups — this may take a moment…
+              </p>
+            </div>
+          )}
+
+          {/* Filters */}
+          <div className="px-6 py-3 border-b border-border bg-muted/20 flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[180px] max-w-xs">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input value={bulkDescSearch} onChange={(e) => setBulkDescSearch(e.target.value)}
+                placeholder="Filter groups…" className="pl-8 h-8 text-xs" />
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Filter size={12} className="text-muted-foreground" />
+              {(['all', 'missing', ...SUNNAH_CATEGORIES] as const).map((f) => {
+                const label = f === 'all' ? 'All' : f === 'missing' ? '⚠ Missing' : (SUNNAH_CATEGORY_LABELS[f] ?? f);
+                const count = f === 'all'
+                  ? allGroupRows.length
+                  : f === 'missing'
+                  ? allGroupRows.filter((r) => {
+                      const d = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
+                      return !d.trim();
+                    }).length
+                  : allGroupRows.filter((r) => r.category === f).length;
+                if (f !== 'all' && f !== 'missing' && count === 0) return null;
+                return (
+                  <button key={f} onClick={() => setBulkDescFilter(f)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                      bulkDescFilter === f
+                        ? 'border-violet-400 bg-violet-100 text-violet-800'
+                        : 'border-border bg-background text-muted-foreground hover:bg-secondary'
+                    }`}>
+                    {label} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="flex-1 overflow-y-auto">
+            {bulkFilteredRows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
+                <AlignLeft size={28} className="opacity-20" />
+                <p className="text-sm">
+                  {bulkDescSearch ? 'No groups match your search.'
+                    : bulkDescFilter === 'missing' ? 'All groups have descriptions.'
+                    : 'No groups in this filter.'}
+                </p>
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30 sticky top-0">
+                    <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-2 w-[220px]">Group</th>
+                    <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2 w-[130px]">Category</th>
+                    <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Description</th>
+                    <th className="w-[80px] px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkFilteredRows.map((row, idx) => {
+                    const currentVal = bulkDescEdits[row.name] !== undefined ? bulkDescEdits[row.name] : row.description;
+                    const isDirty = bulkDescEdits[row.name] !== undefined && bulkDescEdits[row.name] !== row.description;
+                    const saveStatus = bulkDescSaving[row.name];
+                    const colors = SUNNAH_CATEGORY_COLORS[row.category];
+                    return (
+                      <tr key={row.name}
+                        className={`border-b border-border/40 transition-colors ${
+                          isDirty ? 'bg-amber-50/60' : idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'
+                        }`}>
+                        {/* Group name + icon */}
+                        <td className="px-4 py-2.5 align-top">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-md flex items-center justify-center text-base shrink-0" style={{ background: row.iconBg }}>
+                              {row.icon}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-xs text-foreground leading-snug truncate max-w-[140px]" title={row.name}>{row.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{row.entryCount} entr{row.entryCount !== 1 ? 'ies' : 'y'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        {/* Category badge */}
+                        <td className="px-3 py-2.5 align-top">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${colors?.pill ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                            {SUNNAH_CATEGORY_LABELS[row.category] ?? row.category}
+                          </span>
+                        </td>
+                        {/* Editable description */}
+                        <td className="px-3 py-2 align-top">
+                          <div className="relative">
+                            <textarea value={currentVal}
+                              onChange={(e) => {
+                                setBulkDescEdits((prev) => ({ ...prev, [row.name]: e.target.value }));
+                                setBulkDescSaving((prev) => { const next = { ...prev }; delete next[row.name]; return next; });
+                              }}
+                              placeholder="Add a description shown in the app…"
+                              rows={2}
+                              className={`w-full rounded-md border px-2.5 py-1.5 text-xs text-foreground bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
+                                isDirty ? 'border-amber-400 ring-1 ring-amber-300/60'
+                                  : saveStatus === 'saved' ? 'border-emerald-400'
+                                  : saveStatus === 'error' ? 'border-red-400'
+                                  : 'border-input'
+                              }`}
+                            />
+                            {isDirty && <span className="absolute top-1 right-1.5 text-[9px] font-bold text-amber-600 bg-amber-50 px-1 rounded">edited</span>}
+                            {saveStatus === 'saved' && !isDirty && <span className="absolute top-1 right-1.5 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">✓ saved</span>}
+                            {saveStatus === 'error' && <span className="absolute top-1 right-1.5 text-[9px] font-bold text-red-600 bg-red-50 px-1 rounded">error</span>}
+                          </div>
+                        </td>
+                        {/* Per-row save button */}
+                        <td className="px-3 py-2.5 align-top">
+                          <button onClick={() => handleBulkSaveOne(row.name)}
+                            disabled={!isDirty || saveStatus === 'saving'}
+                            className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-all ${
+                              saveStatus === 'saving' ? 'border-border text-muted-foreground opacity-60'
+                                : isDirty ? 'border-primary/60 bg-primary/5 text-primary hover:bg-primary/10'
+                                : 'border-border text-muted-foreground opacity-30 cursor-default'
+                            }`}>
+                            {saveStatus === 'saving'
+                              ? <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Saving</span>
+                              : 'Save'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">Descriptions are saved to group metadata and visible in the portal.</p>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setBulkDescOpen(false)} disabled={bulkSavingAll || aiGenerating}>Close</Button>
+              <Button size="sm" onClick={handleBulkSaveAll}
+                disabled={dirtyGroups.length === 0 || bulkSavingAll || aiGenerating}
+                className="gap-1.5"
+                style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+                {bulkSavingAll
+                  ? <><Loader2 size={13} className="animate-spin" /> Saving All…</>
+                  : <><CheckCheck size={13} /> Save All ({dirtyGroups.length})</>}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
