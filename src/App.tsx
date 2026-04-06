@@ -11,6 +11,7 @@ import Announcements from "./pages/Announcements";
 import ExcelConverter from "./pages/ExcelConverter";
 import SunnahReminders from "./pages/SunnahReminders";
 import NotFound from "./pages/NotFound";
+import MigrateData from "./pages/MigrateData";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +39,7 @@ const App = () => (
           <Route path="/cloud-data" element={<CloudData />} />
           <Route path="/sunnah-reminders" element={<SunnahReminders />} />
           <Route path="/excel-converter" element={<ExcelConverter />} />
+          <Route path="/migrate" element={<MigrateData />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
