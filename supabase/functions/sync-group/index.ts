@@ -15,101 +15,67 @@ const READ_HEADERS = {
   'apikey': EXT_KEY,
 };
 
-// Known safe columns on the external adhkar_groups table.
-// We try progressively smaller payloads if we get a "column not found" error.
+// Columns we attempt to sync to the external adhkar_groups table.
+// We probe progressively — if the external backend rejects a column, we skip it and retry.
 const SAFE_GROUP_COLS = ['name', 'description', 'prayer_time', 'icon', 'icon_color', 'icon_bg_color', 'badge_text', 'badge_color', 'display_order'];
 
-/** Strip unknown columns from an error response body. */
+/** Extract an unknown column name from a PostgREST error response body. */
 function extractUnknownColumn(body: string): string | null {
-  // PostgREST: 'Could not find the "foo" column of "adhkar_groups" in the schema cache'
   const match = body.match(/Could not find the "([^"]+)" column/);
   return match ? match[1] : null;
 }
 
 /**
- * PATCH adhkar_groups, retrying with progressively fewer columns
- * if the external backend reports unknown columns.
+ * PATCH adhkar_groups by name, retrying with fewer columns on unknown-column errors.
+ * Returns null if the row was not found on the external backend (so caller can skip quietly).
  */
 async function safePatchGroup(
-  url: string,
+  groupName: string,
   payload: Record<string, unknown>,
-): Promise<{ rows: unknown[]; skipped: string[] }> {
+): Promise<{ rows: unknown[]; skipped: string[]; notFound: boolean }> {
   const skipped: string[] = [];
-  let current = { ...payload };
 
   for (let attempt = 0; attempt < 10; attempt++) {
-    // Only include known-safe columns
+    // Only include known-safe columns that haven't been skipped
     const safe: Record<string, unknown> = {};
     for (const col of SAFE_GROUP_COLS) {
-      if (col in current && !skipped.includes(col)) safe[col] = current[col];
+      if (col in payload && !skipped.includes(col)) safe[col] = payload[col];
     }
     if (Object.keys(safe).length === 0) {
-      console.log('[sync-group] No safe columns left to send.');
-      return { rows: [], skipped };
+      console.log('[sync-group] No safe columns left to PATCH — skipping group metadata sync.');
+      return { rows: [], skipped, notFound: false };
     }
+
+    const url = `${EXT_BASE}/adhkar_groups?name=eq.${encodeURIComponent(groupName)}`;
+    console.log(`[sync-group] PATCH attempt ${attempt + 1}: ${url} — fields: ${Object.keys(safe).join(', ')}`);
 
     const res = await fetch(url, { method: 'PATCH', headers: WRITE_HEADERS, body: JSON.stringify(safe) });
     const body = await res.text();
+    console.log(`[sync-group] PATCH response: ${res.status} — ${body.slice(0, 300)}`);
 
     if (res.ok) {
       let rows: unknown[] = [];
       try { rows = JSON.parse(body); } catch { /* ignore */ }
-      return { rows, skipped };
+      // PostgREST returns [] when no row matched the filter
+      if (Array.isArray(rows) && rows.length === 0) {
+        console.log(`[sync-group] No row with name="${groupName}" on external backend — skipping insert.`);
+        return { rows: [], skipped, notFound: true };
+      }
+      return { rows, skipped, notFound: false };
     }
 
     const unknownCol = extractUnknownColumn(body);
     if (unknownCol) {
-      console.log(`[sync-group] Column "${unknownCol}" not found on external backend — skipping.`);
+      console.log(`[sync-group] Column "${unknownCol}" not found on external backend — skipping it.`);
       skipped.push(unknownCol);
       continue;
     }
 
-    // Non-column error — hard fail
-    throw new Error(`PATCH failed: ${res.status} — ${body}`);
+    // Hard fail for non-column errors
+    throw new Error(`PATCH adhkar_groups failed: ${res.status} — ${body}`);
   }
 
   throw new Error('Too many retries on safePatchGroup');
-}
-
-/**
- * POST new group row, retrying with fewer columns on unknown-column errors.
- */
-async function safePatchInsertGroup(
-  payload: Record<string, unknown>,
-): Promise<{ rows: unknown[]; skipped: string[] }> {
-  const skipped: string[] = [];
-  let current = { ...payload };
-
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const safe: Record<string, unknown> = {};
-    for (const col of SAFE_GROUP_COLS) {
-      if (col in current && !skipped.includes(col)) safe[col] = current[col];
-    }
-
-    const res = await fetch(`${EXT_BASE}/adhkar_groups`, {
-      method: 'POST',
-      headers: WRITE_HEADERS,
-      body: JSON.stringify(safe),
-    });
-    const body = await res.text();
-
-    if (res.ok) {
-      let rows: unknown[] = [];
-      try { rows = JSON.parse(body); } catch { /* ignore */ }
-      return { rows, skipped };
-    }
-
-    const unknownCol = extractUnknownColumn(body);
-    if (unknownCol) {
-      console.log(`[sync-group] Insert: column "${unknownCol}" not found — skipping.`);
-      skipped.push(unknownCol);
-      continue;
-    }
-
-    throw new Error(`INSERT failed: ${res.status} — ${body}`);
-  }
-
-  throw new Error('Too many retries on safePatchInsertGroup');
 }
 
 /**
@@ -124,11 +90,10 @@ async function cascadeAdhkarEntries(
   const patch: Record<string, string> = { group_name: newGroupName };
   if (newPrayerTime) patch.prayer_time = newPrayerTime;
 
-  const res = await fetch(
-    `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(oldGroupName)}`,
-    { method: 'PATCH', headers: WRITE_HEADERS, body: JSON.stringify(patch) },
-  );
+  const url = `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(oldGroupName)}`;
+  console.log(`[sync-group] Cascading adhkar entries: "${oldGroupName}" → "${newGroupName}"`);
 
+  const res = await fetch(url, { method: 'PATCH', headers: WRITE_HEADERS, body: JSON.stringify(patch) });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Cascade adhkar update failed: ${res.status} — ${body}`);
@@ -160,48 +125,37 @@ Deno.serve(async (req: Request) => {
 
     const results: Record<string, unknown> = {};
 
-    // ── 1. Cascade rename adhkar entries if the name changed ──────────────
+    // ── 1. Cascade rename: update group_name on adhkar entries ───────────
     if (oldGroupName && oldGroupName !== groupName) {
       try {
         const count = await cascadeAdhkarEntries(oldGroupName, groupName, newPrayerTime);
         results.cascadedEntries = count;
         console.log(`[sync-group] Cascaded ${count} adhkar entries: "${oldGroupName}" → "${groupName}"`);
       } catch (cascadeErr) {
-        // Log but don't fail — group metadata sync continues
         results.cascadeError = String(cascadeErr);
         console.error('[sync-group] Cascade error (non-fatal):', cascadeErr);
       }
     }
 
-    // ── 2. Sync group metadata ────────────────────────────────────────────
+    // ── 2. Sync group metadata via PATCH only (no INSERT) ─────────────────
+    // We never INSERT into the external adhkar_groups table because:
+    //   a) It may have NOT NULL constraints we can't satisfy (e.g. id)
+    //   b) Groups are managed by the app developer — we only update existing rows
     if (Object.keys(payload).length > 0) {
-      // Check if a row with this name already exists
-      const checkRes = await fetch(
-        `${EXT_BASE}/adhkar_groups?name=eq.${encodeURIComponent(groupName)}&select=name`,
-        { headers: READ_HEADERS },
-      );
-      let exists = false;
-      if (checkRes.ok) {
-        const rows = await checkRes.json() as unknown[];
-        exists = Array.isArray(rows) && rows.length > 0;
-      }
-
-      if (exists) {
-        // PATCH existing row
-        const { rows, skipped } = await safePatchGroup(
-          `${EXT_BASE}/adhkar_groups?name=eq.${encodeURIComponent(groupName)}`,
-          payload,
-        );
+      try {
+        const { rows, skipped, notFound } = await safePatchGroup(groupName, payload);
         results.groupRows = rows;
         if (skipped.length > 0) results.skippedColumns = skipped;
-        console.log(`[sync-group] Patched group "${groupName}". Skipped: ${skipped.join(', ') || 'none'}`);
-      } else {
-        // INSERT new row
-        const { rows, skipped } = await safePatchInsertGroup({ ...payload, name: groupName });
-        results.groupRows = rows;
-        results.inserted = true;
-        if (skipped.length > 0) results.skippedColumns = skipped;
-        console.log(`[sync-group] Inserted group "${groupName}". Skipped: ${skipped.join(', ') || 'none'}`);
+        if (notFound) {
+          results.notFound = true;
+          console.log(`[sync-group] Group "${groupName}" not in external backend — skipped metadata sync.`);
+        } else {
+          console.log(`[sync-group] Patched group "${groupName}" on external backend. Skipped cols: ${skipped.join(', ') || 'none'}`);
+        }
+      } catch (patchErr) {
+        // Non-fatal: log and return partial success
+        results.patchError = String(patchErr);
+        console.error('[sync-group] Patch error (non-fatal):', patchErr);
       }
     }
 
