@@ -60,7 +60,7 @@ export async function updatePrayerTime(id: string, data: PrayerTimeUpdate): Prom
 
 // Columns needed for the list/table view — excludes `sections` (potentially large JSON)
 const ADHKAR_LIST_COLS =
-  'id,title,arabic_title,arabic,transliteration,translation,reference,count,prayer_time,group_name,group_order,display_order,is_active,created_at,updated_at';
+  'id,title,arabic_title,arabic,transliteration,translation,reference,count,prayer_time,group_name,group_order,display_order,is_active,file_url,description,created_at,updated_at';
 
 export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
   let url = `${BASE_URL}/adhkar?select=${ADHKAR_LIST_COLS}&order=prayer_time.asc,group_order.asc,display_order.asc,created_at.asc`;
@@ -74,10 +74,8 @@ export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
 // `description` and `file_url` exist only in the current project's schema cache
 // but NOT in the external backend (ucpmwygyuvbfehjpucpm), so we strip them.
 function sanitizeDhikrPayload(data: Partial<DhikrPayload>): Record<string, unknown> {
-  // Strip only `file_url` — the external adhkar table doesn't have that column.
-  // `description` IS now supported on the external backend, so we pass it through.
-  const { file_url: _f, ...rest } = data as Record<string, unknown>;
-  return rest;
+  // Pass all fields through — file_url and description are both supported on the external backend.
+  return data as Record<string, unknown>;
 }
 
 // All valid prayer_time values on the external backend (ucpmwygyuvbfehjpucpm).
