@@ -152,6 +152,18 @@ export async function updateDhikr(id: string, data: Partial<DhikrPayload>): Prom
   return { ...row, prayer_time: data.prayer_time ?? row.prayer_time };
 }
 
+/** Delete all adhkar entries belonging to a group (on the external backend). */
+export async function deleteAdhkarByGroup(groupName: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/adhkar?group_name=eq.${encodeURIComponent(groupName)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'apikey': ANON_KEY },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to delete adhkar entries for group "${groupName}": ${res.status} — ${body}`);
+  }
+}
+
 export async function deleteDhikr(id: string): Promise<void> {
   const deleteHeaders = {
     'Content-Type': 'application/json',
