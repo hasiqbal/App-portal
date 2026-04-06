@@ -10,6 +10,7 @@ import CloudData from "./pages/CloudData";
 import Announcements from "./pages/Announcements";
 import ExcelConverter from "./pages/ExcelConverter";
 import SunnahReminders from "./pages/SunnahReminders";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -38,6 +39,7 @@ const App = () => (
           <Route path="/cloud-data" element={<CloudData />} />
           <Route path="/sunnah-reminders" element={<SunnahReminders />} />
           <Route path="/excel-converter" element={<ExcelConverter />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
