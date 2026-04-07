@@ -39,11 +39,9 @@ serve(async (req) => {
 
     console.log(`send-notification: id=${notificationId} audience=${audience}`);
 
-    // Use SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY — auto-provided by Supabase
-    // when deployed to the external project (lhaqqqatdztuijgdfdcf)
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? 'https://lhaqqqatdztuijgdfdcf.supabase.co',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('EXT_SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
     // Fetch active device tokens

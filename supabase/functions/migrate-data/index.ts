@@ -87,12 +87,9 @@ Deno.serve(async (req: Request) => {
     const dryRun = body.dryRun ?? false;
     const checkOnly = body.checkOnly ?? false;
 
-    // SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are auto-provided by Supabase
-    // when deployed to lhaqqqatdztuijgdfdcf. EXT_SUPABASE_SERVICE_ROLE_KEY
-    // is the fallback when still hosted on OnSpace Cloud.
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? 'https://lhaqqqatdztuijgdfdcf.supabase.co',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('EXT_SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
     // Validate target tables exist

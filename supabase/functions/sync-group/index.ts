@@ -1,14 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
-/** Supabase admin client — uses SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
- *  which Supabase auto-provides when deployed to lhaqqqatdztuijgdfdcf.
- *  Falls back to EXT_SUPABASE_SERVICE_ROLE_KEY for OnSpace Cloud hosting.
- */
 function getSupabase() {
   return createClient(
     Deno.env.get('SUPABASE_URL') ?? 'https://lhaqqqatdztuijgdfdcf.supabase.co',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('EXT_SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   );
 }
 
