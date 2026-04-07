@@ -1,19 +1,13 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
-const EXT_BASE = 'https://ucpmwygyuvbfehjpucpm.backend.onspace.ai/rest/v1';
-const EXT_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcG13eWd5dXZiZmVoanB1Y3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.i8tlNr0s9g7D7VhWKUFxXBwU_YhWEarUOBsmCIi-lEA';
-
-const WRITE_HEADERS = {
-  'Content-Type': 'application/json',
-  'apikey': EXT_KEY,
-  'Prefer': 'return=representation',
-};
-
-const READ_HEADERS = {
-  'Content-Type': 'application/json',
-  'apikey': EXT_KEY,
-};
+/** Supabase admin client pointing to the external project */
+function getSupabase() {
+  return createClient(
+    'https://lhaqqqatdztuijgdfdcf.supabase.co',
+    Deno.env.get('EXT_SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  );
+}
 
 /**
  * PATCH all adhkar entries in a group with any given fields.
@@ -22,30 +16,23 @@ async function cascadeFieldsToEntries(
   groupName: string,
   fields: Record<string, unknown>,
 ): Promise<number> {
-  const url = `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(groupName)}`;
+  const supabase = getSupabase();
   console.log(`[sync-group] Cascading fields to entries in "${groupName}":`, JSON.stringify(fields));
 
-  const res = await fetch(url, {
-    method: 'PATCH',
-    headers: WRITE_HEADERS,
-    body: JSON.stringify(fields),
-  });
+  const { data, error } = await supabase
+    .from('adhkar')
+    .update(fields)
+    .eq('group_name', groupName)
+    .select('id');
 
-  const body = await res.text();
-  console.log(`[sync-group] Field cascade response: ${res.status} — ${body.slice(0, 300)}`);
-
-  if (!res.ok) {
-    throw new Error(`Field cascade failed: ${res.status} — ${body}`);
-  }
-
-  let rows: unknown[] = [];
-  try { rows = JSON.parse(body); } catch { /* ignore */ }
-  return Array.isArray(rows) ? rows.length : 0;
+  if (error) throw new Error(`Field cascade failed: ${error.message}`);
+  console.log(`[sync-group] Field cascade: updated ${data?.length ?? 0} entries`);
+  return data?.length ?? 0;
 }
 
 /**
- * Cascade-rename: update group_name (and optionally prayer_time + description) on all
- * adhkar entries that currently belong to oldGroupName.
+ * Cascade-rename: update group_name (and optionally prayer_time + description)
+ * on all adhkar entries that currently belong to oldGroupName.
  */
 async function cascadeAdhkarEntries(
   oldGroupName: string,
@@ -57,20 +44,18 @@ async function cascadeAdhkarEntries(
   if (newPrayerTime) patch.prayer_time = newPrayerTime;
   if (newDescription !== undefined) patch.description = newDescription;
 
-  const url = `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(oldGroupName)}`;
+  const supabase = getSupabase();
   console.log(`[sync-group] Cascading adhkar entries: "${oldGroupName}" → "${newGroupName}"`, JSON.stringify(patch));
 
-  const res = await fetch(url, { method: 'PATCH', headers: WRITE_HEADERS, body: JSON.stringify(patch) });
-  const body = await res.text();
-  console.log(`[sync-group] Cascade rename response: ${res.status} — ${body.slice(0, 200)}`);
+  const { data, error } = await supabase
+    .from('adhkar')
+    .update(patch)
+    .eq('group_name', oldGroupName)
+    .select('id');
 
-  if (!res.ok) {
-    throw new Error(`Cascade adhkar update failed: ${res.status} — ${body}`);
-  }
-
-  let rows: unknown[] = [];
-  try { rows = JSON.parse(body); } catch { /* ignore */ }
-  return Array.isArray(rows) ? rows.length : 0;
+  if (error) throw new Error(`Cascade adhkar update failed: ${error.message}`);
+  console.log(`[sync-group] Cascade rename: updated ${data?.length ?? 0} entries`);
+  return data?.length ?? 0;
 }
 
 /**
@@ -82,18 +67,21 @@ async function seedGroupDescription(
   description: string,
   overwrite = false,
 ): Promise<{ group: string; cascaded: number; skipped: boolean }> {
+  const supabase = getSupabase();
+
   if (!overwrite) {
-    // Check if any entry already has a description
-    const checkUrl = `${EXT_BASE}/adhkar?group_name=eq.${encodeURIComponent(groupName)}&select=description&limit=1`;
-    const checkRes = await fetch(checkUrl, { headers: READ_HEADERS });
-    if (checkRes.ok) {
-      const rows = await checkRes.json() as { description: string | null }[];
-      if (rows.length > 0 && rows[0].description) {
-        console.log(`[sync-group] Skipping "${groupName}" — description already set: "${rows[0].description.slice(0, 60)}"`);
-        return { group: groupName, cascaded: 0, skipped: true };
-      }
+    const { data: rows } = await supabase
+      .from('adhkar')
+      .select('description')
+      .eq('group_name', groupName)
+      .limit(1);
+
+    if (rows && rows.length > 0 && rows[0].description) {
+      console.log(`[sync-group] Skipping "${groupName}" — description already set: "${String(rows[0].description).slice(0, 60)}"`);
+      return { group: groupName, cascaded: 0, skipped: true };
     }
   }
+
   const cascaded = await cascadeFieldsToEntries(groupName, { description });
   return { group: groupName, cascaded, skipped: false };
 }
@@ -108,7 +96,6 @@ Deno.serve(async (req: Request) => {
       oldGroupName?: string;
       newPrayerTime?: string;
       descriptionOnly?: boolean;
-      // Bulk seed mode: set descriptions for multiple groups at once
       seedDescriptions?: Array<{ groupName: string; description: string; overwrite?: boolean }>;
     };
 
