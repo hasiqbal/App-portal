@@ -5,47 +5,47 @@
 @layer base {
   :root {
     /* ── Backgrounds ── */
-    --background: 120 8% 96%;          /* warm grey-green page bg */
-    --foreground: 150 25% 10%;         /* deep forest text */
+    --background: 140 30% 97%;          /* very light mint-white */
+    --foreground: 150 30% 12%;          /* deep green text */
 
     --card: 0 0% 100%;
-    --card-foreground: 150 25% 10%;
+    --card-foreground: 150 30% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 150 25% 10%;
+    --popover-foreground: 150 30% 12%;
 
-    /* ── Brand Green ── */
-    --primary: 145 52% 28%;            /* sage green #2d7a47 */
-    --primary-foreground: 0 0% 98%;
+    /* ── Brand Green — lighter, fresher ── */
+    --primary: 142 60% 35%;            /* fresh mid-green #239147 */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 120 10% 91%;          /* light sage grey */
-    --secondary-foreground: 150 25% 18%;
+    --secondary: 140 25% 93%;          /* very light sage */
+    --secondary-foreground: 150 30% 18%;
 
-    --muted: 120 8% 92%;
-    --muted-foreground: 150 10% 40%;
+    --muted: 140 20% 94%;
+    --muted-foreground: 150 15% 45%;
 
-    /* ── Gold Accent ── */
-    --accent: 40 55% 46%;              /* warm gold #b8963e */
-    --accent-foreground: 0 0% 100%;
+    /* ── Accent: soft green tint ── */
+    --accent: 142 50% 92%;             /* pale mint */
+    --accent-foreground: 142 60% 28%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 120 10% 86%;
-    --input: 120 10% 86%;
-    --ring: 145 52% 28%;
+    --border: 140 20% 88%;
+    --input: 140 20% 88%;
+    --ring: 142 60% 35%;
 
-    --radius: 0.6rem;
+    --radius: 0.75rem;
 
-    /* ── Sidebar — deep forest green ── */
-    --sidebar-background: 150 50% 10%;   /* #0d3320 deep forest */
-    --sidebar-foreground: 120 20% 72%;   /* muted sage text */
-    --sidebar-primary: 40 55% 46%;       /* gold */
-    --sidebar-primary-foreground: 0 0% 10%;
-    --sidebar-accent: 150 40% 16%;       /* slightly lighter forest */
-    --sidebar-accent-foreground: 120 25% 90%;
-    --sidebar-border: 150 35% 16%;
-    --sidebar-ring: 40 55% 46%;
+    /* ── Sidebar — WHITE with light green accents ── */
+    --sidebar-background: 0 0% 100%;       /* pure white */
+    --sidebar-foreground: 150 20% 35%;     /* medium green-grey text */
+    --sidebar-primary: 142 60% 35%;        /* brand green */
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 142 50% 95%;         /* pale mint hover */
+    --sidebar-accent-foreground: 142 55% 28%;
+    --sidebar-border: 140 20% 90%;         /* very light border */
+    --sidebar-ring: 142 60% 35%;
   }
 
   .dark {
@@ -55,27 +55,27 @@
     --card-foreground: 120 15% 92%;
     --popover: 150 25% 11%;
     --popover-foreground: 120 15% 92%;
-    --primary: 145 45% 40%;
+    --primary: 142 55% 42%;
     --primary-foreground: 0 0% 98%;
     --secondary: 150 20% 18%;
     --secondary-foreground: 120 15% 88%;
     --muted: 150 20% 18%;
     --muted-foreground: 150 12% 55%;
-    --accent: 40 55% 50%;
-    --accent-foreground: 0 0% 10%;
+    --accent: 142 40% 18%;
+    --accent-foreground: 142 55% 75%;
     --destructive: 0 62% 30%;
     --destructive-foreground: 120 15% 92%;
     --border: 150 20% 20%;
     --input: 150 20% 20%;
-    --ring: 145 45% 40%;
-    --sidebar-background: 150 50% 7%;
-    --sidebar-foreground: 120 20% 68%;
-    --sidebar-primary: 40 55% 46%;
-    --sidebar-primary-foreground: 0 0% 10%;
-    --sidebar-accent: 150 40% 13%;
-    --sidebar-accent-foreground: 120 25% 88%;
-    --sidebar-border: 150 35% 13%;
-    --sidebar-ring: 40 55% 46%;
+    --ring: 142 55% 42%;
+    --sidebar-background: 150 30% 9%;
+    --sidebar-foreground: 140 15% 65%;
+    --sidebar-primary: 142 55% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 150 25% 14%;
+    --sidebar-accent-foreground: 140 25% 85%;
+    --sidebar-border: 150 20% 15%;
+    --sidebar-ring: 142 55% 42%;
   }
 }
 
@@ -105,11 +105,9 @@
   background: hsl(var(--primary) / 0.55);
 }
 
-/* ── Geometric pattern for sidebar header ── */
+/* ── Sidebar logo area subtle tint ── */
 .sidebar-pattern {
-  background-image:
-    radial-gradient(circle at 20% 50%, hsl(145 50% 22% / 0.5) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, hsl(40 55% 46% / 0.08) 0%, transparent 40%);
+  background: linear-gradient(135deg, hsl(142 50% 97%) 0%, hsl(140 30% 99%) 100%);
 }
 
 /* ── Green-tinted section dividers ── */
@@ -124,7 +122,7 @@
   cursor: pointer;
 }
 
-/* ── Gold shimmer on active nav ── */
+/* ── Green left border on active nav ── */
 .nav-active-glow {
-  box-shadow: inset 3px 0 0 hsl(40 55% 46%);
+  box-shadow: inset 3px 0 0 hsl(142 60% 35%);
 }
