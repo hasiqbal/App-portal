@@ -127,10 +127,11 @@ const SortableEntryRow = ({
           <button onClick={() => onToggleActive(row)} disabled={toggling === row.id} className="p-1.5 rounded hover:bg-secondary/60 transition-colors" title={row.is_active ? 'Deactivate' : 'Activate'}>
             {row.is_active ? <ToggleRight size={16} className="text-emerald-500" /> : <ToggleLeft size={16} className="text-muted-foreground" />}
           </button>
-          <button onClick={() => onMoveEntry(row)} className="p-1.5 rounded hover:bg-purple-50 transition-colors" title="Move to group / prayer time">
+          {/* Move + Duplicate hidden on small screens to save space */}
+          <button onClick={() => onMoveEntry(row)} className="hidden sm:block p-1.5 rounded hover:bg-purple-50 transition-colors" title="Move to group / prayer time">
             <ArrowRightLeft size={13} className="text-purple-500" />
           </button>
-          <button onClick={() => onDuplicateEntry(row)} className="p-1.5 rounded hover:bg-blue-50 transition-colors" title="Duplicate entry">
+          <button onClick={() => onDuplicateEntry(row)} className="hidden sm:block p-1.5 rounded hover:bg-blue-50 transition-colors" title="Duplicate entry">
             <Copy size={13} className="text-blue-500" />
           </button>
           <button onClick={() => onEditEntry(row)} className="p-1.5 rounded hover:bg-accent/10 transition-colors" title="Edit">
@@ -240,7 +241,9 @@ const SortableGroupSection = ({
       )}
 
       {/* ── Group Header ── */}
-      <div className="flex items-center gap-2.5 px-3 py-2.5 select-none" style={{ background: 'hsl(var(--card))' }}>
+      <div className="flex flex-col select-none" style={{ background: 'hsl(var(--card))' }}>
+      {/* Top row: drag + collapse + icon + name + actions */}
+      <div className="flex items-center gap-2 px-3 py-2.5">
 
         {/* Drag handle */}
         <button
@@ -401,27 +404,9 @@ const SortableGroupSection = ({
         {/* ── Right-side controls ── */}
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
 
-          {/* Prayer-time reassign dropdown */}
+          {/* Edit buttons — hidden on mobile, shown on sm+ */}
           {!isUngrouped && (
-            <select
-              value={currentPrayerTime}
-              onChange={(e) => onReassignPrayerTime(groupName, e.target.value, groupMeta, sectionPrayerTime)}
-              className="h-7 rounded-md border border-input bg-background px-2 text-[11px] font-medium text-foreground ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer max-w-[140px]"
-              title="Move group to a different prayer time"
-            >
-              {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
-              ))}
-            </select>
-          )}
-
-          {/* Divider */}
-          {!isUngrouped && <div className="w-px h-4 bg-border/70 mx-0.5" />}
-
-          {/* Edit buttons */}
-          {!isUngrouped && (
-            <>
-
+            <div className="hidden sm:flex items-center gap-1">
               <button
                 onClick={() => onEditGroup(groupName, groupMeta)}
                 className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors"
@@ -443,11 +428,9 @@ const SortableGroupSection = ({
               >
                 <Trash2 size={12} className="text-destructive" />
               </button>
-            </>
+              <div className="w-px h-4 bg-border/70 mx-0.5" />
+            </div>
           )}
-
-          {/* Divider */}
-          <div className="w-px h-4 bg-border/70 mx-0.5" />
 
           {/* Add entry */}
           <button
@@ -457,6 +440,35 @@ const SortableGroupSection = ({
             <Plus size={12} /> Add
           </button>
         </div>
+      </div>
+
+      {/* Second row (mobile): prayer-time dropdown + action buttons */}
+      {!isUngrouped && (
+        <div className="flex items-center gap-2 px-3 pb-2.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
+          <select
+            value={currentPrayerTime}
+            onChange={(e) => onReassignPrayerTime(groupName, e.target.value, groupMeta, sectionPrayerTime)}
+            className="h-7 rounded-md border border-input bg-background px-2 text-[11px] font-medium text-foreground ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer flex-1 min-w-0 max-w-[180px]"
+            title="Move group to a different prayer time"
+          >
+            {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
+            ))}
+          </select>
+          {/* Mobile-only action buttons */}
+          <div className="flex sm:hidden items-center gap-1">
+            <button onClick={() => onEditGroup(groupName, groupMeta)} className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors" title="Edit icon, colours & badge">
+              <span className="text-[11px] font-bold" style={{ color: 'hsl(var(--accent))' }}>⚙</span>
+            </button>
+            <button onClick={() => onDuplicateGroup(groupName, items, groupMeta)} className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors" title="Duplicate group">
+              <Copy size={12} className="text-blue-500" />
+            </button>
+            <button onClick={() => onDeleteGroup(groupName, groupMeta)} className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors" title="Delete group">
+              <Trash2 size={12} className="text-destructive" />
+            </button>
+          </div>
+        </div>
+      )}
       </div>
 
       {/* ── Entries list ── */}
