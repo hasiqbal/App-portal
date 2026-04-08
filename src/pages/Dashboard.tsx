@@ -5,7 +5,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import { fetchPrayerTimes, fetchAdhkar, fetchAnnouncements, fetchAdhkarGroups } from '@/lib/api';
 import {
   CalendarDays, BookOpen, Bell, Clock, ChevronRight,
-  Star, BellRing, Timer, Sunrise,
+  Star, BellRing, Timer, Sunrise, Sunset, Moon,
 } from 'lucide-react';
 import masjidPhoto from '@/assets/masjid-photo.png';
 import masjidLogo from '@/assets/masjid-logo.png';
@@ -303,6 +303,77 @@ const TodayPrayerTable = ({
   );
 };
 
+// ─── Solar Times Card (Sunrise / Ishraq / Zawaal) ─────────────────────────────
+
+const SolarTimesCard = ({
+  sunrise, ishraq, zawaal,
+}: { sunrise: string | null; ishraq: string | null; zawaal: string | null }) => {
+  const items = [
+    {
+      icon: Sunrise,
+      label: 'Sunrise',
+      desc: 'Sun rises above horizon',
+      value: sunrise,
+      color: '#dc8a10',
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      textColor: 'text-amber-700',
+    },
+    {
+      icon: Sunrise,
+      label: 'Ishrāq',
+      desc: 'Recommended prayer time (~20 min after sunrise)',
+      value: ishraq,
+      color: '#0891b2',
+      bg: 'bg-sky-50',
+      border: 'border-sky-200',
+      textColor: 'text-sky-700',
+    },
+    {
+      icon: Sunset,
+      label: 'Zawāal',
+      desc: 'Solar noon — sun at zenith',
+      value: zawaal,
+      color: '#7c3aed',
+      bg: 'bg-violet-50',
+      border: 'border-violet-200',
+      textColor: 'text-violet-700',
+    },
+  ];
+
+  return (
+    <div className="bg-white rounded-2xl border border-[hsl(140_20%_88%)] shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-[hsl(140_20%_90%)] bg-[hsl(47_100%_97%)] flex items-center gap-2">
+        <Moon size={13} className="text-amber-500" />
+        <span className="text-[11px] font-bold uppercase tracking-widest text-amber-700">Solar Times Today</span>
+        <span className="text-[10px] text-amber-600/70 font-medium ml-auto">Non-prayer reference times</span>
+      </div>
+      {/* Three columns */}
+      <div className="grid grid-cols-3 divide-x divide-[hsl(140_20%_90%)]">
+        {items.map(({ icon: Icon, label, desc, value, color, bg, border, textColor }) => (
+          <div key={label} className={`${bg} px-3 py-4 flex flex-col items-center text-center gap-1.5`}>
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center mb-1"
+              style={{ background: color + '20', border: `1.5px solid ${color}30` }}
+            >
+              <Icon size={16} style={{ color }} />
+            </div>
+            <p className={`text-xs font-bold ${textColor}`}>{label}</p>
+            <p
+              className="text-xl font-extrabold tabular-nums"
+              style={{ color: value ? color : 'hsl(var(--muted-foreground) / 0.3)' }}
+            >
+              {value ?? '—'}
+            </p>
+            <p className="text-[9px] text-muted-foreground leading-tight">{desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
 const StatCard = ({
@@ -511,27 +582,12 @@ const Dashboard = () => {
                   jumuah2={todayRow.jumu_ah_2 ?? null}
                 />
 
-                {/* Sunrise / Ishraq quick pills */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-white rounded-xl border border-[hsl(140_20%_88%)] px-4 py-2.5 flex items-center gap-3">
-                    <Sunrise size={15} className="text-[#0369a1] shrink-0" />
-                    <div>
-                      <p className="text-[10px] text-muted-foreground font-semibold uppercase">Sunrise</p>
-                      <p className="text-sm font-extrabold tabular-nums text-[hsl(150_30%_12%)]">
-                        {todayRow.sunrise ?? '—'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="bg-white rounded-xl border border-[hsl(140_20%_88%)] px-4 py-2.5 flex items-center gap-3">
-                    <Sunrise size={15} className="text-[#0891b2] shrink-0" />
-                    <div>
-                      <p className="text-[10px] text-muted-foreground font-semibold uppercase">Ishraq</p>
-                      <p className="text-sm font-extrabold tabular-nums text-[hsl(150_30%_12%)]">
-                        {todayRow.ishraq ?? '—'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                {/* Sunrise / Ishraq / Zawaal special times card */}
+                <SolarTimesCard
+                  sunrise={todayRow.sunrise ?? null}
+                  ishraq={todayRow.ishraq ?? null}
+                  zawaal={todayRow.zawaal ?? null}
+                />
               </div>
             ) : (
               <div className="bg-white border border-dashed border-[hsl(140_20%_88%)] rounded-xl px-5 py-6 text-sm text-muted-foreground text-center">

@@ -1,6 +1,6 @@
 
 import { useState } from 'react';
-import { CalendarDays, BookOpen, Database, Bell, BellRing, Menu, X, Home, FileSpreadsheet, Star, BarChart2, LogOut } from 'lucide-react';
+import { CalendarDays, BookOpen, Database, Bell, BellRing, Menu, X, Home, FileSpreadsheet, Star, BarChart2, LogOut, Settings2 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import masjidLogo from '@/assets/masjid-logo.png';
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/sunnah-reminders',icon: Star,           label: 'Sunnah Reminders' },
   { to: '/notifications',   icon: BellRing,       label: 'Notifications'    },
   { to: '/analytics',       icon: BarChart2,      label: 'Analytics'        },
+  { to: '/settings',        icon: Settings2,      label: 'Settings'         },
   { to: '/cloud-data',      icon: Database,       label: 'Cloud Data'       },
   { to: '/excel-converter', icon: FileSpreadsheet,label: 'Excel → CSV'      },
 ];

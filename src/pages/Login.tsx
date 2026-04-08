@@ -9,10 +9,17 @@ import masjidLogo from '@/assets/masjid-logo.png';
 import masjidPhoto from '@/assets/masjid-photo.png';
 import { useAuth } from '@/hooks/useAuth';
 
-// Simple local credential check — change these to update login details
-const CREDENTIALS: Record<string, string> = {
-  admin: 'admin',
-};
+// Credential check — falls back to localStorage override set by Settings page
+const CRED_KEY = '__jmn_admin_creds__';
+const DEFAULT_CREDENTIALS: Record<string, string> = { admin: 'admin' };
+
+function getCredentials(): Record<string, string> {
+  try {
+    const stored = localStorage.getItem(CRED_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch { /* ignore */ }
+  return DEFAULT_CREDENTIALS;
+}
 
 const Login = () => {
   const navigate = useNavigate();
@@ -32,7 +39,7 @@ const Login = () => {
     // Simulate a brief loading state for UX
     await new Promise((r) => setTimeout(r, 400));
 
-    const expectedPassword = CREDENTIALS[username.trim().toLowerCase()];
+    const expectedPassword = getCredentials()[username.trim().toLowerCase()];
     if (!expectedPassword || expectedPassword !== password) {
       toast.error('Invalid username or password.');
       setLoading(false);

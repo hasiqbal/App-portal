@@ -864,6 +864,162 @@ const HistoryRow = ({
   );
 };
 
+// ─── Scheduled Queue Panel ──────────────────────────────────────────────────────
+
+const ScheduledQueuePanel = ({
+  scheduled,
+  onCancel,
+  onSendNow,
+}: {
+  scheduled: PushNotification[];
+  onCancel: (ids: string[]) => Promise<void>;
+  onSendNow: (notif: PushNotification) => void;
+}) => {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [cancellingAll, setCancellingAll] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+
+  if (scheduled.length === 0) return null;
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelected(new Set(scheduled.map((n) => n.id)));
+  const clearSel = () => setSelected(new Set());
+
+  const handleBulkCancel = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Cancel ${selected.size} scheduled notification${selected.size !== 1 ? 's' : ''}?`)) return;
+    setCancellingAll(true);
+    await onCancel(Array.from(selected));
+    setSelected(new Set());
+    setCancellingAll(false);
+  };
+
+  const sorted = [...scheduled].sort((a, b) =>
+    new Date(a.scheduled_for!).getTime() - new Date(b.scheduled_for!).getTime()
+  );
+
+  return (
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-5 py-4 border-b border-blue-200 flex items-center justify-between text-left hover:bg-blue-100/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Calendar size={14} className="text-blue-600" />
+          <span className="text-sm font-bold text-blue-800">Scheduled Queue</span>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800">{scheduled.length}</span>
+          {selected.size > 0 && <span className="text-[10px] font-semibold text-blue-600">{selected.size} selected</span>}
+        </div>
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          {selected.size > 0 && (
+            <button
+              onClick={handleBulkCancel}
+              disabled={cancellingAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-100 text-red-700 text-xs font-semibold hover:bg-red-200 transition-colors border border-red-200 disabled:opacity-60"
+            >
+              {cancellingAll ? <RefreshCw size={11} className="animate-spin" /> : <Trash2 size={11} />}
+              Cancel {selected.size}
+            </button>
+          )}
+          {expanded ? <ChevronUp size={14} className="text-blue-600" /> : <ChevronDown size={14} className="text-blue-600" />}
+        </div>
+      </button>
+
+      {expanded && (
+        <>
+          <div className="px-5 py-2 border-b border-blue-200/60 flex items-center gap-3 bg-blue-50">
+            <button onClick={selected.size === scheduled.length ? clearSel : selectAll} className="text-[11px] font-semibold text-blue-700 hover:text-blue-900">
+              {selected.size === scheduled.length ? 'Deselect all' : 'Select all'}
+            </button>
+            <span className="text-blue-300">|</span>
+            <button onClick={clearSel} className="text-[11px] text-blue-500 hover:text-blue-700">Clear</button>
+            <span className="text-[11px] text-blue-500 ml-auto">Sorted by scheduled time ↓</span>
+          </div>
+
+          <div className="divide-y divide-blue-200/40">
+            {sorted.map((notif) => {
+              const isSelected = selected.has(notif.id);
+              const scheduledDate = new Date(notif.scheduled_for!);
+              const isOverdue = scheduledDate < new Date();
+              const cat = getCategoryMeta(notif.category ?? 'general');
+              return (
+                <div
+                  key={notif.id}
+                  className={`px-4 py-3.5 flex items-start gap-3 cursor-pointer transition-colors ${isSelected ? 'bg-blue-100' : 'hover:bg-blue-50'}`}
+                  onClick={() => toggleSelect(notif.id)}
+                >
+                  <div className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-blue-300 bg-white'}`}>
+                    {isSelected && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                          <p className="text-sm font-semibold text-blue-900 leading-snug truncate max-w-xs">{notif.title}</p>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${cat.color}`}>{cat.label}</span>
+                          {isOverdue && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">Overdue</span>}
+                        </div>
+                        <p className="text-[11px] text-blue-700/70 line-clamp-1">{notif.body}</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button onClick={() => onSendNow(notif)} className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200">
+                          <Send size={10} /> Edit & Send
+                        </button>
+                        <button onClick={async () => onCancel([notif.id])} className="p-1.5 rounded hover:bg-red-100">
+                          <Trash2 size={12} className="text-red-500" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Calendar size={10} className="text-blue-500" />
+                      <span className="text-[10px] font-semibold text-blue-700">
+                        {scheduledDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at {scheduledDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <span className="text-[10px] text-blue-500">— {isOverdue ? 'was ' : ''}{timeAgo(notif.scheduled_for!)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <Users size={9} className="text-blue-400" />
+                      <span className="text-[10px] text-blue-600">{AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience}</span>
+                      {notif.image_url && <><ImageIcon size={9} className="text-blue-400" /><span className="text-[10px] text-blue-500">image</span></>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {selected.size === 0 && scheduled.length > 1 && (
+            <div className="px-5 py-3 border-t border-blue-200/60 flex items-center justify-between">
+              <p className="text-[11px] text-blue-600">Select items to bulk-cancel</p>
+              <button
+                onClick={async () => {
+                  if (!confirm(`Cancel ALL ${scheduled.length} scheduled notifications?`)) return;
+                  setCancellingAll(true);
+                  await onCancel(scheduled.map((n) => n.id));
+                  setCancellingAll(false);
+                }}
+                disabled={cancellingAll}
+                className="text-[11px] font-semibold text-red-600 hover:text-red-800 disabled:opacity-60 flex items-center gap-1"
+              >
+                {cancellingAll ? <RefreshCw size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                Cancel all {scheduled.length}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ─── Stats Cards ─────────────────────────────────────────────────────────────
 
 const StatsRow = ({ notifications, deviceCount }: { notifications: PushNotification[]; deviceCount: number }) => {
@@ -1204,6 +1360,17 @@ const Notifications = () => {
     });
   }, [notifications, statusFilter, categoryFilter, search]);
 
+  const scheduledNotifs = notifications.filter((n) => n.status === 'scheduled');
+
+  const handleBulkCancel = async (ids: string[]) => {
+    queryClient.setQueryData<PushNotification[]>(['push-notifications'], (old = []) =>
+      old.filter((n) => !ids.includes(n.id))
+    );
+    await Promise.all(ids.map((id) => supabase.from('push_notifications').delete().eq('id', id)));
+    toast.success(`Cancelled ${ids.length} scheduled notification${ids.length !== 1 ? 's' : ''}.`);
+    setTimeout(() => refetch(), 500);
+  };
+
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     notifications.forEach((n) => { const c = n.category ?? 'general'; counts[c] = (counts[c] ?? 0) + 1; });
@@ -1239,6 +1406,13 @@ const Notifications = () => {
 
         <div className="px-4 sm:px-8 py-5 space-y-5">
           <StatsRow notifications={notifications} deviceCount={activeDeviceCount} />
+
+          {/* Scheduled Queue — shown when there are scheduled notifications */}
+          <ScheduledQueuePanel
+            scheduled={scheduledNotifs}
+            onCancel={handleBulkCancel}
+            onSendNow={handleResend}
+          />
 
           {/* Main layout */}
           <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
