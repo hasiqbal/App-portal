@@ -959,6 +959,7 @@ const Adhkar = () => {
     const nameChanged = !!oldName && oldName !== saved.name;
     const timeChanged = !!oldPrayerTime && oldPrayerTime !== saved.prayer_time;
     if (nameChanged || timeChanged) {
+      // Update cache immediately
       queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
         old.map((d) => {
           if (d.group_name !== resolvedOldName) return d;
@@ -969,6 +970,22 @@ const Adhkar = () => {
           };
         })
       );
+
+      // Persist prayer_time change to DB for all entries in the group
+      if (timeChanged && saved.prayer_time) {
+        const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
+        const affected = currentEntries.filter((d) => d.group_name === saved.name);
+        if (affected.length > 0) {
+          Promise.all(
+            affected.map((d) =>
+              updateDhikr(d.id, { prayer_time: saved.prayer_time! })
+                .catch((err) => console.warn(`[Adhkar] Failed to update prayer_time for ${d.id}:`, err))
+            )
+          ).then(() => {
+            toast.success(`Moved ${affected.length} entr${affected.length !== 1 ? 'ies' : 'y'} to ${PRAYER_TIME_LABELS[saved.prayer_time!] ?? saved.prayer_time}.`);
+          });
+        }
+      }
     }
     setGroupModalOpen(false);
     setEditGroup(null);

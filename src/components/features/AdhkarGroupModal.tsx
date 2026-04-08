@@ -136,13 +136,11 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
         .catch((err) => console.warn('[AdhkarGroupModal] External sync (non-critical):', err?.message ?? err));
 
       if (isEdit) {
-        if (nameChanged || timeChanged) {
-          toast.success(`Group updated · entries moved to ${PRAYER_TIME_LABELS[payload.prayer_time ?? ''] ?? payload.prayer_time ?? 'new section'}.`);
-          onSaved(saved, originalName, originalPrayerTime);
-        } else {
-          toast.success('Group updated.');
-          onSaved(saved);
-        }
+        // Always pass originalPrayerTime so the parent can detect and cascade changes
+        toast.success(timeChanged
+          ? `Group updated · entries will move to ${PRAYER_TIME_LABELS[payload.prayer_time ?? ''] ?? payload.prayer_time ?? 'new section'}.`
+          : 'Group updated.');
+        onSaved(saved, nameChanged ? originalName : undefined, originalPrayerTime || undefined);
       } else {
         toast.success('Group created.');
         onSaved(saved);
