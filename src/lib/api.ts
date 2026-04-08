@@ -275,29 +275,60 @@ export async function bulkUpdatePrayerTimesFromCsv(
   month: number,
   rows: { day: number; fields: PrayerTimeUpdate }[]
 ): Promise<PrayerTime[]> {
+  if (rows.length === 0) return [];
+
+  // ── Strategy 1: upsert by (month, day) unique constraint ─────────────────
+  // Requires: ALTER TABLE prayer_times ADD CONSTRAINT prayer_times_month_day_unique UNIQUE (month, day);
+  const payload = rows.map(({ day, fields }) => ({ month, day, ...fields }));
+
+  const { data: upserted, error: upsertError } = await supabase
+    .from('prayer_times')
+    .upsert(payload, { onConflict: 'month,day', ignoreDuplicates: false })
+    .select();
+
+  if (!upsertError) return (upserted ?? []) as PrayerTime[];
+
+  // ── Strategy 2: fallback — fetch existing IDs and update + insert new ────
+  console.warn('Upsert failed (unique constraint may be missing), falling back to update+insert:', upsertError.message);
+
   const existing = await fetchPrayerTimes(month);
   const dayToId = new Map(existing.map((r) => [r.day, r.id]));
 
-  const updates: Promise<PrayerTime[]>[] = [];
+  const toUpdate: { id: string; fields: PrayerTimeUpdate }[] = [];
+  const toInsert: (PrayerTimeUpdate & { month: number; day: number })[] = [];
+
   for (const { day, fields } of rows) {
     const id = dayToId.get(day);
-    if (!id) continue;
-    updates.push(updatePrayerTime(id, fields));
+    if (id) {
+      toUpdate.push({ id, fields });
+    } else {
+      toInsert.push({ month, day, ...fields });
+    }
   }
 
-  const results = await Promise.all(updates);
-  return results.flat();
+  const updateResults = await Promise.all(toUpdate.map(({ id, fields }) => updatePrayerTime(id, fields)));
+
+  let insertResults: PrayerTime[] = [];
+  if (toInsert.length > 0) {
+    const { data: inserted, error: insertError } = await supabase
+      .from('prayer_times')
+      .insert(toInsert)
+      .select();
+    if (insertError) console.error('Insert new rows error:', insertError.message);
+    insertResults = (inserted ?? []) as PrayerTime[];
+  }
+
+  return [...updateResults.flat(), ...insertResults];
 }
 
 export async function bulkUpdatePrayerTimesFromYearCsv(
   rowsByMonth: Map<number, { day: number; fields: PrayerTimeUpdate }[]>
 ): Promise<Map<number, PrayerTime[]>> {
   const results = new Map<number, PrayerTime[]>();
-  await Promise.all(
-    Array.from(rowsByMonth.entries()).map(async ([month, rows]) => {
-      const updated = await bulkUpdatePrayerTimesFromCsv(month, rows);
-      results.set(month, updated);
-    })
-  );
+  // Process months sequentially to avoid overwhelming the DB
+  for (const [month, rows] of Array.from(rowsByMonth.entries()).sort(([a], [b]) => a - b)) {
+    const updated = await bulkUpdatePrayerTimesFromCsv(month, rows);
+    results.set(month, updated);
+  }
   return results;
 }
