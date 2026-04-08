@@ -156,6 +156,7 @@ const SortableEntryRow = ({
 
 const SortableGroupSection = ({
   groupName, groupMeta, items, allGroups = [],
+  sectionPrayerTime,
   onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
   onEditGroup, onRenameGroup, onDescriptionSave,
   onAddToGroup, onDeleteGroup, onDuplicateGroup,
