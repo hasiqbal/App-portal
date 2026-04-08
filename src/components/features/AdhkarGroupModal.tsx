@@ -30,9 +30,12 @@ async function syncGroupToExternal(
 interface AdhkarGroupModalProps {
   open: boolean;
   group: AdhkarGroup | null;
+  existingGroups?: AdhkarGroup[];
   onClose: () => void;
   /** Called with the saved group + the old name/prayerTime so the parent can update cached entries */
   onSaved: (group: AdhkarGroup, oldName?: string, oldPrayerTime?: string) => void;
+  /** Called when merging into an existing group — parent handles entry re-assignment + cache update */
+  onMergeInto?: (sourceGroupName: string, targetGroup: AdhkarGroup, sourceGroupId?: string) => Promise<void>;
 }
 
 const EMPTY = {
@@ -49,7 +52,7 @@ const EMPTY = {
 
 type FormState = typeof EMPTY;
 
-const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalProps) => {
+const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, onMergeInto }: AdhkarGroupModalProps) => {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
   const isEdit = !!group?.id || !!group?.name;
@@ -93,8 +96,9 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error('Group name is required.'); return; }
     setSaving(true);
+    const newName = form.name.trim();
     const payload = {
-      name: form.name.trim(),
+      name: newName,
       prayer_time: form.prayer_time || null,
       icon: form.icon,
       icon_color: form.icon_color,
@@ -106,6 +110,22 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
     };
     try {
       const hasRealId = !!group?.id && !group.id.startsWith('__');
+
+      // ── Merge detection ──────────────────────────────────────────────────
+      // If renaming to a name that already exists as a DIFFERENT group, merge
+      // instead of hitting the unique constraint.
+      const isRename = isEdit && newName !== originalName;
+      const targetExisting = isRename
+        ? existingGroups.find((g) => g.name === newName && g.id !== group?.id)
+        : null;
+
+      if (targetExisting && onMergeInto) {
+        await onMergeInto(originalName, targetExisting, hasRealId ? group!.id : undefined);
+        setSaving(false);
+        return;
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       const saved = hasRealId
         ? await updateAdhkarGroup(group!.id, payload)
         : await createAdhkarGroup(payload);

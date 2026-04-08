@@ -1054,6 +1054,60 @@ const Adhkar = () => {
     }
   };
 
+  // ─── Merge groups ─────────────────────────────────────────────────────────
+  const handleMergeInto = async (sourceGroupName: string, targetGroup: AdhkarGroup, sourceGroupId?: string) => {
+    const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
+    const affected = currentEntries.filter((d) => d.group_name === sourceGroupName);
+
+    const confirmed = window.confirm(
+      `Merge "${sourceGroupName}" into "${targetGroup.name}"?\n\n${affected.length} entr${affected.length !== 1 ? 'ies' : 'y'} will be moved into "${targetGroup.name}" and "${sourceGroupName}" will be deleted. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    // Optimistic update
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+      old.map((d) =>
+        d.group_name === sourceGroupName
+          ? { ...d, group_name: targetGroup.name, prayer_time: targetGroup.prayer_time ?? d.prayer_time }
+          : d
+      )
+    );
+    queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
+      old.filter((g) => g.name !== sourceGroupName)
+    );
+    setGroupModalOpen(false);
+    setEditGroup(null);
+
+    try {
+      await Promise.all(
+        affected.map((d) =>
+          updateDhikr(d.id, {
+            group_name: targetGroup.name,
+            prayer_time: targetGroup.prayer_time ?? d.prayer_time,
+          })
+        )
+      );
+      if (sourceGroupId) {
+        const { deleteAdhkarGroup } = await import('@/lib/api');
+        await deleteAdhkarGroup(sourceGroupId).catch((e) => console.warn('[Adhkar] delete source group:', e));
+      }
+      toast.success(
+        `Merged ${affected.length} entr${affected.length !== 1 ? 'ies' : 'y'} from "${sourceGroupName}" into "${targetGroup.name}".`
+      );
+    } catch (err) {
+      // Rollback
+      queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+        old.map((d) =>
+          d.group_name === targetGroup.name && affected.some((a) => a.id === d.id)
+            ? { ...d, group_name: sourceGroupName }
+            : d
+        )
+      );
+      refetchGroups();
+      toast.error(`Merge failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
   const handleGroupSaved = (saved: AdhkarGroup, oldName?: string, oldPrayerTime?: string) => {
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => {
       const exists = old.some((g) => g.id === saved.id);
@@ -1361,7 +1415,9 @@ const Adhkar = () => {
       <AdhkarGroupModal
         open={groupModalOpen} group={editGroup}
         onClose={() => { setGroupModalOpen(false); setEditGroup(null); }}
+        existingGroups={groupsList}
         onSaved={handleGroupSaved}
+        onMergeInto={handleMergeInto}
       />
 
       {/* ── Move to Group Dialog ── */}
