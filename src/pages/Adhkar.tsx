@@ -551,6 +551,7 @@ const Adhkar = () => {
   const { data: groupsList = [], refetch: refetchGroups } = useQuery({
     queryKey: ['adhkar-groups'],
     queryFn: () => fetchAdhkarGroups(),
+    staleTime: 60_000,
   });
 
   // Seed known group descriptions on first load

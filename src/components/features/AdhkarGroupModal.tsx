@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,12 +57,23 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
   const originalPrayerTime = group?.prayer_time ?? '';
   // When launched from App View with only a name (no real id), treat as create
 
+  // Use a ref to track the last group id/name we initialized for, so reference
+  // changes in the cache don't re-trigger a form reset mid-edit.
+  const initializedForRef = useRef<string | null>(null);
+
   useEffect(() => {
+    if (!open) {
+      // Reset tracker when modal closes so next open always re-initializes
+      initializedForRef.current = null;
+      return;
+    }
+    const key = group ? (group.id ?? group.name) : '__new__';
+    if (initializedForRef.current === key) return; // already initialized — don't overwrite
+    initializedForRef.current = key;
     if (group) {
       setForm({
         name: group.name,
         prayer_time: group.prayer_time ?? 'after-fajr',
-        // Use defaults for fields that may be missing (e.g. when opened from app-view card with only name)
         icon: group.icon ?? EMPTY.icon,
         icon_color: group.icon_color ?? EMPTY.icon_color,
         icon_bg_color: group.icon_bg_color ?? EMPTY.icon_bg_color,
