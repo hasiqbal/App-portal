@@ -7,7 +7,6 @@ import { PrayerTime, PrayerTimeUpdate } from '@/types';
 import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv } from '@/lib/api';
 import { toast } from 'sonner';
 import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
 
 // ─── CSV columns — matching user's CSV column order ───────────────────────────
 // Jumu'ah times are excluded — they are set via the bulk Jumu'ah tool on the Prayer Times page
@@ -308,7 +307,6 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
   const [fileName, setFileName] = useState('');
   const [progress, setProgress] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
 
   // Auto-parse pre-loaded CSV when the modal opens with one
   const preloadHandled = useRef(false);
@@ -396,19 +394,11 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
       setProgress(`Saving ${validRows.length} rows across ${totalMonths} month${totalMonths !== 1 ? 's' : ''}…`);
       try {
         const resultMap = await bulkUpdatePrayerTimesFromYearCsv(rowsByMonth);
-        resultMap.forEach((updated, m) => {
-          queryClient.setQueryData<PrayerTime[]>(['prayer_times', m], (old) => {
-            if (!old) return old;
-            const map = new Map(updated.map((r) => [r.id, r]));
-            return old.map((r) => map.get(r.id) ?? r);
-          });
-        });
+        // Do NOT update cache here — let PrayerTimes.handleCsvImported own the cache
         setStage('done');
         setProgress('');
-        // Count by processed valid rows (re-fetch may return same count or more)
         const totalSaved = validRows.length;
-        const displayCount = totalSaved;
-        toast.success(`${displayCount} row${displayCount !== 1 ? 's' : ''} imported across ${resultMap.size} month${resultMap.size !== 1 ? 's' : ''} for ${year}.`);
+        toast.success(`${totalSaved} row${totalSaved !== 1 ? 's' : ''} imported across ${resultMap.size} month${resultMap.size !== 1 ? 's' : ''} for ${year}.`);
         onImported(resultMap);
         setTimeout(() => handleClose(), 1000);
       } catch (err) {
@@ -421,11 +411,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
       setProgress(`Saving ${validRows.length} rows for ${monthName}…`);
       try {
         const updated = await bulkUpdatePrayerTimesFromCsv(month, validRows);
-        queryClient.setQueryData<PrayerTime[]>(['prayer_times', month], (old) => {
-          if (!old) return old;
-          const map = new Map(updated.map((r) => [r.id, r]));
-          return old.map((r) => map.get(r.id) ?? r);
-        });
+        // Do NOT update cache here — let PrayerTimes.handleCsvImported own the cache
         setStage('done');
         setProgress('');
         toast.success(`${updated.length} row${updated.length !== 1 ? 's' : ''} imported for ${monthName}.`);

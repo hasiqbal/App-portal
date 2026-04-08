@@ -195,32 +195,25 @@ const PrayerTimes = () => {
   };
 
   const handleCsvImported = useCallback((updatedByMonth: Map<number, PrayerTime[]>) => {
-    updatedByMonth.forEach((updated, m) => {
-      if (updated.length > 0) {
-        // Directly write the full fetched data for each month so the table
-        // reflects the imported rows immediately — no stale merge.
-        queryClient.setQueryData<PrayerTime[]>(['prayer_times', m], (old) => {
-          if (!old || old.length === 0) return updated;
-          // Merge: replace rows that exist in updated, keep others
-          const map = new Map(updated.map((r) => [r.day, r]));
-          const merged = old.map((r) => map.get(r.day) ?? r);
-          // Also add any inserted rows that weren't in old
-          const oldDays = new Set(old.map((r) => r.day));
-          for (const r of updated) {
-            if (!oldDays.has(r.day)) merged.push(r);
-          }
-          return merged.sort((a, b) => a.day - b.day);
-        });
+    // Directly replace the cache for every imported month with the
+    // re-fetched rows returned by bulkUpdatePrayerTimesFromCsv.
+    // This bypasses any stale merge and ensures the table immediately
+    // reflects what's actually in the database.
+    updatedByMonth.forEach((rows, m) => {
+      if (rows.length > 0) {
+        const sorted = [...rows].sort((a, b) => a.day - b.day);
+        // Force-write the fresh rows; do NOT merge with old cache
+        queryClient.setQueryData<PrayerTime[]>(['prayer_times', m], sorted);
       }
-      // Always invalidate so next navigation re-fetches fresh data
-      queryClient.invalidateQueries({ queryKey: ['prayer_times', m] });
+      // Mark stale so any future navigation re-fetches
+      queryClient.invalidateQueries({ queryKey: ['prayer_times', m], refetchType: 'none' });
     });
-    // If the currently-viewed month was in the import, force an immediate refetch
+    // Force immediate refetch for the visible month so the table re-renders
     if (updatedByMonth.has(selectedMonth)) {
-      refetch();
+      queryClient.refetchQueries({ queryKey: ['prayer_times', selectedMonth] });
     }
     setCsvModal(false);
-  }, [queryClient, selectedMonth, refetch]);
+  }, [queryClient, selectedMonth]);
 
   const monthHasBSTChange = (m: number) => m === 3 || m === 10;
   const _bstStartDay = lastSundayOf(selectedYear, 3);
