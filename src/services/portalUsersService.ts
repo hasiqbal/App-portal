@@ -5,12 +5,12 @@
  */
 
 import { supabaseAdmin } from '@/lib/supabase';
+import type { UserRole } from '@/hooks/useAuth';
+import { activityLogger } from '@/services/activityLogService';
 
 // All portal_users operations use the admin client (service role)
 // so they bypass RLS and never depend on the authenticated JWT policy.
 const db = supabaseAdmin;
-import type { UserRole } from '@/hooks/useAuth';
-import { activityLogger } from '@/services/activityLogService';
 
 export interface PortalUser {
   id: string;
