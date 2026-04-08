@@ -90,24 +90,21 @@ const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
 
   return (
     <div className="px-4 py-4 border-t border-[hsl(var(--sidebar-border))] mt-auto">
-      <div className="flex items-center gap-1.5 mb-1">
+      <div className="flex items-center gap-1.5 mb-2">
         <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block animate-pulse" />
         <span className="text-[11px] font-semibold text-green-600">Live</span>
       </div>
-      {user ? (
-        <div className="flex items-center justify-between gap-1 mt-1">
-          <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate flex-1">{user.email}</p>
-          <button
-            onClick={handleSignOut}
-            className="p-1 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
-            title="Sign out"
-          >
-            <LogOut size={13} />
-          </button>
-        </div>
-      ) : (
-        <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Team JMN · v2</p>
+      {user && (
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate mb-2">{user.email}</p>
       )}
+      <button
+        onClick={handleSignOut}
+        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200 transition-colors text-xs font-medium"
+        title="Sign out"
+      >
+        <LogOut size={13} />
+        Sign Out
+      </button>
     </div>
   );
 };

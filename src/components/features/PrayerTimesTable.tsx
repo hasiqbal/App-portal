@@ -133,47 +133,53 @@ const MobileRow = ({
       className={`rounded-xl border ${borderAccent} ${cardBg} overflow-hidden transition-all duration-200 ${isHighlighted ? 'ring-2 ring-[hsl(142_60%_55%/0.4)]' : ''}`}
     >
       {/* ── Summary row ── */}
-      <div className="flex items-center gap-2 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 px-2.5 py-2">
         {/* Day info */}
-        <div className="w-12 shrink-0">
-          <div className={`text-lg font-extrabold tabular-nums leading-none ${info.isFriday ? 'text-amber-600' : isToday ? 'text-blue-600' : 'text-[hsl(150_30%_12%)]'}`}>
+        <div className="w-10 shrink-0">
+          <div className={`text-base font-extrabold tabular-nums leading-none ${info.isFriday ? 'text-amber-600' : isToday ? 'text-blue-600' : 'text-[hsl(150_30%_12%)]'}`}>
             {row.day}
           </div>
           <div className={`text-[9px] font-bold uppercase ${info.isFriday ? 'text-amber-500' : isToday ? 'text-blue-500' : 'text-muted-foreground'}`}>
             {info.shortName}
           </div>
-          {info.isFriday && <div className="text-[8px] font-bold text-amber-600 mt-0.5">Jumu'ah</div>}
-          {isToday && !info.isFriday && <div className="text-[8px] font-bold text-blue-500 mt-0.5">Today</div>}
+          {info.isFriday && <div className="text-[7px] font-bold text-amber-600 mt-0.5">Jumu'ah</div>}
+          {isToday && !info.isFriday && <div className="text-[7px] font-bold text-blue-500 mt-0.5">Today</div>}
         </div>
 
         {/* TZ badge */}
-        <span className={`shrink-0 text-[8px] font-bold px-1.5 py-0.5 rounded ${info.isBST ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+        <span className={`shrink-0 text-[7px] font-bold px-1 py-0.5 rounded ${info.isBST ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
           {info.timezone}
         </span>
 
-        {/* Key prayer times — shows more on wider screens */}
-        <div className="flex-1 grid grid-cols-3 sm:grid-cols-5 gap-1 min-w-0">
+        {/* Key prayer times — all 5 always visible */}
+        <div className="flex-1 grid grid-cols-5 gap-0.5 min-w-0">
           {[
-            { label: 'Fajr',    value: row.fajr,    color: '#2563eb', always: true },
-            { label: 'Zuhr',    value: row.zuhr,    color: '#7c6d00', always: false },
-            { label: 'Asr',     value: row.asr,     color: '#16a34a', always: false },
-            { label: 'Maghrib', value: row.maghrib,  color: '#b91c1c', always: true },
-            { label: 'Isha',    value: row.isha,     color: '#7c3aed', always: true },
-          ].map(({ label, value, color, always }) => (
-            <div key={label} className={`text-center ${always ? '' : 'hidden sm:block'}`}>
-              <div className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</div>
-              <div className="text-sm font-bold tabular-nums" style={{ color: value ? color : 'hsl(var(--muted-foreground) / 0.4)' }}>
+            { label: 'Fajr',    value: row.fajr,    jamat: row.fajr_jamat,    color: '#2563eb' },
+            { label: 'Zuhr',    value: row.zuhr,    jamat: row.zuhr_jamat,    color: '#7c6d00' },
+            { label: 'Asr',     value: row.asr,     jamat: row.asr_jamat,     color: '#16a34a' },
+            { label: 'Maghrib', value: row.maghrib,  jamat: row.maghrib_jamat, color: '#b91c1c' },
+            { label: 'Isha',    value: row.isha,     jamat: row.isha_jamat,    color: '#7c3aed' },
+          ].map(({ label, value, jamat, color }) => (
+            <div key={label} className="text-center flex flex-col items-center">
+              <div className="text-[8px] font-bold text-muted-foreground uppercase tracking-wide">{label}</div>
+              <div className="text-[11px] font-bold tabular-nums leading-tight" style={{ color: value ? color : 'hsl(var(--muted-foreground) / 0.4)' }}>
                 {value ?? '—'}
               </div>
+              {jamat && (
+                <div className="text-[10px] tabular-nums leading-tight" style={{ color: color + 'aa' }}>
+                  {jamat}
+                </div>
+              )}
             </div>
           ))}
         </div>
 
         {/* Jumu'ah indicator on Fridays */}
         {info.isFriday && row.jumu_ah_1 && (
-          <div className="hidden xs:flex shrink-0 flex-col text-center">
-            <div className="text-[9px] font-semibold text-[#0e7490] uppercase">J1</div>
-            <div className="text-sm font-bold tabular-nums text-[#0e7490]">{row.jumu_ah_1}</div>
+          <div className="shrink-0 flex flex-col text-center">
+            <div className="text-[8px] font-bold text-[#0e7490] uppercase">J1</div>
+            <div className="text-[11px] font-bold tabular-nums text-[#0e7490]">{row.jumu_ah_1}</div>
+            {row.jumu_ah_2 && <div className="text-[10px] tabular-nums text-[#0e7490]/70">{row.jumu_ah_2}</div>}
           </div>
         )}
 
