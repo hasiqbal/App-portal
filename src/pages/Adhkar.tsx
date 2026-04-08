@@ -31,24 +31,24 @@ import { CSS } from '@dnd-kit/utilities';
 
 const CATEGORY_COLORS: Record<string, { pill: string; dot: string }> = {
   'before-fajr':   { pill: 'bg-slate-100 text-slate-700 border-slate-200',     dot: '#64748b' },
-  'fajr':          { pill: 'bg-blue-100 text-blue-800 border-blue-200',       dot: '#3b82f6' },
-  'after-fajr':    { pill: 'bg-sky-100 text-sky-800 border-sky-200',          dot: '#0ea5e9' },
-  'ishraq':        { pill: 'bg-amber-100 text-amber-800 border-amber-200',    dot: '#f59e0b' },
-  'duha':          { pill: 'bg-orange-100 text-orange-800 border-orange-200', dot: '#f97316' },
-  'zuhr':          { pill: 'bg-yellow-100 text-yellow-800 border-yellow-200', dot: '#eab308' },
-  'after-zuhr':    { pill: 'bg-lime-100 text-lime-800 border-lime-200',       dot: '#84cc16' },
-  'asr':           { pill: 'bg-green-100 text-green-800 border-green-200',    dot: '#22c55e' },
-  'after-asr':     { pill: 'bg-teal-100 text-teal-800 border-teal-200',       dot: '#14b8a6' },
-  'maghrib':       { pill: 'bg-rose-100 text-rose-800 border-rose-200',       dot: '#f43f5e' },
-  'after-maghrib': { pill: 'bg-pink-100 text-pink-800 border-pink-200',       dot: '#ec4899' },
-  'isha':          { pill: 'bg-violet-100 text-violet-800 border-violet-200', dot: '#8b5cf6' },
-  'after-isha':    { pill: 'bg-purple-100 text-purple-800 border-purple-200', dot: '#a855f7' },
-  'before-sleep':  { pill: 'bg-indigo-100 text-indigo-800 border-indigo-200', dot: '#6366f1' },
-  'morning':       { pill: 'bg-cyan-100 text-cyan-800 border-cyan-200',       dot: '#06b6d4' },
-  'evening':       { pill: 'bg-red-100 text-red-800 border-red-200',          dot: '#ef4444' },
+  'fajr':          { pill: 'bg-blue-100 text-blue-800 border-blue-200',         dot: '#3b82f6' },
+  'after-fajr':    { pill: 'bg-sky-100 text-sky-800 border-sky-200',            dot: '#0ea5e9' },
+  'ishraq':        { pill: 'bg-amber-100 text-amber-800 border-amber-200',      dot: '#f59e0b' },
+  'duha':          { pill: 'bg-orange-100 text-orange-800 border-orange-200',   dot: '#f97316' },
+  'zuhr':          { pill: 'bg-yellow-100 text-yellow-800 border-yellow-200',   dot: '#eab308' },
+  'after-zuhr':    { pill: 'bg-lime-100 text-lime-800 border-lime-200',         dot: '#84cc16' },
+  'asr':           { pill: 'bg-green-100 text-green-800 border-green-200',      dot: '#22c55e' },
+  'after-asr':     { pill: 'bg-teal-100 text-teal-800 border-teal-200',         dot: '#14b8a6' },
+  'maghrib':       { pill: 'bg-rose-100 text-rose-800 border-rose-200',         dot: '#f43f5e' },
+  'after-maghrib': { pill: 'bg-pink-100 text-pink-800 border-pink-200',         dot: '#ec4899' },
+  'isha':          { pill: 'bg-violet-100 text-violet-800 border-violet-200',   dot: '#8b5cf6' },
+  'after-isha':    { pill: 'bg-purple-100 text-purple-800 border-purple-200',   dot: '#a855f7' },
+  'before-sleep':  { pill: 'bg-indigo-100 text-indigo-800 border-indigo-200',   dot: '#6366f1' },
+  'morning':       { pill: 'bg-cyan-100 text-cyan-800 border-cyan-200',         dot: '#06b6d4' },
+  'evening':       { pill: 'bg-red-100 text-red-800 border-red-200',            dot: '#ef4444' },
   'jumuah':        { pill: 'bg-emerald-100 text-emerald-800 border-emerald-200', dot: '#10b981' },
-  'after-jumuah':  { pill: 'bg-green-100 text-green-800 border-green-200',   dot: '#16a34a' },
-  'general':       { pill: 'bg-gray-100 text-gray-700 border-gray-200',       dot: '#6b7280' },
+  'after-jumuah':  { pill: 'bg-green-100 text-green-800 border-green-200',      dot: '#16a34a' },
+  'general':       { pill: 'bg-gray-100 text-gray-700 border-gray-200',         dot: '#6b7280' },
 };
 
 // ─── Sortable Entry Row ───────────────────────────────────────────────────────
@@ -71,28 +71,32 @@ const SortableEntryRow = ({
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
       className={`border-t border-border/60 ${isDragOverlay ? 'bg-card shadow-lg rounded-lg' : ''}`}
     >
-      <div className="px-3 py-3 flex items-center gap-2 hover:bg-secondary/10 transition-colors select-none">
+      <div className="px-3 py-2.5 flex items-center gap-2 hover:bg-secondary/10 transition-colors select-none">
+        {/* Drag handle */}
         <button
           {...attributes}
           className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground transition-colors p-0.5"
           title="Drag to reorder" tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            listeners?.onPointerDown?.(e as never);
-          }}
+          onPointerDown={(e) => { e.stopPropagation(); listeners?.onPointerDown?.(e as never); }}
           onPointerMove={listeners?.onPointerMove}
           onPointerUp={listeners?.onPointerUp}
           onKeyDown={listeners?.onKeyDown}
         >
           <GripVertical size={13} />
         </button>
+
+        {/* Expand toggle */}
         <button className="text-muted-foreground shrink-0" onClick={() => setExpanded((e) => !e)}>
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
+
+        {/* Order number */}
         <div className="text-xs text-muted-foreground tabular-nums w-5 shrink-0 text-right">
           {row.display_order ?? idx + 1}
         </div>
+
+        {/* Title + badges */}
         <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap cursor-pointer" onClick={() => setExpanded((e) => !e)}>
           <span className="font-medium text-sm text-foreground leading-snug">{row.title}</span>
           {row.arabic_title && (
@@ -107,7 +111,9 @@ const SortableEntryRow = ({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+
+        {/* Count + status */}
+        <div className="flex items-center gap-1.5 shrink-0">
           <span className="px-2 py-0.5 rounded-md text-xs font-bold tabular-nums" style={{ background: 'hsl(var(--accent) / 0.12)', color: 'hsl(var(--accent))' }}>
             ×{row.count}
           </span>
@@ -115,14 +121,16 @@ const SortableEntryRow = ({
             {row.is_active ? 'Active' : 'Off'}
           </Badge>
         </div>
-        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+
+        {/* Actions */}
+        <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button onClick={() => onToggleActive(row)} disabled={toggling === row.id} className="p-1.5 rounded hover:bg-secondary/60 transition-colors" title={row.is_active ? 'Deactivate' : 'Activate'}>
             {row.is_active ? <ToggleRight size={16} className="text-emerald-500" /> : <ToggleLeft size={16} className="text-muted-foreground" />}
           </button>
           <button onClick={() => onMoveEntry(row)} className="p-1.5 rounded hover:bg-purple-50 transition-colors" title="Move to group / prayer time">
             <ArrowRightLeft size={13} className="text-purple-500" />
           </button>
-          <button onClick={() => onEditEntry(row)} className="p-1.5 rounded hover:bg-accent/10 transition-colors" title="Edit (saves as new copy)">
+          <button onClick={() => onEditEntry(row)} className="p-1.5 rounded hover:bg-accent/10 transition-colors" title="Edit">
             <Pencil size={13} style={{ color: 'hsl(var(--accent))' }} />
           </button>
           <button onClick={() => onDeleteEntry(row)} disabled={deleting === row.id} className="p-1.5 rounded hover:bg-destructive/10 transition-colors" title="Delete">
@@ -130,8 +138,10 @@ const SortableEntryRow = ({
           </button>
         </div>
       </div>
+
+      {/* Expanded content */}
       {expanded && !isDragOverlay && (
-        <div className="px-10 pb-5 space-y-3 cursor-pointer" onClick={() => onClickRow(row)}>
+        <div className="px-10 pb-4 space-y-2.5 cursor-pointer" onClick={() => onClickRow(row)}>
           <p className="text-xl leading-loose text-right" dir="rtl" style={{ fontFamily: 'serif' }}>{row.arabic}</p>
           {row.transliteration && <p className="text-sm text-muted-foreground italic leading-relaxed">{row.transliteration}</p>}
           {row.translation && <p className="text-sm text-foreground/80 leading-relaxed">{row.translation}</p>}
@@ -147,7 +157,9 @@ const SortableEntryRow = ({
 const SortableGroupSection = ({
   groupName, groupMeta, items,
   onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
-  onEditGroup, onRenameGroup, onDescriptionSave, onAddToGroup, onDeleteGroup, onDuplicateGroup,
+  onEditGroup, onRenameGroup, onDescriptionSave,
+  onAddToGroup, onDeleteGroup, onDuplicateGroup,
+  onReassignPrayerTime,
   onEntriesReordered, deleting, toggling, isDragOverlay,
 }: {
   groupName: string; groupMeta: AdhkarGroup | undefined; items: Dhikr[];
@@ -160,6 +172,7 @@ const SortableGroupSection = ({
   onAddToGroup: (groupName: string, prayerTime: string) => void;
   onDeleteGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onDuplicateGroup: (groupName: string, items: Dhikr[], meta: AdhkarGroup | undefined) => void;
+  onReassignPrayerTime: (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined) => void;
   onEntriesReordered: (reorderedItems: Dhikr[]) => void;
   deleting: string | null; toggling: string | null; isDragOverlay?: boolean;
 }) => {
@@ -179,6 +192,7 @@ const SortableGroupSection = ({
   const badgeColor = groupMeta?.badge_color ?? '#6366f1';
   const description = groupMeta?.description ?? items[0]?.description ?? null;
   const isUngrouped = groupName === '(Ungrouped)';
+  const currentPrayerTime = groupMeta?.prayer_time ?? items[0]?.prayer_time ?? 'after-fajr';
   const entryDragActiveItem = entryDragActiveId ? items.find((d) => d.id === entryDragActiveId) : null;
 
   const handleEntryDragEnd = async (event: DragEndEvent) => {
@@ -204,7 +218,10 @@ const SortableGroupSection = ({
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
       className={`rounded-xl border border-border overflow-hidden shadow-sm ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
     >
-      <div className="flex items-center gap-3 px-4 py-3 select-none" style={{ background: 'hsl(var(--card))' }}>
+      {/* ── Group Header ── */}
+      <div className="flex items-center gap-2.5 px-3 py-2.5 select-none" style={{ background: 'hsl(var(--card))' }}>
+
+        {/* Drag handle */}
         <button
           {...attributes} {...listeners}
           className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground transition-colors p-0.5"
@@ -212,14 +229,20 @@ const SortableGroupSection = ({
         >
           <GripVertical size={14} />
         </button>
+
+        {/* Collapse toggle */}
         <button className="text-muted-foreground shrink-0" onClick={() => setCollapsed((c) => !c)}>
-          {collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </button>
+
+        {/* Group icon */}
         {!isUngrouped && (
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0" style={{ background: iconBg }}>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0" style={{ background: iconBg }}>
             {icon}
           </div>
         )}
+
+        {/* Group name + badge + description */}
         <div className="flex-1 min-w-0" onClick={() => !renaming && setCollapsed((c) => !c)}>
           <div className="flex items-center gap-2 flex-wrap">
             {renaming ? (
@@ -233,19 +256,23 @@ const SortableGroupSection = ({
                 className="flex gap-1.5" onClick={(e) => e.stopPropagation()}
               >
                 <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
-                  className="h-7 text-sm w-48 font-semibold" autoFocus
+                  className="h-7 text-sm w-44 font-semibold" autoFocus
                   onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(false); }} />
                 <button type="submit" className="px-2 h-7 rounded text-xs bg-primary text-primary-foreground font-medium">Save</button>
                 <button type="button" onClick={() => setRenaming(false)} className="px-2 h-7 rounded text-xs border border-input text-muted-foreground">✕</button>
               </form>
             ) : (
-              <span className="font-semibold text-sm text-foreground cursor-pointer" onClick={() => setCollapsed((c) => !c)}>{groupName}</span>
+              <span className="font-semibold text-sm text-foreground cursor-pointer leading-snug">{groupName}</span>
             )}
             {!renaming && badgeText && (
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold text-white" style={{ background: badgeColor }}>{badgeText}</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-white" style={{ background: badgeColor }}>{badgeText}</span>
             )}
-            {!renaming && <span className="text-xs text-muted-foreground">{items.length} {items.length === 1 ? 'dhikr' : 'adhkar'}</span>}
+            {!renaming && (
+              <span className="text-xs text-muted-foreground">{items.length} {items.length === 1 ? 'dhikr' : 'adhkar'}</span>
+            )}
           </div>
+
+          {/* Inline description */}
           {!renaming && (
             descEditing ? (
               <div className="mt-1.5 flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -254,8 +281,7 @@ const SortableGroupSection = ({
                   onChange={(e) => setDescValue(e.target.value)}
                   placeholder="Short description shown under the group title…"
                   className="w-full max-w-xl rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                  rows={2}
-                  autoFocus
+                  rows={2} autoFocus
                   onKeyDown={(e) => { if (e.key === 'Escape') setDescEditing(false); }}
                 />
                 <div className="flex gap-1.5">
@@ -282,53 +308,84 @@ const SortableGroupSection = ({
               </div>
             ) : (
               <p
-                className="text-xs text-muted-foreground mt-0.5 max-w-xl cursor-text hover:text-foreground transition-colors"
+                className="text-xs text-muted-foreground mt-0.5 max-w-xl cursor-text hover:text-foreground transition-colors leading-snug"
                 title="Click to edit description"
                 onClick={(e) => { e.stopPropagation(); setDescValue(description ?? ''); setDescEditing(true); setCollapsed(false); }}
               >
-                {description ? description : <span className="italic opacity-50">+ add description…</span>}
+                {description ? description : <span className="italic opacity-40">+ add description…</span>}
               </p>
             )
           )}
         </div>
+
+        {/* ── Right-side controls ── */}
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+
+          {/* Prayer-time reassign dropdown */}
+          {!isUngrouped && (
+            <select
+              value={currentPrayerTime}
+              onChange={(e) => onReassignPrayerTime(groupName, e.target.value, groupMeta)}
+              className="h-7 rounded-md border border-input bg-background px-2 text-[11px] font-medium text-foreground ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer max-w-[140px]"
+              title="Move group to a different prayer time"
+            >
+              {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Divider */}
+          {!isUngrouped && <div className="w-px h-4 bg-border/70 mx-0.5" />}
+
+          {/* Edit buttons */}
           {!isUngrouped && (
             <>
               <button
                 onClick={() => { setRenameValue(groupName); setRenaming(true); setCollapsed(false); }}
                 className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors"
-                title="Rename group name"
+                title="Rename group"
               >
-                <Pencil size={13} className="text-purple-500" />
+                <Pencil size={12} className="text-purple-500" />
               </button>
               <button
                 onClick={() => onEditGroup(groupName, groupMeta)}
                 className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors"
-                title="Edit group style (icon, colours, badge, prayer time)"
+                title="Edit icon, colours & badge"
               >
                 <span className="text-[11px] font-bold" style={{ color: 'hsl(var(--accent))' }}>⚙</span>
               </button>
               <button
                 onClick={() => onDuplicateGroup(groupName, items, groupMeta)}
                 className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
-                title="Duplicate group with all its entries"
+                title="Duplicate group"
               >
-                <Copy size={13} className="text-blue-500" />
+                <Copy size={12} className="text-blue-500" />
               </button>
-              <button onClick={() => onDeleteGroup(groupName, groupMeta)} className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors" title="Delete group">
-                <Trash2 size={13} className="text-destructive" />
+              <button
+                onClick={() => onDeleteGroup(groupName, groupMeta)}
+                className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors"
+                title="Delete group"
+              >
+                <Trash2 size={12} className="text-destructive" />
               </button>
             </>
           )}
+
+          {/* Divider */}
+          <div className="w-px h-4 bg-border/70 mx-0.5" />
+
+          {/* Add entry */}
           <button
             onClick={() => onAddToGroup(groupName, items[0]?.prayer_time ?? 'after-fajr')}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-primary border border-primary/30 hover:bg-primary/5 transition-colors"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-primary border border-primary/30 hover:bg-primary/5 transition-colors"
           >
             <Plus size={12} /> Add
           </button>
         </div>
       </div>
 
+      {/* ── Entries list ── */}
       {!collapsed && !isDragOverlay && !isDragging && (
         <div className="bg-background">
           <DndContext
@@ -382,6 +439,7 @@ interface PrayerTimeSectionProps {
   onAddToGroup: (groupName: string, prayerTime: string) => void;
   onDeleteGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onDuplicateGroup: (groupName: string, items: Dhikr[], meta: AdhkarGroup | undefined) => void;
+  onReassignPrayerTime: (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined) => void;
   onGroupsReordered: (cat: string, newOrder: string[]) => void;
   onEntriesReordered: (groupName: string, reorderedItems: Dhikr[]) => void;
   deleting: string | null; toggling: string | null;
@@ -390,7 +448,9 @@ interface PrayerTimeSectionProps {
 const PrayerTimeSection = ({
   cat, catItems, groupMap,
   onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry,
-  onEditGroup, onRenameGroup, onDescriptionSave, onAddToGroup, onDeleteGroup, onDuplicateGroup,
+  onEditGroup, onRenameGroup, onDescriptionSave,
+  onAddToGroup, onDeleteGroup, onDuplicateGroup,
+  onReassignPrayerTime,
   onGroupsReordered, onEntriesReordered, deleting, toggling,
 }: PrayerTimeSectionProps) => {
   const [groupDragActiveId, setGroupDragActiveId] = useState<string | null>(null);
@@ -410,7 +470,6 @@ const PrayerTimeSection = ({
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(d);
   });
-  // Sort entries within each group by display_order so drag-reorder takes effect immediately
   Object.keys(grouped).forEach((key) => {
     grouped[key].sort((a, b) => (a.display_order ?? 9999) - (b.display_order ?? 9999));
   });
@@ -450,17 +509,19 @@ const PrayerTimeSection = ({
 
   return (
     <section>
+      {/* Section header */}
       <div className="flex items-center gap-3 mb-3">
         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colors?.dot ?? '#6b7280' }} />
         <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${colors?.pill ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
           {PRAYER_TIME_LABELS[cat] ?? cat}
         </span>
         <span className="text-xs text-muted-foreground">
-          {catItems.length} {catItems.length === 1 ? 'entry' : 'entries'} · {sortedGroupNames.length}{' '}
-          {sortedGroupNames.length === 1 ? 'group' : 'groups'}
+          {catItems.length} {catItems.length === 1 ? 'entry' : 'entries'} · {sortedGroupNames.length} {sortedGroupNames.length === 1 ? 'group' : 'groups'}
         </span>
         <div className="flex-1 h-px bg-border" />
       </div>
+
+      {/* Group list */}
       <div className="pl-5">
         <DndContext
           sensors={sensors} collisionDetection={closestCenter}
@@ -468,7 +529,7 @@ const PrayerTimeSection = ({
           onDragEnd={handleGroupDragEnd}
         >
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {sortedGroupNames.map((groupName) => (
                 <SortableGroupSection
                   key={groupName} groupName={groupName} groupMeta={groupMap[groupName]}
@@ -476,8 +537,10 @@ const PrayerTimeSection = ({
                   onClickRow={onClickRow} onEditEntry={onEditEntry}
                   onDeleteEntry={onDeleteEntry} onToggleActive={onToggleActive}
                   onMoveEntry={onMoveEntry}
-                  onEditGroup={onEditGroup} onRenameGroup={onRenameGroup} onDescriptionSave={onDescriptionSave} onAddToGroup={onAddToGroup}
+                  onEditGroup={onEditGroup} onRenameGroup={onRenameGroup}
+                  onDescriptionSave={onDescriptionSave} onAddToGroup={onAddToGroup}
                   onDeleteGroup={onDeleteGroup} onDuplicateGroup={onDuplicateGroup}
+                  onReassignPrayerTime={onReassignPrayerTime}
                   onEntriesReordered={(reorderedItems) => onEntriesReordered(groupName, reorderedItems)}
                   deleting={deleting} toggling={toggling}
                 />
@@ -491,7 +554,9 @@ const PrayerTimeSection = ({
                 items={grouped[activeGroupName]}
                 onClickRow={() => {}} onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
                 onMoveEntry={() => {}}
-                onEditGroup={() => {}} onRenameGroup={() => {}} onDescriptionSave={() => {}} onAddToGroup={() => {}} onDeleteGroup={() => {}} onDuplicateGroup={() => {}}
+                onEditGroup={() => {}} onRenameGroup={() => {}} onDescriptionSave={() => {}}
+                onAddToGroup={() => {}} onDeleteGroup={() => {}} onDuplicateGroup={() => {}}
+                onReassignPrayerTime={() => {}}
                 onEntriesReordered={() => {}} deleting={null} toggling={null} isDragOverlay
               />
             )}
@@ -562,13 +627,11 @@ const Adhkar = () => {
     const knownDescriptions = [
       {
         groupName: 'Surah Mulk',
-        description:
-          "Recited every night before sleep. The Prophet ﷺ said: 'There is a surah in the Quran of thirty verses that intercedes for its reciter until they are forgiven.' — Tirmidhi 2891",
+        description: "Recited every night before sleep. The Prophet ﷺ said: 'There is a surah in the Quran of thirty verses that intercedes for its reciter until they are forgiven.' — Tirmidhi 2891",
       },
       {
         groupName: 'Hizb al-Bahr',
-        description:
-          "The Litany of the Sea (حزب البحر) — composed by Imam Abul-Hasan al-Shadhili. A renowned du'a for protection, safety, and divine mercy, widely recited in the Shadhili tradition.",
+        description: "The Litany of the Sea (حزب البحر) — composed by Imam Abul-Hasan al-Shadhili. A renowned du'a for protection, safety, and divine mercy, widely recited in the Shadhili tradition.",
       },
     ];
     const existingGroupNames = new Set(adhkar.map((d) => d.group_name).filter(Boolean));
@@ -581,7 +644,6 @@ const Adhkar = () => {
         if (!results) return;
         const seeded = results.filter((r) => !r.skipped && r.cascaded > 0);
         if (seeded.length > 0) {
-          console.log('[Adhkar] Seeded descriptions for:', seeded.map((r) => r.group).join(', '));
           queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
             old.map((d) => {
               const seed = seeded.find((r) => r.group === d.group_name);
@@ -950,6 +1012,48 @@ const Adhkar = () => {
     }
   };
 
+  // ─── Quick prayer-time reassignment from group header dropdown ────────────
+  const handleReassignPrayerTime = async (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined) => {
+    const oldPrayerTime = meta?.prayer_time ?? '';
+    if (newPrayerTime === oldPrayerTime) return;
+
+    // Update group record
+    if (meta?.id) {
+      try {
+        await updateAdhkarGroup(meta.id, { prayer_time: newPrayerTime });
+      } catch (err) {
+        toast.error(`Failed to reassign: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        return;
+      }
+    }
+
+    // Update group cache
+    queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
+      old.map((g) => (g.name === groupName ? { ...g, prayer_time: newPrayerTime } : g))
+    );
+
+    // Optimistic: cascade prayer_time to all entries in the group
+    const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
+    const affected = currentEntries.filter((d) => d.group_name === groupName);
+
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+      old.map((d) => (d.group_name === groupName ? { ...d, prayer_time: newPrayerTime } : d))
+    );
+
+    if (affected.length > 0) {
+      Promise.all(
+        affected.map((d) =>
+          updateDhikr(d.id, { prayer_time: newPrayerTime })
+            .catch((err) => console.warn(`[Adhkar] Failed to update prayer_time for ${d.id}:`, err))
+        )
+      ).then(() => {
+        toast.success(`"${groupName}" moved to ${PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime}.`);
+      });
+    } else {
+      toast.success(`"${groupName}" moved to ${PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime}.`);
+    }
+  };
+
   const handleGroupSaved = (saved: AdhkarGroup, oldName?: string, oldPrayerTime?: string) => {
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => {
       const exists = old.some((g) => g.id === saved.id);
@@ -959,7 +1063,6 @@ const Adhkar = () => {
     const nameChanged = !!oldName && oldName !== saved.name;
     const timeChanged = !!oldPrayerTime && oldPrayerTime !== saved.prayer_time;
     if (nameChanged || timeChanged) {
-      // Update cache immediately
       queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
         old.map((d) => {
           if (d.group_name !== resolvedOldName) return d;
@@ -971,7 +1074,6 @@ const Adhkar = () => {
         })
       );
 
-      // Persist prayer_time change to DB for all entries in the group
       if (timeChanged && saved.prayer_time) {
         const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
         const affected = currentEntries.filter((d) => d.group_name === saved.name);
@@ -1083,44 +1185,25 @@ const Adhkar = () => {
       const current = bulkDescEdits[row.name] !== undefined ? bulkDescEdits[row.name] : row.description;
       return !current.trim();
     });
-    if (groupsToGenerate.length === 0) {
-      toast('All visible groups already have descriptions.');
-      return;
-    }
+    if (groupsToGenerate.length === 0) { toast('All visible groups already have descriptions.'); return; }
     setAiGenerating(true);
     toast(`Generating descriptions for ${groupsToGenerate.length} group${groupsToGenerate.length !== 1 ? 's' : ''}…`);
     try {
       const { data, error } = await supabase.functions.invoke('generate-group-desc', {
-        body: {
-          groups: groupsToGenerate.map((r) => ({
-            name: r.name,
-            prayerTime: r.prayerTime,
-            entryCount: r.entryCount,
-          })),
-        },
+        body: { groups: groupsToGenerate.map((r) => ({ name: r.name, prayerTime: r.prayerTime, entryCount: r.entryCount })) },
       });
       if (error) throw new Error(error.message);
       const results = (data as { results?: { name: string; description: string; error?: string }[] })?.results ?? [];
       const succeeded = results.filter((r) => !r.error && r.description);
       const failed = results.filter((r) => r.error || !r.description);
       if (succeeded.length > 0) {
-        setBulkDescEdits((prev) => {
-          const next = { ...prev };
-          succeeded.forEach((r) => { next[r.name] = r.description; });
-          return next;
-        });
-        setBulkDescSaving((prev) => {
-          const next = { ...prev };
-          succeeded.forEach((r) => { delete next[r.name]; });
-          return next;
-        });
-        // Switch to "missing" filter if not already on it so user sees the generated ones
+        setBulkDescEdits((prev) => { const next = { ...prev }; succeeded.forEach((r) => { next[r.name] = r.description; }); return next; });
+        setBulkDescSaving((prev) => { const next = { ...prev }; succeeded.forEach((r) => { delete next[r.name]; }); return next; });
         if (bulkDescFilter !== 'all') setBulkDescFilter('all');
         toast.success(`Generated ${succeeded.length} description${succeeded.length !== 1 ? 's' : ''}. Review and click Save All.`);
       }
       if (failed.length > 0) {
         toast.error(`${failed.length} group${failed.length !== 1 ? 's' : ''} failed to generate.`);
-        console.warn('[AI] Failed groups:', failed.map((r) => `${r.name}: ${r.error}`).join('\n'));
       }
     } catch (err) {
       toast.error(`AI generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -1137,7 +1220,7 @@ const Adhkar = () => {
 
       <main className="flex-1 overflow-x-auto pt-14 md:pt-0">
         {/* ── Page Banner ── */}
-        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5 mb-0">
+        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
@@ -1146,131 +1229,123 @@ const Adhkar = () => {
               <div>
                 <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Adhkar Management</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {adhkar.length} adhkar · {groupsList.length} groups · drag handles to reorder
+                  {adhkar.length} adhkar · {groupsList.length} groups · drag to reorder
                 </p>
               </div>
             </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleBulkOpen} className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50">
-              <AlignLeft size={14} /> Bulk Edit Descriptions
-              {missingDescCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700">
-                  {missingDescCount} missing
-                </span>
-              )}
-            </Button>
-            {undoStack.length > 0 && (
-              <Button variant="outline" size="sm" onClick={handleUndo}
-                className="gap-2 border-amber-400/60 text-amber-700 hover:bg-amber-50 hover:border-amber-500"
-                title={`Restore: "${undoStack[undoStack.length - 1]?.title}"`}>
-                ↩ Undo
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">{undoStack.length}</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={handleBulkOpen} className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50">
+                <AlignLeft size={14} /> Bulk Descriptions
+                {missingDescCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700">{missingDescCount}</span>
+                )}
               </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={handleCreateTest} disabled={testCreating} className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
-              {testCreating ? '⏳' : '🧪'} {testCreating ? 'Creating…' : 'Test Entry'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => { refetch(); refetchGroups(); }} disabled={isFetching} className="gap-2">
-              <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
-              Refresh
-            </Button>
-            <Button size="sm" onClick={() => handleOpenAdd()} className="gap-2"
-              style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
-              <Plus size={14} /> Add Dhikr
-            </Button>
+              {undoStack.length > 0 && (
+                <Button variant="outline" size="sm" onClick={handleUndo}
+                  className="gap-2 border-amber-400/60 text-amber-700 hover:bg-amber-50"
+                  title={`Restore: "${undoStack[undoStack.length - 1]?.title}"`}>
+                  ↩ Undo
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">{undoStack.length}</span>
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={handleCreateTest} disabled={testCreating} className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
+                {testCreating ? '⏳' : '🧪'} {testCreating ? 'Creating…' : 'Test'}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { refetch(); refetchGroups(); }} disabled={isFetching} className="gap-1.5">
+                <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+              </Button>
+              <Button size="sm" onClick={() => handleOpenAdd()} className="gap-2"
+                style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+                <Plus size={14} /> Add Dhikr
+              </Button>
+            </div>
           </div>
-        </div>
-
         </div>
 
         <div className="px-4 sm:px-8 py-5">
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 mb-5">
-          <div className="relative flex-1 min-w-[200px] max-w-xs">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search adhkar…" className="pl-9 h-9 text-sm" />
+          {/* Filters */}
+          <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 mb-5">
+            <div className="relative flex-1 min-w-[200px] max-w-xs">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search adhkar…" className="pl-9 h-9 text-sm" />
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setFilterCategory('All')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${filterCategory === 'All' ? 'border-transparent text-white' : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}
+                style={filterCategory === 'All' ? { background: 'hsl(var(--primary))' } : {}}
+              >
+                All ({adhkar.length})
+              </button>
+              {allCategories.map((cat) => {
+                const count = adhkar.filter((d) => d.prayer_time === cat).length;
+                const colors = CATEGORY_COLORS[cat];
+                const isActive = filterCategory === cat;
+                return (
+                  <button key={cat} onClick={() => setFilterCategory(cat)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${isActive ? `${colors?.pill ?? 'bg-gray-100 text-gray-700 border-gray-200'} font-semibold` : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}>
+                    {PRAYER_TIME_LABELS[cat] ?? cat} ({count})
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={() => setFilterCategory('All')}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${filterCategory === 'All' ? 'border-transparent text-white' : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}
-              style={filterCategory === 'All' ? { background: 'hsl(var(--primary))' } : {}}
-            >
-              All ({adhkar.length})
-            </button>
-            {allCategories.map((cat) => {
-              const count = adhkar.filter((d) => d.prayer_time === cat).length;
-              const colors = CATEGORY_COLORS[cat];
-              const isActive = filterCategory === cat;
-              return (
-                <button key={cat} onClick={() => setFilterCategory(cat)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${isActive ? `${colors?.pill ?? 'bg-gray-100 text-gray-700 border-gray-200'} font-semibold` : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}>
-                  {PRAYER_TIME_LABELS[cat] ?? cat} ({count})
-                </button>
-              );
-            })}
-          </div>
-        </div>
 
-        {/* Content */}
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-52 gap-3 text-muted-foreground rounded-2xl border-2 border-dashed border-[hsl(140_20%_88%)] bg-white">
-            <BookOpen size={32} className="opacity-30" />
-            <p className="text-sm">{adhkar.length === 0 ? 'No adhkar found in database.' : 'No results match your search.'}</p>
-          </div>
-        ) : (
-          <div className="space-y-10">
-            {filteredCategories.map((cat) => {
-              const catItems = filtered.filter((d) => d.prayer_time === cat);
-              if (catItems.length === 0) return null;
-              return (
-                <PrayerTimeSection
-                  key={cat} cat={cat} catItems={catItems} groupMap={groupMap}
-                  onClickRow={handleOpenDetail} onEditEntry={handleEdit}
-                  onDeleteEntry={handleDelete} onToggleActive={handleToggleActive}
-                  onMoveEntry={handleOpenMove}
-                  onEditGroup={(name, meta) => {
-                    if (meta?.id) {
-                      const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time;
-                      setEditGroup(liveTime && liveTime !== meta.prayer_time ? { ...meta, prayer_time: liveTime } : meta);
-                    } else {
-                      const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time ?? cat;
-                      setEditGroup({ name, prayer_time: liveTime } as AdhkarGroup);
-                    }
-                    setGroupModalOpen(true);
-                  }}
-                  onRenameGroup={handleRenameGroup}
-                  onDescriptionSave={handleDescriptionSave}
-                  onDeleteGroup={async (name, meta) => {
-                    const groupEntries = adhkar.filter((d) => d.group_name === name);
-                    const entryCount = groupEntries.length;
-                    if (!confirm(`Delete group "${name}"?\n\nThis will also permanently delete all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} inside it. This cannot be undone.`)) return;
-                    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.group_name !== name));
-                    if (meta?.id) {
-                      queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((g) => g.id !== meta.id));
-                    }
-                    if (meta?.id) {
-                      import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
-                    }
-                    const { deleteDhikr } = await import('@/lib/api');
-                    const results = await Promise.allSettled(groupEntries.map((d) => deleteDhikr(d.id)));
-                    const failed = results.filter((r) => r.status === 'rejected').length;
-                    if (failed > 0) {
-                      toast.error(`Group deleted but ${failed} entr${failed === 1 ? 'y' : 'ies'} failed to delete from backend.`);
-                    } else {
-                      toast.success(`Group "${name}" and all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} deleted.`);
-                    }
-                  }}
-                  onDuplicateGroup={handleDuplicateGroup}
-                  onAddToGroup={(name, pt) => handleOpenAdd(name, pt)}
-                  onGroupsReordered={handleGroupsReordered}
-                  onEntriesReordered={handleEntriesReordered}
-                  deleting={deleting} toggling={toggling}
-                />
-              );
-            })}
-          </div>
-        )}
+          {/* Content */}
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-52 gap-3 text-muted-foreground rounded-2xl border-2 border-dashed border-[hsl(140_20%_88%)] bg-white">
+              <BookOpen size={32} className="opacity-30" />
+              <p className="text-sm">{adhkar.length === 0 ? 'No adhkar found in database.' : 'No results match your search.'}</p>
+            </div>
+          ) : (
+            <div className="space-y-10">
+              {filteredCategories.map((cat) => {
+                const catItems = filtered.filter((d) => d.prayer_time === cat);
+                if (catItems.length === 0) return null;
+                return (
+                  <PrayerTimeSection
+                    key={cat} cat={cat} catItems={catItems} groupMap={groupMap}
+                    onClickRow={handleOpenDetail} onEditEntry={handleEdit}
+                    onDeleteEntry={handleDelete} onToggleActive={handleToggleActive}
+                    onMoveEntry={handleOpenMove}
+                    onEditGroup={(name, meta) => {
+                      if (meta?.id) {
+                        const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time;
+                        setEditGroup(liveTime && liveTime !== meta.prayer_time ? { ...meta, prayer_time: liveTime } : meta);
+                      } else {
+                        const liveTime = catItems.find((d) => d.group_name === name)?.prayer_time ?? cat;
+                        setEditGroup({ name, prayer_time: liveTime } as AdhkarGroup);
+                      }
+                      setGroupModalOpen(true);
+                    }}
+                    onRenameGroup={handleRenameGroup}
+                    onDescriptionSave={handleDescriptionSave}
+                    onReassignPrayerTime={handleReassignPrayerTime}
+                    onDeleteGroup={async (name, meta) => {
+                      const groupEntries = adhkar.filter((d) => d.group_name === name);
+                      const entryCount = groupEntries.length;
+                      if (!confirm(`Delete group "${name}"?\n\nThis will also permanently delete all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} inside it. This cannot be undone.`)) return;
+                      queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.group_name !== name));
+                      if (meta?.id) {
+                        queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((g) => g.id !== meta.id));
+                        import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
+                      }
+                      const { deleteDhikr: del } = await import('@/lib/api');
+                      const results = await Promise.allSettled(groupEntries.map((d) => del(d.id)));
+                      const failed = results.filter((r) => r.status === 'rejected').length;
+                      if (failed > 0) toast.error(`Group deleted but ${failed} entr${failed === 1 ? 'y' : 'ies'} failed to delete from backend.`);
+                      else toast.success(`Group "${name}" and all ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} deleted.`);
+                    }}
+                    onDuplicateGroup={handleDuplicateGroup}
+                    onAddToGroup={(name, pt) => handleOpenAdd(name, pt)}
+                    onGroupsReordered={handleGroupsReordered}
+                    onEntriesReordered={handleEntriesReordered}
+                    deleting={deleting} toggling={toggling}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       </main>
 
@@ -1346,7 +1421,6 @@ const Adhkar = () => {
       {/* ── Bulk Description Editor ── */}
       <Dialog open={bulkDescOpen} onOpenChange={(v) => { if (!bulkSavingAll && !aiGenerating) setBulkDescOpen(v); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
-          {/* Header */}
           <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-bold flex items-center gap-2">
@@ -1356,90 +1430,48 @@ const Adhkar = () => {
               <p className="text-xs text-muted-foreground mt-0.5">
                 {allGroupRows.length} groups total
                 {missingDescCount > 0 && <span className="ml-2 text-orange-600 font-medium">· {missingDescCount} missing</span>}
-                {dirtyGroups.length > 0 && (
-                  <span className="ml-2 text-amber-600 font-medium">· {dirtyGroups.length} unsaved change{dirtyGroups.length !== 1 ? 's' : ''}</span>
-                )}
+                {dirtyGroups.length > 0 && <span className="ml-2 text-amber-600 font-medium">· {dirtyGroups.length} unsaved</span>}
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {/* Generate with AI */}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleGenerateWithAI}
-                disabled={aiGenerating || bulkSavingAll || allGroupRows.filter((r) => {
-                  const cur = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
-                  return !cur.trim();
-                }).length === 0}
-                className="gap-1.5 border-violet-400/70 text-violet-700 hover:bg-violet-50 disabled:opacity-40"
-                title="Auto-generate descriptions for groups without one, using OnSpace AI"
-              >
-                {aiGenerating
-                  ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
-                  : <><Sparkles size={13} /> Generate with AI</>}
+              <Button size="sm" variant="outline" onClick={handleGenerateWithAI}
+                disabled={aiGenerating || bulkSavingAll || allGroupRows.filter((r) => { const c = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description; return !c.trim(); }).length === 0}
+                className="gap-1.5 border-violet-400/70 text-violet-700 hover:bg-violet-50 disabled:opacity-40">
+                {aiGenerating ? <><Loader2 size={13} className="animate-spin" /> Generating…</> : <><Sparkles size={13} /> Generate with AI</>}
               </Button>
-              {/* Save all */}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleBulkSaveAll}
+              <Button size="sm" variant="outline" onClick={handleBulkSaveAll}
                 disabled={dirtyGroups.length === 0 || bulkSavingAll || aiGenerating}
-                className="gap-1.5 border-emerald-400/60 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
-              >
-                {bulkSavingAll
-                  ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
-                  : <><CheckCheck size={13} /> Save All ({dirtyGroups.length})</>}
+                className="gap-1.5 border-emerald-400/60 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">
+                {bulkSavingAll ? <><Loader2 size={13} className="animate-spin" /> Saving…</> : <><CheckCheck size={13} /> Save All ({dirtyGroups.length})</>}
               </Button>
             </div>
           </div>
 
-          {/* AI generating banner */}
           {aiGenerating && (
             <div className="px-6 py-2.5 bg-violet-50 border-b border-violet-200 flex items-center gap-2.5">
               <Loader2 size={13} className="animate-spin text-violet-600 shrink-0" />
               <p className="text-xs text-violet-700 font-medium">
-                OnSpace AI is generating descriptions for {allGroupRows.filter((r) => {
-                  const cur = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
-                  return !cur.trim();
-                }).length} groups — this may take a moment…
+                OnSpace AI is generating descriptions for {allGroupRows.filter((r) => { const c = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description; return !c.trim(); }).length} groups…
               </p>
             </div>
           )}
 
-          {/* Filters */}
           <div className="px-6 py-3 border-b border-border bg-muted/20 flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[180px] max-w-xs">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={bulkDescSearch}
-                onChange={(e) => setBulkDescSearch(e.target.value)}
-                placeholder="Filter groups…"
-                className="pl-8 h-8 text-xs"
-              />
+              <Input value={bulkDescSearch} onChange={(e) => setBulkDescSearch(e.target.value)} placeholder="Filter groups…" className="pl-8 h-8 text-xs" />
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <Filter size={12} className="text-muted-foreground" />
               {(['all', 'missing', ...ADHKAR_PRAYER_TIME_CATEGORIES] as const).map((f) => {
                 const label = f === 'all' ? 'All' : f === 'missing' ? '⚠ Missing' : (PRAYER_TIME_LABELS[f] ?? f);
-                const count = f === 'all'
-                  ? allGroupRows.length
-                  : f === 'missing'
-                  ? allGroupRows.filter((r) => {
-                      const d = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description;
-                      return !d.trim();
-                    }).length
+                const count = f === 'all' ? allGroupRows.length
+                  : f === 'missing' ? allGroupRows.filter((r) => { const d = bulkDescEdits[r.name] !== undefined ? bulkDescEdits[r.name] : r.description; return !d.trim(); }).length
                   : allGroupRows.filter((r) => r.prayerTime === f).length;
                 if (f !== 'all' && f !== 'missing' && count === 0) return null;
                 return (
-                  <button
-                    key={f}
-                    onClick={() => setBulkDescFilter(f)}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-                      bulkDescFilter === f
-                        ? 'border-violet-400 bg-violet-100 text-violet-800'
-                        : 'border-border bg-background text-muted-foreground hover:bg-secondary'
-                    }`}
-                  >
+                  <button key={f} onClick={() => setBulkDescFilter(f)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${bulkDescFilter === f ? 'border-violet-400 bg-violet-100 text-violet-800' : 'border-border bg-background text-muted-foreground hover:bg-secondary'}`}>
                     {label} ({count})
                   </button>
                 );
@@ -1447,17 +1479,12 @@ const Adhkar = () => {
             </div>
           </div>
 
-          {/* Table */}
           <div className="flex-1 overflow-y-auto">
             {bulkFilteredRows.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
                 <AlignLeft size={28} className="opacity-20" />
                 <p className="text-sm">
-                  {bulkDescSearch
-                    ? 'No groups match your search.'
-                    : bulkDescFilter === 'missing'
-                    ? 'All groups have descriptions.'
-                    : 'No groups in this filter.'}
+                  {bulkDescSearch ? 'No groups match your search.' : bulkDescFilter === 'missing' ? 'All groups have descriptions.' : 'No groups in this filter.'}
                 </p>
               </div>
             ) : (
@@ -1477,83 +1504,42 @@ const Adhkar = () => {
                     const saveStatus = bulkDescSaving[row.name];
                     const colors = CATEGORY_COLORS[row.prayerTime];
                     return (
-                      <tr
-                        key={row.name}
-                        className={`border-b border-border/40 transition-colors ${
-                          isDirty ? 'bg-amber-50/60' : idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'
-                        }`}
-                      >
-                        {/* Group name + icon */}
+                      <tr key={row.name} className={`border-b border-border/40 transition-colors ${isDirty ? 'bg-amber-50/60' : idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
                         <td className="px-4 py-2.5 align-top">
                           <div className="flex items-center gap-2.5">
-                            <div
-                              className="w-7 h-7 rounded-md flex items-center justify-center text-base shrink-0"
-                              style={{ background: row.iconBg }}
-                            >
-                              {row.icon}
-                            </div>
+                            <div className="w-7 h-7 rounded-md flex items-center justify-center text-base shrink-0" style={{ background: row.iconBg }}>{row.icon}</div>
                             <div className="min-w-0">
                               <p className="font-semibold text-xs text-foreground leading-snug truncate max-w-[140px]" title={row.name}>{row.name}</p>
                               <p className="text-[10px] text-muted-foreground">{row.entryCount} entr{row.entryCount !== 1 ? 'ies' : 'y'}</p>
                             </div>
                           </div>
                         </td>
-                        {/* Prayer time badge */}
                         <td className="px-3 py-2.5 align-top">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${colors?.pill ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
                             {PRAYER_TIME_LABELS[row.prayerTime] ?? row.prayerTime}
                           </span>
                         </td>
-                        {/* Editable description */}
                         <td className="px-3 py-2 align-top">
                           <div className="relative">
                             <textarea
                               value={currentVal}
-                              onChange={(e) => {
-                                setBulkDescEdits((prev) => ({ ...prev, [row.name]: e.target.value }));
-                                setBulkDescSaving((prev) => { const next = { ...prev }; delete next[row.name]; return next; });
-                              }}
+                              onChange={(e) => { setBulkDescEdits((prev) => ({ ...prev, [row.name]: e.target.value })); setBulkDescSaving((prev) => { const next = { ...prev }; delete next[row.name]; return next; }); }}
                               placeholder="Add a description shown in the app…"
                               rows={2}
-                              className={`w-full rounded-md border px-2.5 py-1.5 text-xs text-foreground bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
-                                isDirty
-                                  ? 'border-amber-400 ring-1 ring-amber-300/60'
-                                  : saveStatus === 'saved'
-                                  ? 'border-emerald-400'
-                                  : saveStatus === 'error'
-                                  ? 'border-red-400'
-                                  : 'border-input'
-                              }`}
+                              className={`w-full rounded-md border px-2.5 py-1.5 text-xs text-foreground bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${isDirty ? 'border-amber-400 ring-1 ring-amber-300/60' : saveStatus === 'saved' ? 'border-emerald-400' : saveStatus === 'error' ? 'border-red-400' : 'border-input'}`}
                             />
-                            {isDirty && (
-                              <span className="absolute top-1 right-1.5 text-[9px] font-bold text-amber-600 bg-amber-50 px-1 rounded">edited</span>
-                            )}
-                            {saveStatus === 'saved' && !isDirty && (
-                              <span className="absolute top-1 right-1.5 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">✓ saved</span>
-                            )}
-                            {saveStatus === 'error' && (
-                              <span className="absolute top-1 right-1.5 text-[9px] font-bold text-red-600 bg-red-50 px-1 rounded">error</span>
-                            )}
+                            {isDirty && <span className="absolute top-1 right-1.5 text-[9px] font-bold text-amber-600 bg-amber-50 px-1 rounded">edited</span>}
+                            {saveStatus === 'saved' && !isDirty && <span className="absolute top-1 right-1.5 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">✓ saved</span>}
+                            {saveStatus === 'error' && <span className="absolute top-1 right-1.5 text-[9px] font-bold text-red-600 bg-red-50 px-1 rounded">error</span>}
                           </div>
                         </td>
-                        {/* Per-row save button */}
                         <td className="px-3 py-2.5 align-top">
                           <button
                             onClick={() => handleBulkSaveOne(row.name)}
                             disabled={!isDirty || saveStatus === 'saving'}
-                            className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-all ${
-                              saveStatus === 'saving'
-                                ? 'border-border text-muted-foreground opacity-60'
-                                : isDirty
-                                ? 'border-primary/60 bg-primary/5 text-primary hover:bg-primary/10'
-                                : 'border-border text-muted-foreground opacity-30 cursor-default'
-                            }`}
+                            className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-all ${saveStatus === 'saving' ? 'border-border text-muted-foreground opacity-60' : isDirty ? 'border-primary/60 bg-primary/5 text-primary hover:bg-primary/10' : 'border-border text-muted-foreground opacity-30 cursor-default'}`}
                           >
-                            {saveStatus === 'saving' ? (
-                              <span className="flex items-center gap-1">
-                                <Loader2 size={10} className="animate-spin" /> Saving
-                              </span>
-                            ) : 'Save'}
+                            {saveStatus === 'saving' ? <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Saving</span> : 'Save'}
                           </button>
                         </td>
                       </tr>
@@ -1564,25 +1550,12 @@ const Adhkar = () => {
             )}
           </div>
 
-          {/* Footer */}
           <div className="px-6 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              Changes cascade to all entries in each group and sync to the mobile app.
-            </p>
+            <p className="text-xs text-muted-foreground">Changes cascade to all entries in each group and sync to the mobile app.</p>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setBulkDescOpen(false)} disabled={bulkSavingAll || aiGenerating}>
-                Close
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleBulkSaveAll}
-                disabled={dirtyGroups.length === 0 || bulkSavingAll || aiGenerating}
-                className="gap-1.5"
-                style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
-              >
-                {bulkSavingAll
-                  ? <><Loader2 size={13} className="animate-spin" /> Saving All…</>
-                  : <><CheckCheck size={13} /> Save All ({dirtyGroups.length})</>}
+              <Button variant="outline" size="sm" onClick={() => setBulkDescOpen(false)} disabled={bulkSavingAll || aiGenerating}>Close</Button>
+              <Button size="sm" onClick={handleBulkSaveAll} disabled={dirtyGroups.length === 0 || bulkSavingAll || aiGenerating} className="gap-1.5" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+                {bulkSavingAll ? <><Loader2 size={13} className="animate-spin" /> Saving All…</> : <><CheckCheck size={13} /> Save All ({dirtyGroups.length})</>}
               </Button>
             </div>
           </div>
@@ -1590,10 +1563,7 @@ const Adhkar = () => {
       </Dialog>
 
       {/* ── Duplicate Group Dialog ── */}
-      <Dialog
-        open={duplicateDialogOpen}
-        onOpenChange={(v) => { if (!dupSaving) { setDuplicateDialogOpen(v); if (!v) setDuplicateSource(null); } }}
-      >
+      <Dialog open={duplicateDialogOpen} onOpenChange={(v) => { if (!dupSaving) { setDuplicateDialogOpen(v); if (!v) setDuplicateSource(null); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
@@ -1604,34 +1574,19 @@ const Adhkar = () => {
               Creates a full copy of <strong>"{duplicateSource?.name}"</strong> ({duplicateSource?.items.length} entr{(duplicateSource?.items.length ?? 0) === 1 ? 'y' : 'ies'}) under a new name and prayer time.
             </p>
           </DialogHeader>
-
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label htmlFor="dup-name">New Group Name *</Label>
-              <Input
-                id="dup-name"
-                value={dupNewName}
-                onChange={(e) => setDupNewName(e.target.value)}
-                placeholder="e.g. Wird al-Latif (After Maghrib)"
-                autoFocus
-              />
+              <Input id="dup-name" value={dupNewName} onChange={(e) => setDupNewName(e.target.value)} placeholder="e.g. Wird al-Latif (After Maghrib)" autoFocus />
             </div>
-
             <div className="space-y-1.5">
               <Label htmlFor="dup-prayer-time">Target Prayer Time *</Label>
-              <select
-                id="dup-prayer-time"
-                value={dupPrayerTime}
-                onChange={(e) => setDupPrayerTime(e.target.value)}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
-                ))}
+              <select id="dup-prayer-time" value={dupPrayerTime} onChange={(e) => setDupPrayerTime(e.target.value)}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
+                {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>)}
               </select>
               <p className="text-[11px] text-muted-foreground">All copied entries will be assigned to this prayer time.</p>
             </div>
-
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
               <p className="text-xs font-semibold text-blue-800 mb-1.5">What gets duplicated:</p>
               <ul className="text-xs text-blue-700 space-y-0.5 list-disc pl-4">
@@ -1641,20 +1596,11 @@ const Adhkar = () => {
               </ul>
             </div>
           </div>
-
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => { setDuplicateDialogOpen(false); setDuplicateSource(null); }} disabled={dupSaving}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleDuplicateConfirm}
-              disabled={dupSaving || !dupNewName.trim()}
-              className="gap-2"
-              style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
-            >
-              {dupSaving
-                ? <><Loader2 size={13} className="animate-spin" /> Duplicating…</>
-                : <><Copy size={13} /> Duplicate Group</>}
+            <Button variant="outline" onClick={() => { setDuplicateDialogOpen(false); setDuplicateSource(null); }} disabled={dupSaving}>Cancel</Button>
+            <Button onClick={handleDuplicateConfirm} disabled={dupSaving || !dupNewName.trim()} className="gap-2"
+              style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+              {dupSaving ? <><Loader2 size={13} className="animate-spin" /> Duplicating…</> : <><Copy size={13} /> Duplicate Group</>}
             </Button>
           </DialogFooter>
         </DialogContent>
