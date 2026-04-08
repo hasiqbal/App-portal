@@ -443,10 +443,12 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="w-full max-w-2xl max-h-[92vh] overflow-y-auto mx-2 sm:mx-auto">
+      <DialogContent className="w-full max-w-2xl max-h-[92vh] overflow-y-auto mx-2 sm:mx-auto border-[hsl(140_20%_88%)]">
         <DialogHeader>
           <DialogTitle className="text-sm sm:text-base font-bold flex items-center gap-2">
-            <Upload size={15} className="text-primary shrink-0" />
+            <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+              <Upload size={15} className="text-[hsl(142_60%_32%)]" />
+            </div>
             <span>Import Prayer Times CSV</span>
           </DialogTitle>
           <p className="text-xs text-muted-foreground pt-1 leading-relaxed">
@@ -463,7 +465,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
                 onClick={() => setInputMode(mode)}
                 className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
                   inputMode === mode
-                    ? 'bg-card shadow-sm text-foreground border border-border'
+                    ? 'bg-white shadow-sm text-[hsl(150_30%_12%)] border border-[hsl(140_20%_88%)]'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
@@ -513,9 +515,9 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
             onClick={() => fileRef.current?.click()}
-            className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-border rounded-xl p-8 sm:p-10 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
+            className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-[hsl(140_20%_88%)] rounded-xl p-8 sm:p-10 cursor-pointer hover:border-[hsl(142_50%_70%)] hover:bg-[hsl(142_50%_97%)] transition-all"
           >
-            <Upload size={28} className="text-muted-foreground" />
+            <Upload size={28} className="text-[hsl(142_50%_70%)]" />
             <div className="text-center">
               <p className="text-sm font-medium">Drop CSV file here or tap to browse</p>
               <p className="text-xs text-muted-foreground mt-1">DATE · FAJR · SUNRISE · Ishraq · Zawaal · ZUHR · ASR · Maghrib · ISHA · Fajr Jamat…</p>
@@ -548,7 +550,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
               placeholder={`DATE\tFAJR\tSUNRISE\tIshraq\tZawaal\tZUHR\tASR\tMaghrib\tISHA\tFajr Jamat\t...
 01-Jan\t06:13\t08:25\t08:45\t11:43\t12:13\t14:13\t15:59\t17:48\t07:15\t...
 02-Jan\t06:13\t08:25\t08:45\t11:44\t12:14\t14:14\t16:00\t17:49\t07:15\t...`}
-              className="w-full h-44 font-mono text-xs rounded-xl border border-border bg-muted/30 px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 placeholder:text-muted-foreground/50 transition-all"
+              className="w-full h-44 font-mono text-xs rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_30%_97%)] px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-[hsl(142_60%_35%/0.3)] focus:border-[hsl(142_50%_70%)] placeholder:text-muted-foreground/50 transition-all"
               spellCheck={false}
             />
             <div className="flex items-center justify-between">
@@ -736,7 +738,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
         )}
 
         <DialogFooter className="gap-2 pt-1 flex-col sm:flex-row">
-          <Button variant="outline" onClick={handleClose} disabled={stage === 'saving'} className="w-full sm:w-auto">
+          <Button variant="outline" onClick={handleClose} disabled={stage === 'saving'} className="w-full sm:w-auto border-[hsl(140_20%_88%)]">
             {stage === 'done' ? 'Close' : 'Cancel'}
           </Button>
 

@@ -155,10 +155,13 @@ const SunnahReminderModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto border-[hsl(140_20%_88%)]">
         <DialogHeader>
-          <DialogTitle className="text-lg font-bold flex items-center gap-2">
-            {isEdit ? 'Edit Sunnah Reminder' : 'Add Sunnah Reminder'}
+          <DialogTitle className="text-base font-bold flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+                <span className="text-sm">⭐</span>
+              </div>
+              {isEdit ? 'Edit Sunnah Reminder' : 'Add Sunnah Reminder'}
             {isEdit && (
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-1">
                 <Copy size={9} /> saves as new copy
@@ -175,58 +178,58 @@ const SunnahReminderModal = ({
         <div className="space-y-4 py-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="sr-title">Title * <span className="text-muted-foreground font-normal text-xs">(required)</span></Label>
+              <Label htmlFor="sr-title" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Title * <span className="text-muted-foreground font-normal">(required)</span></Label>
               <Input id="sr-title" value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Miswak before Prayer" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="sr-arabic-title">Arabic Title</Label>
+              <Label htmlFor="sr-arabic-title" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Arabic Title</Label>
               <Input id="sr-arabic-title" value={form.arabic_title} onChange={(e) => set('arabic_title', e.target.value)}
                 placeholder="السواك" dir="rtl" className="text-right" style={{ fontFamily: 'serif' }} />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="sr-arabic">Arabic Text <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+            <Label htmlFor="sr-arabic" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Arabic Text <span className="text-muted-foreground font-normal">(optional)</span></Label>
             <Textarea id="sr-arabic" value={form.arabic} onChange={(e) => set('arabic', e.target.value)}
               placeholder="Optional Arabic text or hadith..." className="text-right leading-[2.6] min-h-[80px]"
               dir="rtl" style={{ fontFamily: '"Scheherazade New", serif', fontSize: '1.2rem' }} />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="sr-translit">Transliteration</Label>
+            <Label htmlFor="sr-translit" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Transliteration</Label>
             <Textarea id="sr-translit" value={form.transliteration} onChange={(e) => set('transliteration', e.target.value)}
               placeholder="As-siwāku maṭharatun lil-fami..." className="min-h-[56px] text-sm" />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="sr-translation">Translation</Label>
+            <Label htmlFor="sr-translation" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Translation</Label>
             <Textarea id="sr-translation" value={form.translation} onChange={(e) => set('translation', e.target.value)}
               placeholder="The Miswak is purifying for the mouth..." className="min-h-[56px] text-sm" />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="sr-desc">Description / Explanation</Label>
+            <Label htmlFor="sr-desc" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Description / Explanation</Label>
             <Textarea id="sr-desc" value={form.description} onChange={(e) => set('description', e.target.value)}
               placeholder="Explain the sunnah, its benefits, or how to perform it..." className="min-h-[70px] text-sm" />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="sr-category">Category *</Label>
+              <Label htmlFor="sr-category" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Category *</Label>
               <select id="sr-category" value={form.category} onChange={(e) => set('category', e.target.value)}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
                 {SUNNAH_CATEGORIES.map((cat) => <option key={cat} value={cat}>{SUNNAH_CATEGORY_LABELS[cat] ?? cat}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="sr-count">Count / Repetitions</Label>
+              <Label htmlFor="sr-count" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Count / Repetitions</Label>
               <Input id="sr-count" value={form.count} onChange={(e) => set('count', e.target.value)} placeholder="e.g. 3 or daily" />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5 col-span-1">
-              <Label>Group Name</Label>
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name</Label>
               {!showGroupInput ? (
                 <select value={form.group_name}
                   onChange={(e) => {
@@ -256,24 +259,24 @@ const SunnahReminderModal = ({
               )}
             </div>
             <div className="space-y-1.5">
-              <Label>Group Order</Label>
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Order</Label>
               <Input type="number" min={1} value={form.group_order} onChange={(e) => set('group_order', e.target.value)} placeholder="e.g. 10" />
             </div>
             <div className="space-y-1.5">
-              <Label>Display Order</Label>
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Display Order</Label>
               <Input type="number" min={1} value={form.display_order} onChange={(e) => set('display_order', e.target.value)} placeholder="e.g. 10" />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="sr-ref">Reference</Label>
+            <Label htmlFor="sr-ref" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Reference</Label>
             <Input id="sr-ref" value={form.reference} onChange={(e) => set('reference', e.target.value)}
               placeholder="e.g. Bukhari 245 or Sunan Abu Dawud 46" />
           </div>
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label>Image / File URL</Label>
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Image / File URL</Label>
               {form.file_url && (
                 <a href={form.file_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-primary hover:underline">
                   <ExternalLink size={11} /> Preview
@@ -293,7 +296,7 @@ const SunnahReminderModal = ({
             <div className="flex gap-2">
               <Input value={form.file_url} onChange={(e) => set('file_url', e.target.value)} placeholder="https://... or upload" className="flex-1 text-sm" />
               <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/40 text-primary text-xs font-medium hover:bg-primary/5 transition-colors disabled:opacity-50 shrink-0">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] text-xs font-medium hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-50 shrink-0">
                 {uploadingImage ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
                 {uploadingImage ? 'Uploading…' : 'Upload'}
               </button>
@@ -323,12 +326,12 @@ const SunnahReminderModal = ({
         </div>
 
         <DialogFooter className="pt-2 gap-2 flex-wrap">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} className="border-[hsl(140_20%_88%)]">Cancel</Button>
           {isEdit && (
             <Button
               variant="outline"
               onClick={() => { handleSaveAsCopy(); onClose(); }}
-              className="gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
+              className="gap-1.5 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]"
             >
               <Copy size={13} /> Save as New Copy
             </Button>

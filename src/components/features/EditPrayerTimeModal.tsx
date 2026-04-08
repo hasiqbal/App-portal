@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { PrayerTime, PrayerTimeUpdate } from '@/types';
 import { updatePrayerTime } from '@/lib/api';
 import { toast } from 'sonner';
-import { Minus, Plus } from 'lucide-react';
+import { Minus, Plus, Clock } from 'lucide-react';
 
 interface EditPrayerTimeModalProps {
   row: PrayerTime | null;
@@ -14,22 +14,22 @@ interface EditPrayerTimeModalProps {
   onSaved: (updated: PrayerTime) => void;
 }
 
-const FIELDS: { key: keyof PrayerTimeUpdate; label: string }[] = [
-  { key: 'fajr',          label: 'Fajr' },
-  { key: 'fajr_jamat',    label: 'Fajr Jamat' },
-  { key: 'sunrise',       label: 'Sunrise' },
-  { key: 'ishraq',        label: 'Ishraq' },
-  { key: 'zawaal',        label: 'Zawaal' },
-  { key: 'zuhr',          label: 'Zuhr' },
-  { key: 'zuhr_jamat',    label: 'Zuhr Jamat' },
-  { key: 'asr',           label: 'Asr' },
-  { key: 'asr_jamat',     label: 'Asr Jamat' },
-  { key: 'maghrib',       label: 'Maghrib' },
-  { key: 'maghrib_jamat', label: 'Maghrib Jamat' },
-  { key: 'isha',          label: 'Isha' },
-  { key: 'isha_jamat',    label: 'Isha Jamat' },
-  { key: 'jumu_ah_1',     label: "Jumu'ah 1" },
-  { key: 'jumu_ah_2',     label: "Jumu'ah 2" },
+const FIELDS: { key: keyof PrayerTimeUpdate; label: string; group: string }[] = [
+  { key: 'fajr',          label: 'Fajr',          group: 'start' },
+  { key: 'fajr_jamat',    label: 'Fajr Jamaat',    group: 'jamat' },
+  { key: 'sunrise',       label: 'Sunrise',        group: 'start' },
+  { key: 'ishraq',        label: 'Ishraq',         group: 'start' },
+  { key: 'zawaal',        label: 'Zawaal',         group: 'start' },
+  { key: 'zuhr',          label: 'Zuhr',           group: 'start' },
+  { key: 'zuhr_jamat',    label: 'Zuhr Jamaat',    group: 'jamat' },
+  { key: 'asr',           label: 'Asr',            group: 'start' },
+  { key: 'asr_jamat',     label: 'Asr Jamaat',     group: 'jamat' },
+  { key: 'maghrib',       label: 'Maghrib',        group: 'start' },
+  { key: 'maghrib_jamat', label: 'Maghrib Jamaat', group: 'jamat' },
+  { key: 'isha',          label: 'Isha',           group: 'start' },
+  { key: 'isha_jamat',    label: 'Isha Jamaat',    group: 'jamat' },
+  { key: 'jumu_ah_1',     label: "Jumu'ah 1",      group: 'jumuah' },
+  { key: 'jumu_ah_2',     label: "Jumu'ah 2",      group: 'jumuah' },
 ];
 
 // ─── Time stepper helper ──────────────────────────────────────────────────────
@@ -56,32 +56,32 @@ const TimeField = ({ label, value, onChange }: TimeFieldProps) => {
   const canStep = !!value && /^\d{1,2}:\d{2}$/.test(value.trim());
 
   return (
-    <div className="space-y-1.5">
-      <Label className="text-sm font-medium">{label}</Label>
+    <div className="space-y-1">
+      <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">{label}</Label>
       <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => onChange(adjustTime(value, -1))}
           disabled={!canStep}
-          className="w-7 h-9 flex items-center justify-center rounded-md border border-border bg-card hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+          className="w-7 h-9 flex items-center justify-center rounded-md border border-[hsl(140_20%_88%)] bg-white hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
           title="Subtract 1 minute"
         >
-          <Minus size={11} />
+          <Minus size={11} className="text-[hsl(142_60%_32%)]" />
         </button>
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="HH:MM"
-          className="font-mono text-sm h-9 text-center min-w-0"
+          className="font-mono text-sm h-9 text-center min-w-0 border-[hsl(140_20%_88%)] focus:border-[hsl(142_50%_70%)]"
         />
         <button
           type="button"
           onClick={() => onChange(adjustTime(value, +1))}
           disabled={!canStep}
-          className="w-7 h-9 flex items-center justify-center rounded-md border border-border bg-card hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+          className="w-7 h-9 flex items-center justify-center rounded-md border border-[hsl(140_20%_88%)] bg-white hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
           title="Add 1 minute"
         >
-          <Plus size={11} />
+          <Plus size={11} className="text-[hsl(142_60%_32%)]" />
         </button>
       </div>
     </div>
@@ -134,31 +134,69 @@ const EditPrayerTimeModal = ({ row, onClose, onSaved }: EditPrayerTimeModalProps
     }
   };
 
+  const startFields  = FIELDS.filter(f => f.group === 'start');
+  const jamatFields  = FIELDS.filter(f => f.group === 'jamat');
+  const jumuahFields = FIELDS.filter(f => f.group === 'jumuah');
+
   return (
     <Dialog open={!!row} onOpenChange={onClose}>
       <DialogContent className="w-full max-w-2xl max-h-[92vh] overflow-y-auto mx-2 sm:mx-auto">
         <DialogHeader>
-          <DialogTitle className="text-lg font-bold" style={{ color: 'hsl(var(--foreground))' }}>
-            Edit — {row ? `${MONTHS[(row.month ?? 1) - 1]} ${row.day}` : ''}
-          </DialogTitle>
-          <p className="text-sm text-muted-foreground">
-            Times in HH:MM (24-hour). Use +/− to nudge by 1 minute.
-          </p>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+              <Clock size={17} className="text-[hsl(142_60%_32%)]" />
+            </div>
+            <div>
+              <DialogTitle className="text-base font-bold text-[hsl(150_30%_12%)]">
+                Edit Prayer Times — {row ? `${MONTHS[(row.month ?? 1) - 1]} ${row.day}` : ''}
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Times in HH:MM (24-hour). Use +/− to nudge by 1 minute.
+              </p>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
-          {FIELDS.map(({ key, label }) => (
-            <TimeField
-              key={key}
-              label={label}
-              value={form[key] ?? ''}
-              onChange={(v) => handleChange(key, v)}
-            />
-          ))}
+        <div className="space-y-5 py-2">
+          {/* Starting times */}
+          <div className="rounded-xl border border-[hsl(140_20%_88%)] overflow-hidden">
+            <div className="px-4 py-2.5 bg-[hsl(142_30%_97%)] border-b border-[hsl(140_20%_88%)]">
+              <p className="text-xs font-bold text-[hsl(142_60%_32%)] uppercase tracking-wider">Starting Times</p>
+            </div>
+            <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {startFields.map(({ key, label }) => (
+                <TimeField key={key} label={label} value={form[key] ?? ''} onChange={(v) => handleChange(key, v)} />
+              ))}
+            </div>
+          </div>
+
+          {/* Jamaat times */}
+          <div className="rounded-xl border border-[hsl(140_20%_88%)] overflow-hidden">
+            <div className="px-4 py-2.5 bg-[hsl(142_30%_97%)] border-b border-[hsl(140_20%_88%)]">
+              <p className="text-xs font-bold text-[hsl(142_60%_32%)] uppercase tracking-wider">Jamaat Times</p>
+            </div>
+            <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {jamatFields.map(({ key, label }) => (
+                <TimeField key={key} label={label} value={form[key] ?? ''} onChange={(v) => handleChange(key, v)} />
+              ))}
+            </div>
+          </div>
+
+          {/* Jumu'ah times */}
+          <div className="rounded-xl border border-[hsl(140_20%_88%)] overflow-hidden">
+            <div className="px-4 py-2.5 bg-[hsl(142_30%_97%)] border-b border-[hsl(140_20%_88%)]">
+              <p className="text-xs font-bold text-[hsl(0_60%_45%)] uppercase tracking-wider">Jumu'ah Times <span className="text-[10px] font-normal text-muted-foreground normal-case">(Fridays only)</span></p>
+            </div>
+            <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {jumuahFields.map(({ key, label }) => (
+                <TimeField key={key} label={label} value={form[key] ?? ''} onChange={(v) => handleChange(key, v)} />
+              ))}
+            </div>
+          </div>
         </div>
 
         <DialogFooter className="pt-2 gap-2 flex-col sm:flex-row">
-          <Button variant="outline" onClick={onClose} disabled={saving}>
+          <Button variant="outline" onClick={onClose} disabled={saving} className="border-[hsl(140_20%_88%)]">
             Cancel
           </Button>
           <Button

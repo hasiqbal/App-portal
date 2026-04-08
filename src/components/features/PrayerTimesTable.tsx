@@ -111,16 +111,16 @@ const MobileRow = ({
   const [expanded, setExpanded] = useState(false);
   const info = getDayInfo(year, month, row.day, hijriOffset);
 
-  let cardBg = 'bg-card';
-  let borderAccent = 'border-border';
+  let cardBg = 'bg-white';
+  let borderAccent = 'border-[hsl(140_20%_88%)]';
   if (isHighlighted) {
-    cardBg = 'bg-primary/10';
-    borderAccent = 'border-primary';
+    cardBg = 'bg-[hsl(142_50%_95%)]';
+    borderAccent = 'border-[hsl(142_60%_55%)]';
   } else if (info.isClockChange) {
     cardBg = 'bg-amber-50';
     borderAccent = 'border-amber-400';
   } else if (info.isFriday) {
-    cardBg = 'bg-amber-50/70';
+    cardBg = 'bg-[hsl(50_100%_97%)]';
     borderAccent = 'border-amber-300';
   } else if (isToday) {
     cardBg = 'bg-blue-50';
@@ -130,13 +130,13 @@ const MobileRow = ({
   return (
     <div
       data-day={row.day}
-      className={`rounded-xl border ${borderAccent} ${cardBg} overflow-hidden transition-all duration-200 ${isHighlighted ? 'ring-2 ring-primary/40' : ''}`}
+      className={`rounded-xl border ${borderAccent} ${cardBg} overflow-hidden transition-all duration-200 ${isHighlighted ? 'ring-2 ring-[hsl(142_60%_55%/0.4)]' : ''}`}
     >
       {/* ── Summary row ── */}
       <div className="flex items-center gap-2 px-3 py-2.5">
         {/* Day info */}
         <div className="w-12 shrink-0">
-          <div className={`text-lg font-extrabold tabular-nums leading-none ${info.isFriday ? 'text-amber-600' : isToday ? 'text-blue-600' : 'text-foreground'}`}>
+          <div className={`text-lg font-extrabold tabular-nums leading-none ${info.isFriday ? 'text-amber-600' : isToday ? 'text-blue-600' : 'text-[hsl(150_30%_12%)]'}`}>
             {row.day}
           </div>
           <div className={`text-[9px] font-bold uppercase ${info.isFriday ? 'text-amber-500' : isToday ? 'text-blue-500' : 'text-muted-foreground'}`}>
@@ -151,14 +151,16 @@ const MobileRow = ({
           {info.timezone}
         </span>
 
-        {/* Key prayer times */}
-        <div className="flex-1 grid grid-cols-3 gap-1 min-w-0">
+        {/* Key prayer times — shows more on wider screens */}
+        <div className="flex-1 grid grid-cols-3 sm:grid-cols-5 gap-1 min-w-0">
           {[
-            { label: 'Fajr',    value: row.fajr,    color: '#2563eb' },
-            { label: 'Maghrib', value: row.maghrib,  color: '#b91c1c' },
-            { label: 'Isha',    value: row.isha,     color: '#7c3aed' },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="text-center">
+            { label: 'Fajr',    value: row.fajr,    color: '#2563eb', always: true },
+            { label: 'Zuhr',    value: row.zuhr,    color: '#7c6d00', always: false },
+            { label: 'Asr',     value: row.asr,     color: '#16a34a', always: false },
+            { label: 'Maghrib', value: row.maghrib,  color: '#b91c1c', always: true },
+            { label: 'Isha',    value: row.isha,     color: '#7c3aed', always: true },
+          ].map(({ label, value, color, always }) => (
+            <div key={label} className={`text-center ${always ? '' : 'hidden sm:block'}`}>
               <div className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</div>
               <div className="text-sm font-bold tabular-nums" style={{ color: value ? color : 'hsl(var(--muted-foreground) / 0.4)' }}>
                 {value ?? '—'}
@@ -167,18 +169,26 @@ const MobileRow = ({
           ))}
         </div>
 
+        {/* Jumu'ah indicator on Fridays */}
+        {info.isFriday && row.jumu_ah_1 && (
+          <div className="hidden xs:flex shrink-0 flex-col text-center">
+            <div className="text-[9px] font-semibold text-[#0e7490] uppercase">J1</div>
+            <div className="text-sm font-bold tabular-nums text-[#0e7490]">{row.jumu_ah_1}</div>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(row); }}
-            className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-[hsl(142_50%_93%)] transition-colors"
             title="Edit"
           >
-            <Pencil size={13} style={{ color: 'hsl(var(--accent))' }} />
+            <Pencil size={13} className="text-[hsl(142_60%_32%)]" />
           </button>
           <button
             onClick={() => setExpanded((e) => !e)}
-            className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
+            className="p-1.5 rounded-lg hover:bg-[hsl(140_20%_93%)] transition-colors"
             title={expanded ? 'Collapse' : 'Expand all times'}
           >
             {expanded ? <ChevronDown size={13} className="text-muted-foreground" /> : <ChevronRight size={13} className="text-muted-foreground" />}
@@ -188,7 +198,7 @@ const MobileRow = ({
 
       {/* ── Expanded panel ── */}
       {expanded && (
-        <div className="border-t border-border/50 px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-muted/20">
+        <div className="border-t border-[hsl(140_20%_88%)] px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-[hsl(142_30%_97%)]">
           {/* Fajr Jamaat always first */}
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-muted-foreground">Fajr Jamaat</span>
@@ -206,7 +216,7 @@ const MobileRow = ({
             );
           })}
           {/* Hijri */}
-          <div className="col-span-2 flex items-center justify-between pt-1 border-t border-border/40">
+          <div className="col-span-2 flex items-center justify-between pt-1 border-t border-[hsl(140_20%_88%)]">
             <span className="text-[10px] font-semibold text-muted-foreground">Hijri</span>
             <span className="text-xs font-medium text-foreground/70">
               {info.hijri.day} {info.hijri.monthName} {info.hijri.year} AH
@@ -219,7 +229,7 @@ const MobileRow = ({
           )}
           <button
             onClick={() => onEdit(row)}
-            className="col-span-2 mt-1 text-xs font-semibold py-1.5 rounded-lg border border-primary/30 text-primary hover:bg-primary/5 transition-colors"
+            className="col-span-2 mt-1 text-xs font-semibold py-1.5 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)] transition-colors"
           >
             Edit All Times for Day {row.day}
           </button>
@@ -233,7 +243,7 @@ const MobileRow = ({
 const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: PrayerTimesTableProps) => {
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm rounded-xl border border-border bg-card">
+      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm rounded-xl border border-[hsl(140_20%_88%)] bg-white">
         No prayer times found for this month.
       </div>
     );
@@ -267,7 +277,7 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
       </div>
 
       {/* ── Desktop layout (≥ md) ── */}
-      <div className="hidden md:block rounded-xl border border-border overflow-hidden bg-card shadow-sm">
+      <div className="hidden md:block rounded-xl border border-[hsl(140_20%_88%)] overflow-hidden bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse table-fixed" style={{ minWidth: '700px' }}>
             <colgroup>
@@ -281,18 +291,18 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
             </colgroup>
 
             <thead>
-              <tr className="border-b-2 border-border" style={{ background: 'hsl(220 20% 97%)' }}>
-                <th className="px-2 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-border/30">
+              <tr className="border-b-2 border-[hsl(140_20%_88%)]" style={{ background: 'hsl(142_30%_97%)' }}>
+                <th className="px-2 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">
                   Date
                 </th>
-                <th className="px-2 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-border/30">
+                <th className="px-2 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">
                   Hijri
                 </th>
-                <th className="px-1 py-2 text-center text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-border/30">
+                <th className="px-1 py-2 text-center text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-r border-[hsl(140_20%_88%)]">
                   TZ
                 </th>
                 {PRAYERS.map((p) => (
-                  <th key={p.key} className="py-2 text-center border-r border-border/20 last:border-r-0">
+                  <th key={p.key} className="py-2 text-center border-r border-[hsl(140_20%_88%)] last:border-r-0">
                     <div className="flex flex-col items-center gap-0.5">
                       <span
                         className="text-[11px] font-bold px-1.5 py-0.5 rounded"
@@ -324,8 +334,8 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
                 let rowBg: string;
                 let borderLeft = '';
                 if (isHighlighted) {
-                  rowBg = 'hsl(var(--primary) / 0.08)';
-                  borderLeft = '3px solid hsl(var(--primary))';
+                  rowBg = 'hsl(142 50% 95%)';
+                  borderLeft = '3px solid hsl(142 60% 45%)';
                 } else if (info.isClockChange) {
                   rowBg = '#fff8ec';
                   borderLeft = '3px solid #f59e0b';
@@ -334,21 +344,21 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
                 } else if (isToday) {
                   rowBg = '#eff6ff';
                 } else {
-                  rowBg = idx % 2 === 0 ? 'hsl(var(--card))' : 'hsl(220 20% 98.8%)';
+                  rowBg = idx % 2 === 0 ? '#ffffff' : 'hsl(142 25% 98.5%)';
                 }
 
                 return (
                   <tr
                     key={row.id}
                     data-day={row.day}
-                    className="border-t border-border/40 hover:brightness-[0.97] transition-all cursor-pointer group"
+                    className="border-t border-[hsl(140_20%_90%)] hover:brightness-[0.97] transition-all cursor-pointer group"
                     style={{ background: rowBg, borderLeft }}
                     onClick={() => onEdit(row)}
                   >
                     {/* Date */}
-                    <td className="px-2 py-1.5 border-r border-border/30">
+                    <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
                       <div className="flex items-baseline gap-1.5">
-                        <span className={`font-extrabold text-base tabular-nums leading-none ${info.isFriday ? 'text-amber-600' : isToday ? 'text-blue-600' : 'text-foreground/90'}`}>
+                        <span className={`font-extrabold text-base tabular-nums leading-none ${info.isFriday ? 'text-amber-600' : isToday ? 'text-blue-600' : 'text-[hsl(150_30%_12%)]'}`}>
                           {row.day}
                         </span>
                         <span className={`text-[10px] font-semibold ${info.isFriday ? 'text-amber-500' : isToday ? 'text-blue-500' : 'text-muted-foreground'}`}>
@@ -363,7 +373,7 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
                     </td>
 
                     {/* Hijri */}
-                    <td className="px-2 py-1.5 border-r border-border/30">
+                    <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
                       <div className="flex flex-col leading-tight">
                         <span className="text-[11px] font-semibold text-foreground/75 tabular-nums whitespace-nowrap">
                           {info.hijri.day} {info.hijri.monthName.split(' ').slice(0, 2).join(' ')}
@@ -380,7 +390,7 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
                     </td>
 
                     {/* TZ */}
-                    <td className="px-1 py-1.5 text-center border-r border-border/30">
+                    <td className="px-1 py-1.5 text-center border-r border-[hsl(140_20%_88%)]">
                       <span className={`inline-block px-1 py-0.5 rounded text-[8px] font-bold tracking-wide ${info.isBST ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
                         {info.timezone}
                       </span>
@@ -410,10 +420,10 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
                     <td className="px-1 py-1.5 text-center">
                       <button
                         onClick={(e) => { e.stopPropagation(); onEdit(row); }}
-                        className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-accent/10 transition-all"
+                        className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[hsl(142_50%_93%)] transition-all"
                         title="Edit"
                       >
-                        <Pencil size={11} style={{ color: 'hsl(var(--accent))' }} />
+                        <Pencil size={11} className="text-[hsl(142_60%_32%)]" />
                       </button>
                     </td>
                   </tr>

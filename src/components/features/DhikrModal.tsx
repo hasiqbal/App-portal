@@ -394,10 +394,13 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto border-[hsl(140_20%_88%)]">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+                <BookOpen size={15} className="text-[hsl(142_60%_32%)]" />
+              </div>
               {isEdit ? 'Edit Dhikr' : 'Add New Dhikr'}
               {isEdit && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-1">
@@ -415,8 +418,8 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
               onClick={() => setShowQuranPicker((v) => !v)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
                 showQuranPicker
-                  ? 'border-emerald-400 bg-emerald-100 text-emerald-800'
-                  : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                  ? 'border-[hsl(142_50%_70%)] bg-[hsl(142_50%_93%)] text-[hsl(142_60%_28%)]'
+                  : 'border-[hsl(142_50%_75%)] bg-[hsl(142_50%_97%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_93%)]'
               }`}
               title="Import Arabic text from Quran"
             >
@@ -436,11 +439,11 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="title">Title * <span className="text-muted-foreground font-normal text-xs">(required)</span></Label>
+              <Label htmlFor="title" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Title * <span className="text-muted-foreground font-normal">(required)</span></Label>
               <Input id="title" value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Surah Al-Ikhlas" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="arabic_title">Arabic Title</Label>
+              <Label htmlFor="arabic_title" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Arabic Title</Label>
               <Input id="arabic_title" value={form.arabic_title} onChange={(e) => set('arabic_title', e.target.value)}
                 placeholder="سُورَةُ الإِخْلَاص" dir="rtl" className="text-right font-arabic" />
             </div>
@@ -448,7 +451,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label htmlFor="arabic">Arabic Text</Label>
+              <Label htmlFor="arabic" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Arabic Text</Label>
               {isPlaceholder && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
                   ⏳ Placeholder — content coming soon
@@ -466,13 +469,13 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="transliteration">Transliteration</Label>
+            <Label htmlFor="transliteration" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Transliteration</Label>
             <Textarea id="transliteration" value={form.transliteration} onChange={(e) => set('transliteration', e.target.value)}
               placeholder="Subḥāna-llāh..." className="min-h-[60px] text-sm" />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="translation">Translation</Label>
+            <Label htmlFor="translation" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Translation</Label>
             <Textarea id="translation" value={form.translation} onChange={(e) => set('translation', e.target.value)}
               placeholder="Glory be to Allah..." className="min-h-[60px] text-sm" />
           </div>
@@ -492,14 +495,14 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
               <p className="text-[10px] text-muted-foreground">Change via the group's ⚙ Edit button.</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="count">Count / Repetitions</Label>
+              <Label htmlFor="count" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Count / Repetitions</Label>
               <Input id="count" value={form.count} onChange={(e) => set('count', e.target.value)} placeholder="e.g. 3 or 33" />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5 col-span-1">
-              <Label htmlFor="group_name">Group Name</Label>
+              <Label htmlFor="group_name" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name</Label>
               {!showGroupInput ? (
                 <div className="flex gap-1.5">
                   <select id="group_name" value={form.group_name}
@@ -531,23 +534,23 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="group_order">Group Order</Label>
+              <Label htmlFor="group_order" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Order</Label>
               <Input id="group_order" type="number" min={1} value={form.group_order} onChange={(e) => set('group_order', e.target.value)} placeholder="e.g. 100" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="display_order">Display Order</Label>
+              <Label htmlFor="display_order" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Display Order</Label>
               <Input id="display_order" type="number" min={1} value={form.display_order} onChange={(e) => set('display_order', e.target.value)} placeholder="e.g. 10" />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="description">Description</Label>
+            <Label htmlFor="description" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Description</Label>
             <Textarea id="description" value={form.description} onChange={(e) => set('description', e.target.value)}
               placeholder="Short description visible in the app…" className="min-h-[60px] text-sm" />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="reference">Reference</Label>
+            <Label htmlFor="reference" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Reference</Label>
             <Input id="reference" value={form.reference} onChange={(e) => set('reference', e.target.value)}
               placeholder="e.g. Quran 112 or Bukhari 1234" />
           </div>
@@ -574,7 +577,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
             <div className="flex gap-2">
               <Input value={form.file_url} onChange={(e) => set('file_url', e.target.value)} placeholder="https://... or upload below" className="flex-1 text-sm" />
               <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/40 text-primary text-xs font-medium hover:bg-primary/5 transition-colors disabled:opacity-50 shrink-0">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] text-xs font-medium hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-50 shrink-0">
                 {uploadingImage ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
                 {uploadingImage ? 'Uploading…' : 'Upload'}
               </button>
@@ -607,12 +610,12 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
         </div>
 
         <DialogFooter className="pt-2 gap-2 flex-wrap">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} className="border-[hsl(140_20%_88%)]">Cancel</Button>
           {isEdit && (
             <Button
               variant="outline"
               onClick={() => { handleSaveAsCopy(); onClose(); }}
-              className="gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
+              className="gap-1.5 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]"
             >
               <Copy size={13} /> Save as New Copy
             </Button>

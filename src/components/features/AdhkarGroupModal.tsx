@@ -156,9 +156,12 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto border-[hsl(140_20%_88%)]">
         <DialogHeader>
-          <DialogTitle className="text-lg font-bold">
+          <DialogTitle className="text-base font-bold text-[hsl(150_30%_12%)] flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
+              <span className="text-sm">{form.icon}</span>
+            </div>
             {isEdit ? 'Edit Group' : 'New Group'}
           </DialogTitle>
         </DialogHeader>
@@ -194,11 +197,11 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
           {/* Name + Prayer Time */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Group Name *</Label>
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name *</Label>
               <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Wird al-Latif" />
             </div>
             <div className="space-y-1.5">
-              <Label>Prayer Time</Label>
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Prayer Time</Label>
               <select
                 value={form.prayer_time}
                 onChange={(e) => set('prayer_time', e.target.value)}
@@ -213,7 +216,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
 
           {/* Description */}
           <div className="space-y-1.5">
-            <Label>Description</Label>
+          <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Description</Label>
             <Textarea
               value={form.description}
               onChange={(e) => set('description', e.target.value)}
@@ -224,7 +227,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
 
           {/* Icon picker */}
           <div className="space-y-2">
-            <Label>Icon</Label>
+          <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Icon</Label>
             <div className="flex flex-wrap gap-2">
               {GROUP_ICON_OPTIONS.map((opt) => (
                 <button
@@ -245,7 +248,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
 
           {/* Icon background color */}
           <div className="space-y-2">
-            <Label>Icon Background Color</Label>
+          <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Icon Background Color</Label>
             <div className="flex items-center gap-3 flex-wrap">
               {GROUP_COLOR_PRESETS.map((p) => (
                 <button
@@ -274,7 +277,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
           {/* Badge */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Badge Text</Label>
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Badge Text</Label>
               <Input
                 value={form.badge_text}
                 onChange={(e) => set('badge_text', e.target.value)}
@@ -282,7 +285,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
               />
             </div>
             <div className="space-y-2">
-              <Label>Badge Color</Label>
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Badge Color</Label>
               <div className="flex items-center gap-2 flex-wrap">
                 {GROUP_COLOR_PRESETS.slice(0, 6).map((p) => (
                   <button
@@ -308,7 +311,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
 
           {/* Display order */}
           <div className="space-y-1.5 w-32">
-            <Label>Display Order</Label>
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Display Order</Label>
             <Input
               type="number"
               min={0}
@@ -320,7 +323,7 @@ const AdhkarGroupModal = ({ open, group, onClose, onSaved }: AdhkarGroupModalPro
         </div>
 
         <DialogFooter className="pt-2 gap-2">
-          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} disabled={saving} className="border-[hsl(140_20%_88%)]">Cancel</Button>
           <Button
             onClick={handleSave}
             disabled={saving}
