@@ -40,6 +40,12 @@ const TIMEOUT_MS     = 30 * 60 * 1000;  // 30 minutes
 const WARNING_BEFORE =  2 * 60 * 1000;  // warn 2 minutes before
 const CHECK_INTERVAL = 30 * 1000;       // check every 30 seconds
 
+// Shared Supabase Auth service account — gives portal sessions the `authenticated`
+// role so RLS write policies are satisfied. All portal roles are still managed
+// by the portal_users table; this is purely for Supabase JWT authentication.
+const PORTAL_SERVICE_EMAIL    = 'portal@jmn-masjid.internal';
+const PORTAL_SERVICE_PASSWORD = 'JMN_Portal_2024!Secure';
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 export const AuthContext = createContext<AuthState>({
@@ -69,6 +75,8 @@ export function useAuthState(): AuthState {
       toast.dismiss(warningToastId.current);
       warningToastId.current = null;
     }
+    // Sign out of Supabase Auth so the authenticated JWT is revoked
+    await supabase.auth.signOut();
   }, []);
 
   signOutRef.current = signOut;
@@ -86,6 +94,20 @@ export function useAuthState(): AuthState {
     const ts = localStorage.getItem(SESSION_TS_KEY);
     return ts ? parseInt(ts, 10) : Date.now();
   };
+
+  // ── Supabase Auth sign-in (gets authenticated JWT for write access) ─────
+  const signIntoSupabase = useCallback(async () => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: PORTAL_SERVICE_EMAIL,
+      password: PORTAL_SERVICE_PASSWORD,
+    });
+    if (error) {
+      // Non-fatal: log but don't block portal login
+      console.warn('Supabase Auth sign-in failed (write operations may be blocked):', error.message);
+    } else {
+      console.log('Supabase Auth session established — authenticated writes enabled.');
+    }
+  }, []);
 
   // ── DB login ──────────────────────────────────────────────────────────────
   const dbLogin = useCallback(async (username: string, password: string): Promise<LocalUser> => {
@@ -113,6 +135,9 @@ export function useAuthState(): AuthState {
         .eq('id', data.id)
         .then(() => {});
 
+      // Establish Supabase Auth session for authenticated write access
+      await signIntoSupabase();
+
       return {
         id: data.id,
         username: data.username,
@@ -135,11 +160,14 @@ export function useAuthState(): AuthState {
         { onConflict: 'username' }
       ).then(() => {});
 
+      // Establish Supabase Auth session for authenticated write access
+      await signIntoSupabase();
+
       return { id: 'root-admin', username: 'admin', name: 'Root Administrator', role: 'admin' };
     }
 
     throw new Error('Invalid username or password.');
-  }, []);
+  }, [signIntoSupabase]);
 
   // ── Local login (set session after dbLogin succeeds) ──────────────────────
   const localLogin = useCallback((u: LocalUser) => {
@@ -150,23 +178,33 @@ export function useAuthState(): AuthState {
 
   // ── Restore session on mount ──────────────────────────────────────────────
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SESSION_KEY);
-      if (stored) {
-        const parsed: LocalUser = JSON.parse(stored);
-        const idle = Date.now() - getLastActive();
-        if (idle < TIMEOUT_MS) {
-          setUser(parsed);
-        } else {
-          localStorage.removeItem(SESSION_KEY);
-          localStorage.removeItem(SESSION_TS_KEY);
+    const restore = async () => {
+      try {
+        const stored = localStorage.getItem(SESSION_KEY);
+        if (stored) {
+          const parsed: LocalUser = JSON.parse(stored);
+          const idle = Date.now() - getLastActive();
+          if (idle < TIMEOUT_MS) {
+            setUser(parsed);
+            // Re-establish Supabase Auth session on page reload
+            // (check if we already have a valid session first)
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+              await signIntoSupabase();
+            }
+          } else {
+            localStorage.removeItem(SESSION_KEY);
+            localStorage.removeItem(SESSION_TS_KEY);
+            await supabase.auth.signOut();
+          }
         }
+      } catch {
+        localStorage.removeItem(SESSION_KEY);
       }
-    } catch {
-      localStorage.removeItem(SESSION_KEY);
-    }
-    setLoading(false);
-  }, []);
+      setLoading(false);
+    };
+    restore();
+  }, [signIntoSupabase]);
 
   // ── Activity listeners ────────────────────────────────────────────────────
   useEffect(() => {
