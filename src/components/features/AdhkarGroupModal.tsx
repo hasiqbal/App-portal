@@ -36,8 +36,6 @@ interface AdhkarGroupModalProps {
   onSaved: (group: AdhkarGroup, oldName?: string, oldPrayerTime?: string) => void;
   /** Called when merging into an existing group — parent handles entry re-assignment + cache update */
   onMergeInto?: (sourceGroupName: string, targetGroup: AdhkarGroup, sourceGroupId?: string) => Promise<void>;
-  /** Called when the user requests deletion of this group from the modal */
-  onDelete?: (group: AdhkarGroup) => void;
 }
 
 const EMPTY = {
@@ -54,7 +52,7 @@ const EMPTY = {
 
 type FormState = typeof EMPTY;
 
-const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, onMergeInto, onDelete }: AdhkarGroupModalProps) => {
+const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, onMergeInto }: AdhkarGroupModalProps) => {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [nameDropOpen, setNameDropOpen] = useState(false);
@@ -430,17 +428,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           </div>
         </div>
 
-        <DialogFooter className="pt-2 gap-2 flex-wrap">
-          {isEdit && onDelete && group && (
-            <Button
-              variant="outline"
-              onClick={() => onDelete(group)}
-              disabled={saving}
-              className="border-destructive/40 text-destructive hover:bg-destructive/5 mr-auto"
-            >
-              Delete Group
-            </Button>
-          )}
+        <DialogFooter className="pt-2 gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving} className="border-[hsl(140_20%_88%)]">Cancel</Button>
           <Button
             onClick={handleSave}
