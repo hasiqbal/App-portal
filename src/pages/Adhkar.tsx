@@ -907,10 +907,13 @@ const Adhkar = () => {
     if (!duplicateSource || !dupNewName.trim()) return;
     const newGroupName = dupNewName.trim();
     setDupSaving(true);
-    const sourceItems = duplicateSource.items;
+
+    // Snapshot source data NOW before any state changes
+    const sourceName = duplicateSource.name;
+    const sourceItems = duplicateSource.items.map((src) => ({ ...src })); // deep-copy to avoid reference issues
     const sourceMeta = duplicateSource.meta;
 
-    // If a group with this name already exists, reuse it (same name, different prayer time is valid).
+    // If a group with this name already exists, reuse its metadata.
     // Only create a new group record when the name is genuinely new.
     const existingGroupMeta = groupsList.find((g) => g.name === newGroupName);
     let newGroupMeta: AdhkarGroup | undefined = existingGroupMeta;
@@ -932,26 +935,44 @@ const Adhkar = () => {
       }
     }
 
-    const now = new Date().toISOString();
-    const tempIds: string[] = sourceItems.map(() => `temp-dup-${crypto.randomUUID()}`);
-    const optimisticEntries: Dhikr[] = sourceItems.map((src, idx) => ({
-      ...src, id: tempIds[idx], group_name: newGroupName, prayer_time: dupPrayerTime,
-      display_order: src.display_order ?? (idx + 1) * 10, created_at: now, updated_at: now,
-    }));
-    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => [...old, ...optimisticEntries]);
+    // Close dialog immediately for responsiveness
     setDuplicateDialogOpen(false);
     setDuplicateSource(null);
     setDupSaving(false);
 
+    // Create real DB entries first, then add to cache with real IDs.
+    // This avoids the bug where temp-ID replacement accidentally overwrites
+    // original source entries that share the same group name.
+    const now = new Date().toISOString();
     const results = await Promise.allSettled(
       sourceItems.map(async (src, idx) => {
         const { id: _id, created_at: _ca, updated_at: _ua, ...rest } = src;
+        // Generate a client-side temp entry so UI feels instant
+        const tempId = `temp-dup-${crypto.randomUUID()}`;
+        const optimistic: Dhikr = {
+          ...src,
+          id: tempId,
+          group_name: newGroupName,
+          prayer_time: dupPrayerTime,
+          display_order: src.display_order ?? (idx + 1) * 10,
+          created_at: now,
+          updated_at: now,
+        };
+        // Add optimistic entry — original source entries are NEVER touched
+        queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => {
+          // Guard: don't add if a real entry with same content already crept in
+          if (old.some((d) => d.id === tempId)) return old;
+          return [...old, optimistic];
+        });
         const real = await createDhikr({
-          ...rest, group_name: newGroupName, prayer_time: dupPrayerTime,
+          ...rest,
+          group_name: newGroupName,
+          prayer_time: dupPrayerTime,
           display_order: src.display_order ?? (idx + 1) * 10,
         });
+        // Replace temp entry with real DB entry (matched by tempId, not source id)
         queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
-          old.map((d) => (d.id === tempIds[idx] ? real : d))
+          old.map((d) => (d.id === tempId ? real : d))
         );
         return real;
       })
@@ -959,7 +980,7 @@ const Adhkar = () => {
 
     const failed = results.filter((r) => r.status === 'rejected').length;
     if (failed > 0) toast.error(`${failed} entr${failed === 1 ? 'y' : 'ies'} failed to copy.`);
-    else toast.success(`Duplicated "${duplicateSource.name}" → "${newGroupName}" with ${sourceItems.length} entr${sourceItems.length === 1 ? 'y' : 'ies'}.`);
+    else toast.success(`Duplicated "${sourceName}" → "${newGroupName}" with ${sourceItems.length} entr${sourceItems.length === 1 ? 'y' : 'ies'} under ${PRAYER_TIME_LABELS[dupPrayerTime] ?? dupPrayerTime}.`);
     console.log('[Adhkar] Duplicate complete. New group meta:', newGroupMeta);
   };
 
