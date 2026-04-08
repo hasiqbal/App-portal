@@ -393,7 +393,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
                 dir="rtl"
                 rows={3}
                 className="w-full rounded-xl border border-[hsl(140_20%_88%)] bg-background px-4 py-3 text-sm text-right focus:outline-none focus:ring-2 focus:ring-[hsl(142_60%_35%/0.3)] focus:border-[hsl(142_50%_70%)] resize-none"
-                style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }}
+                style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }}
               />
             </div>
             <div className="space-y-2">

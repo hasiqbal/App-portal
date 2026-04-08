@@ -512,7 +512,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onFinalized, onR
             </div>
             <Textarea id="urdu_translation" value={form.urdu_translation} onChange={(e) => set('urdu_translation', e.target.value)}
               placeholder="اردو ترجمہ یہاں لکھیں…" dir="rtl" className="min-h-[60px] text-sm text-right"
-              style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }} />
+              style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }} />
             <p className="text-[10px] text-muted-foreground">Auto-translate uses the English translation, or title if unavailable.</p>
           </div>
 

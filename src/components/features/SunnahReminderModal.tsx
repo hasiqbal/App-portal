@@ -233,7 +233,7 @@ const SunnahReminderModal = ({
             </div>
             <Textarea id="sr-urdu" value={form.urdu_translation} onChange={(e) => set('urdu_translation', e.target.value)}
               placeholder="اردو ترجمہ یہاں لکھیں…" dir="rtl" className="min-h-[60px] text-sm text-right"
-              style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }} />
+              style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }} />
           </div>
 
           <div className="space-y-1.5">

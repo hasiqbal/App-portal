@@ -94,6 +94,15 @@
   }
 }
 
+/* ── Urdu / Nastaliq font utility ── */
+.font-urdu,
+[dir="rtl"].font-urdu,
+textarea[dir="rtl"],
+p[dir="rtl"] {
+  font-family: 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif;
+  line-height: 2.4;
+}
+
 /* ── Custom scrollbar ── */
 ::-webkit-scrollbar {
   width: 5px;

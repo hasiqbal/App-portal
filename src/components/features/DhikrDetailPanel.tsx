@@ -167,7 +167,7 @@ const DhikrDetailPanel = ({ dhikr, onClose, onEdit, onDelete }: DhikrDetailPanel
                   <p
                     className="text-base leading-loose text-right"
                     dir="rtl"
-                    style={{ color: 'hsl(var(--foreground) / 0.85)', fontFamily: '"Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", serif', lineHeight: '2.2' }}
+                    style={{ color: 'hsl(var(--foreground) / 0.85)', fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }}
                   >
                     {dhikr.urdu_translation}
                   </p>

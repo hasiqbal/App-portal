@@ -593,7 +593,7 @@ const ComposePanel = ({
               dir="rtl"
               rows={2}
               className="text-sm resize-none text-right"
-              style={{ fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2' }}
+              style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }}
             />
           </div>
 

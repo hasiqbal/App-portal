@@ -192,7 +192,7 @@ const DetailPanel = ({ item, onClose, onEdit, onDelete }: { item: SunnahReminder
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5"><AlignLeft size={12} /> Urdu Translation</p>
                   <p className="text-base leading-loose text-right" dir="rtl"
-                    style={{ color: 'hsl(var(--foreground) / 0.85)', fontFamily: '"Noto Nastaliq Urdu", serif', lineHeight: '2.2' }}>
+                    style={{ color: 'hsl(var(--foreground) / 0.85)', fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }}>
                     {(item as SunnahReminder & { urdu_translation?: string | null }).urdu_translation}
                   </p>
                 </div>
