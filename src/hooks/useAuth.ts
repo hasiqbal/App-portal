@@ -11,7 +11,6 @@
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
 import { toast } from 'sonner';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
-import { activityLogger } from '@/services/activityLogService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,9 +68,6 @@ export function useAuthState(): AuthState {
 
   // ── Core sign-out ─────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
-    // Log logout before clearing user
-    await activityLogger.log('logout', 'auth', { entityLabel: user?.username ?? 'unknown' });
-    activityLogger.clearUser();
     setUser(null);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(SESSION_TS_KEY);
@@ -148,9 +144,6 @@ export function useAuthState(): AuthState {
         name: data.name || data.username,
         role: data.role as UserRole,
       };
-      activityLogger.setUser(localUser.username, localUser.role);
-      // Log login (fire-and-forget after return)
-      setTimeout(() => activityLogger.log('login', 'auth', { entityLabel: localUser.username }), 100);
       return localUser;
     }
 
@@ -180,8 +173,6 @@ export function useAuthState(): AuthState {
       // Establish Supabase Auth session for authenticated write access
       await signIntoSupabase();
 
-      activityLogger.setUser('admin', 'admin');
-      setTimeout(() => activityLogger.log('login', 'auth', { entityLabel: 'admin' }), 100);
       return { id: 'root-admin', username: 'admin', name: 'Root Administrator', role: 'admin' };
     }
 
@@ -205,7 +196,6 @@ export function useAuthState(): AuthState {
           const idle = Date.now() - getLastActive();
           if (idle < TIMEOUT_MS) {
             setUser(parsed);
-            activityLogger.setUser(parsed.username, parsed.role);
             // Re-establish Supabase Auth session on page reload
             // (check if we already have a valid session first)
             const { data: { session } } = await supabase.auth.getSession();

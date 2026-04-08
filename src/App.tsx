@@ -19,8 +19,7 @@ import Login from "./pages/Login";
 import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
-import UserManagement from "./pages/UserManagement";
-import ActivityLog from "./pages/ActivityLog";
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -93,11 +92,7 @@ const AppRoutes = () => {
         <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
         <Route path="/excel-converter" element={<ProtectedRoute><ExcelConverter /></ProtectedRoute>} />
 
-        {/* All authenticated users can see activity log */}
-        <Route path="/activity-log" element={<ProtectedRoute><ActivityLog /></ProtectedRoute>} />
-
         {/* Admin-only routes */}
-        <Route path="/users" element={<ProtectedRoute adminOnly><UserManagement /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute adminOnly><Settings /></ProtectedRoute>} />
         <Route path="/cloud-data" element={<ProtectedRoute adminOnly><CloudData /></ProtectedRoute>} />
 

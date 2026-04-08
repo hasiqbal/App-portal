@@ -1,7 +1,6 @@
 
 import { PrayerTime, PrayerTimeUpdate, Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, Announcement, AnnouncementPayload, SunnahReminder, SunnahReminderPayload, SunnahGroup, SunnahGroupPayload } from '@/types';
 import { supabase } from '@/lib/supabase';
-import { activityLogger } from '@/services/activityLogService';
 
 // All data now lives in the single external Supabase project (lhaqqqatdztuijgdfdcf).
 // The supabase client in src/lib/supabase.ts already points there.
@@ -75,7 +74,6 @@ export async function createDhikr(data: Partial<DhikrPayload>): Promise<Dhikr> {
     console.error('createDhikr error:', error);
     throw new Error(`Failed to create dhikr: ${error.message}`);
   }
-  activityLogger.log('adhkar_created', 'adhkar', { entityId: rows.id, entityLabel: rows.title });
   return rows as Dhikr;
 }
 
@@ -90,9 +88,6 @@ export async function updateDhikr(id: string, data: Partial<DhikrPayload>): Prom
     console.error('updateDhikr error:', error);
     throw new Error(`Failed to update dhikr: ${error.message}`);
   }
-  // Only log meaningful edits (not display_order / group_order reorders)
-  const isReorder = Object.keys(data).every((k) => ['display_order','group_order'].includes(k));
-  if (!isReorder) activityLogger.log('adhkar_updated', 'adhkar', { entityId: id, entityLabel: rows.title });
   return rows as Dhikr;
 }
 
@@ -102,7 +97,6 @@ export async function deleteDhikr(id: string): Promise<void> {
     .delete()
     .eq('id', id);
   if (error) throw new Error(`Failed to delete dhikr: ${error.message}`);
-  activityLogger.log('adhkar_deleted', 'adhkar', { entityId: id });
 }
 
 // ─── Adhkar Groups ───────────────────────────────────────────────────────────
@@ -171,7 +165,6 @@ export async function createAnnouncement(data: Partial<AnnouncementPayload>): Pr
     .select()
     .single();
   if (error) throw new Error(`Failed to create announcement: ${error.message}`);
-  activityLogger.log('announcement_created', 'announcement', { entityId: rows.id, entityLabel: rows.title });
   return rows as Announcement;
 }
 
@@ -183,7 +176,6 @@ export async function updateAnnouncement(id: string, data: Partial<AnnouncementP
     .select()
     .single();
   if (error) throw new Error(`Failed to update announcement: ${error.message}`);
-  activityLogger.log('announcement_updated', 'announcement', { entityId: id, entityLabel: rows.title });
   return rows as Announcement;
 }
 
@@ -193,7 +185,6 @@ export async function deleteAnnouncement(id: string): Promise<void> {
     .delete()
     .eq('id', id);
   if (error) throw new Error(`Failed to delete announcement: ${error.message}`);
-  activityLogger.log('announcement_deleted', 'announcement', { entityId: id });
 }
 
 // ─── Sunnah Reminders ────────────────────────────────────────────────────────
@@ -215,7 +206,6 @@ export async function createSunnahReminder(data: Partial<SunnahReminderPayload>)
     .select()
     .single();
   if (error) throw new Error(`Failed to create sunnah reminder: ${error.message}`);
-  activityLogger.log('sunnah_created', 'sunnah_reminder', { entityId: rows.id, entityLabel: rows.title });
   return rows as SunnahReminder;
 }
 
@@ -227,7 +217,6 @@ export async function updateSunnahReminder(id: string, data: Partial<SunnahRemin
     .select()
     .single();
   if (error) throw new Error(`Failed to update sunnah reminder: ${error.message}`);
-  activityLogger.log('sunnah_updated', 'sunnah_reminder', { entityId: id, entityLabel: rows.title });
   return rows as SunnahReminder;
 }
 
@@ -237,7 +226,6 @@ export async function deleteSunnahReminder(id: string): Promise<void> {
     .delete()
     .eq('id', id);
   if (error) throw new Error(`Failed to delete sunnah reminder: ${error.message}`);
-  activityLogger.log('sunnah_deleted', 'sunnah_reminder', { entityId: id });
 }
 
 // ─── Sunnah Groups ───────────────────────────────────────────────────────────
