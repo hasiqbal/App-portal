@@ -1,17 +1,18 @@
 import { useState } from 'react';
-import { CalendarDays, BookOpen, Database, Bell, BellRing, Menu, X, Home, FileSpreadsheet, Star } from 'lucide-react';
+import { CalendarDays, BookOpen, Database, Bell, BellRing, Menu, X, Home, FileSpreadsheet, Star, BarChart2 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import masjidLogo from '@/assets/masjid-logo.png';
 
 const NAV_ITEMS = [
-  { to: '/',               icon: Home,          label: 'Dashboard'         },
-  { to: '/prayer-times',   icon: CalendarDays,  label: 'Prayer Times'      },
-  { to: '/adhkar',         icon: BookOpen,      label: 'Adhkar'            },
-  { to: '/announcements',  icon: Bell,          label: 'Announcements'     },
-  { to: '/sunnah-reminders', icon: Star,        label: 'Sunnah Reminders'  },
-  { to: '/notifications',  icon: BellRing,      label: 'Notifications'     },
-  { to: '/cloud-data',     icon: Database,      label: 'Cloud Data'        },
-  { to: '/excel-converter', icon: FileSpreadsheet, label: 'Excel → CSV'   },
+  { to: '/',                 icon: Home,           label: 'Dashboard'        },
+  { to: '/prayer-times',    icon: CalendarDays,   label: 'Prayer Times'     },
+  { to: '/adhkar',          icon: BookOpen,       label: 'Adhkar'           },
+  { to: '/announcements',   icon: Bell,           label: 'Announcements'    },
+  { to: '/sunnah-reminders',icon: Star,           label: 'Sunnah Reminders' },
+  { to: '/notifications',   icon: BellRing,       label: 'Notifications'    },
+  { to: '/analytics',       icon: BarChart2,      label: 'Analytics'        },
+  { to: '/cloud-data',      icon: Database,       label: 'Cloud Data'       },
+  { to: '/excel-converter', icon: FileSpreadsheet,label: 'Excel → CSV'      },
 ];
 
 const LogoBrand = () => (
