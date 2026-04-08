@@ -256,13 +256,19 @@ const SortableGroupSection = ({
                 className="flex gap-1.5" onClick={(e) => e.stopPropagation()}
               >
                 <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
-                  className="h-7 text-sm w-44 font-semibold" autoFocus
+                  className="h-7 text-sm w-48 font-semibold" autoFocus
                   onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(false); }} />
                 <button type="submit" className="px-2 h-7 rounded text-xs bg-primary text-primary-foreground font-medium">Save</button>
                 <button type="button" onClick={() => setRenaming(false)} className="px-2 h-7 rounded text-xs border border-input text-muted-foreground">✕</button>
               </form>
             ) : (
-              <span className="font-semibold text-sm text-foreground cursor-pointer leading-snug">{groupName}</span>
+              <span
+                className="font-semibold text-sm text-foreground leading-snug cursor-text hover:bg-secondary/40 hover:text-primary px-1 -mx-1 rounded transition-colors"
+                title="Click to rename group"
+                onClick={(e) => { e.stopPropagation(); setRenameValue(groupName); setRenaming(true); setCollapsed(false); }}
+              >
+                {groupName}
+              </span>
             )}
             {!renaming && badgeText && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-white" style={{ background: badgeColor }}>{badgeText}</span>
@@ -341,13 +347,7 @@ const SortableGroupSection = ({
           {/* Edit buttons */}
           {!isUngrouped && (
             <>
-              <button
-                onClick={() => { setRenameValue(groupName); setRenaming(true); setCollapsed(false); }}
-                className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors"
-                title="Rename group"
-              >
-                <Pencil size={12} className="text-purple-500" />
-              </button>
+
               <button
                 onClick={() => onEditGroup(groupName, groupMeta)}
                 className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors"
