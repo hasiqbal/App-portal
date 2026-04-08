@@ -906,29 +906,30 @@ const Adhkar = () => {
   const handleDuplicateConfirm = async () => {
     if (!duplicateSource || !dupNewName.trim()) return;
     const newGroupName = dupNewName.trim();
-    // Prevent duplicate names
-    if (groupsList.some((g) => g.name === newGroupName)) {
-      toast.error(`A group named "${newGroupName}" already exists. Please choose a different name.`);
-      return;
-    }
     setDupSaving(true);
     const sourceItems = duplicateSource.items;
     const sourceMeta = duplicateSource.meta;
 
-    let newGroupMeta: AdhkarGroup | undefined;
-    try {
-      newGroupMeta = await createAdhkarGroup({
-        name: newGroupName, prayer_time: dupPrayerTime,
-        icon: sourceMeta?.icon ?? '📋', icon_color: sourceMeta?.icon_color ?? '#ffffff',
-        icon_bg_color: sourceMeta?.icon_bg_color ?? '#6366f1',
-        badge_text: sourceMeta?.badge_text ?? null, badge_color: sourceMeta?.badge_color ?? '#6366f1',
-        description: sourceMeta?.description ?? null, display_order: (sourceMeta?.display_order ?? 0) + 10,
-      });
-      queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => [...old, newGroupMeta!]);
-    } catch {
-      toast.error('Failed to create group metadata.');
-      setDupSaving(false);
-      return;
+    // If a group with this name already exists, reuse it (same name, different prayer time is valid).
+    // Only create a new group record when the name is genuinely new.
+    const existingGroupMeta = groupsList.find((g) => g.name === newGroupName);
+    let newGroupMeta: AdhkarGroup | undefined = existingGroupMeta;
+
+    if (!existingGroupMeta) {
+      try {
+        newGroupMeta = await createAdhkarGroup({
+          name: newGroupName, prayer_time: dupPrayerTime,
+          icon: sourceMeta?.icon ?? '📋', icon_color: sourceMeta?.icon_color ?? '#ffffff',
+          icon_bg_color: sourceMeta?.icon_bg_color ?? '#6366f1',
+          badge_text: sourceMeta?.badge_text ?? null, badge_color: sourceMeta?.badge_color ?? '#6366f1',
+          description: sourceMeta?.description ?? null, display_order: (sourceMeta?.display_order ?? 0) + 10,
+        });
+        queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => [...old, newGroupMeta!]);
+      } catch {
+        toast.error('Failed to create group metadata.');
+        setDupSaving(false);
+        return;
+      }
     }
 
     const now = new Date().toISOString();
@@ -1778,18 +1779,26 @@ const Adhkar = () => {
               Duplicate Group
             </DialogTitle>
             <p className="text-xs text-muted-foreground pt-1">
-              Creates a full copy of <strong>"{duplicateSource?.name}"</strong> ({duplicateSource?.items.length} entr{(duplicateSource?.items.length ?? 0) === 1 ? 'y' : 'ies'}) under a new name and prayer time.
+              Copies entries from <strong>"{duplicateSource?.name}"</strong> ({duplicateSource?.items.length} entr{(duplicateSource?.items.length ?? 0) === 1 ? 'y' : 'ies'}) into a group under a different prayer time. You can keep the same name or choose a new one.
             </p>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label htmlFor="dup-name">New Group Name *</Label>
-              <Input id="dup-name" value={dupNewName} onChange={(e) => setDupNewName(e.target.value)} placeholder="e.g. Wird al-Latif (After Maghrib)" autoFocus
-                className={groupsList.some((g) => g.name === dupNewName.trim() && dupNewName.trim()) ? 'border-red-400 focus-visible:ring-red-400' : ''}
-              />
-              {groupsList.some((g) => g.name === dupNewName.trim() && dupNewName.trim()) && (
-                <p className="text-[11px] text-red-600 font-medium">⚠ A group with this name already exists — choose a different name.</p>
-              )}
+              <Input id="dup-name" value={dupNewName} onChange={(e) => setDupNewName(e.target.value)} placeholder="e.g. Wird al-Latif (After Maghrib)" autoFocus />
+              {(() => {
+                const sameNameExists = dupNewName.trim() && groupsList.some((g) => g.name === dupNewName.trim());
+                const entriesAlreadyThere = sameNameExists && adhkar.some(
+                  (d) => d.group_name === dupNewName.trim() && d.prayer_time === dupPrayerTime && d.id !== duplicateSource?.items[0]?.id
+                );
+                if (!sameNameExists) return null;
+                if (entriesAlreadyThere) return (
+                  <p className="text-[11px] text-amber-600 font-medium">⚠ "{dupNewName.trim()}" already has entries under this prayer time — new copies will be added alongside them.</p>
+                );
+                return (
+                  <p className="text-[11px] text-emerald-700 font-medium">✓ Entries will be added to the existing "{dupNewName.trim()}" group under the new prayer time.</p>
+                );
+              })()}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="dup-prayer-time">Target Prayer Time *</Label>
@@ -1797,20 +1806,20 @@ const Adhkar = () => {
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
                 {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>)}
               </select>
-              <p className="text-[11px] text-muted-foreground">All copied entries will be assigned to this prayer time.</p>
+              <p className="text-[11px] text-muted-foreground">All copied entries will be assigned to this prayer time — the group will appear under both sections.</p>
             </div>
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
               <p className="text-xs font-semibold text-blue-800 mb-1.5">What gets duplicated:</p>
               <ul className="text-xs text-blue-700 space-y-0.5 list-disc pl-4">
-                <li>Group metadata (icon, colours, badge)</li>
-                <li>All {duplicateSource?.items.length} entries with Arabic text, transliterations &amp; counts</li>
+                <li>{groupsList.some((g) => g.name === dupNewName.trim()) ? 'Uses existing group metadata (icon, colours, badge)' : 'Creates new group with same metadata (icon, colours, badge)'}</li>
+                <li>All {duplicateSource?.items.length} entr{(duplicateSource?.items.length ?? 0) === 1 ? 'y' : 'ies'} with Arabic text, transliterations &amp; counts</li>
                 <li>Original display order is preserved</li>
               </ul>
             </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => { setDuplicateDialogOpen(false); setDuplicateSource(null); }} disabled={dupSaving}>Cancel</Button>
-            <Button onClick={handleDuplicateConfirm} disabled={dupSaving || !dupNewName.trim() || groupsList.some((g) => g.name === dupNewName.trim())} className="gap-2"
+            <Button onClick={handleDuplicateConfirm} disabled={dupSaving || !dupNewName.trim()} className="gap-2"
               style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
               {dupSaving ? <><Loader2 size={13} className="animate-spin" /> Duplicating…</> : <><Copy size={13} /> Duplicate Group</>}
             </Button>
