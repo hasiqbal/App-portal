@@ -43,7 +43,11 @@ export const portalUsersService = {
       .select('id, username, name, role, is_active, created_by, last_login, created_at, updated_at')
       .order('role', { ascending: true })
       .order('created_at', { ascending: true });
-    if (error) throw new Error(`Failed to fetch users: ${error.message}`);
+    if (error) {
+      console.error('portal_users getAll error:', error.message, error.code);
+      throw new Error(`Failed to fetch users: ${error.message}`);
+    }
+    console.log('portal_users getAll:', data?.length, 'rows returned');
     return data as PortalUser[];
   },
 
