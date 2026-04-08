@@ -18,6 +18,7 @@ import Notifications from "./pages/Notifications";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
+import UserManagement from "./pages/UserManagement";
 
 
 const queryClient = new QueryClient({
@@ -93,6 +94,7 @@ const AppRoutes = () => {
         {/* Admin-only routes */}
         <Route path="/settings" element={<ProtectedRoute adminOnly><Settings /></ProtectedRoute>} />
         <Route path="/cloud-data" element={<ProtectedRoute adminOnly><CloudData /></ProtectedRoute>} />
+        <Route path="/users" element={<ProtectedRoute adminOnly><UserManagement /></ProtectedRoute>} />
 
         {/* Legacy redirects */}
         <Route path="/index" element={<Navigate to="/" replace />} />

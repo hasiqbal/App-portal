@@ -83,17 +83,24 @@ const Login = () => {
       </div>
 
       {/* ── Right panel — login form ── */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 bg-[hsl(140_30%_97%)]">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 relative overflow-hidden">
+        {/* Mobile background image */}
+        <div className="md:hidden absolute inset-0 z-0">
+          <img src={masjidPhoto} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[hsl(142_65%_12%/0.85)] to-[hsl(142_50%_16%/0.90)]" />
+        </div>
+        {/* Desktop subtle tint */}
+        <div className="hidden md:block absolute inset-0 bg-[hsl(140_30%_97%)]" />
         {/* Mobile logo */}
-        <div className="md:hidden flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-white shadow-md flex items-center justify-center mb-3 border border-[hsl(140_20%_88%)]">
+        <div className="md:hidden relative z-10 flex flex-col items-center mb-8">
+          <div className="w-16 h-16 rounded-2xl bg-white/90 backdrop-blur shadow-md flex items-center justify-center mb-3 border border-white/30">
             <img src={masjidLogo} alt="JMN" className="w-12 h-12 object-contain" />
           </div>
-          <h1 className="font-extrabold text-[hsl(150_30%_12%)] text-xl">Jami' Masjid Noorani</h1>
-          <p className="text-xs text-muted-foreground mt-1 tracking-wider uppercase">Admin Portal</p>
+          <h1 className="font-extrabold text-white text-xl drop-shadow">Jami' Masjid Noorani</h1>
+          <p className="text-xs text-green-200 mt-1 tracking-wider uppercase">Admin Portal</p>
         </div>
 
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm relative z-10">
           <div className="bg-white rounded-2xl border border-[hsl(140_20%_88%)] shadow-sm px-7 py-8">
             {/* Header */}
             <div className="mb-6">
@@ -167,7 +174,7 @@ const Login = () => {
             </form>
           </div>
 
-          <p className="text-center text-[11px] text-muted-foreground mt-5 leading-relaxed">
+          <p className="text-center text-[11px] md:text-muted-foreground text-green-200/80 mt-5 leading-relaxed">
             This portal is restricted to authorised Team JMN administrators only.
             <br />Contact your admin if you need access.
           </p>
