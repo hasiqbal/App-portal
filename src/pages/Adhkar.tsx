@@ -905,8 +905,13 @@ const Adhkar = () => {
 
   const handleDuplicateConfirm = async () => {
     if (!duplicateSource || !dupNewName.trim()) return;
-    setDupSaving(true);
     const newGroupName = dupNewName.trim();
+    // Prevent duplicate names
+    if (groupsList.some((g) => g.name === newGroupName)) {
+      toast.error(`A group named "${newGroupName}" already exists. Please choose a different name.`);
+      return;
+    }
+    setDupSaving(true);
     const sourceItems = duplicateSource.items;
     const sourceMeta = duplicateSource.meta;
 
@@ -1734,7 +1739,12 @@ const Adhkar = () => {
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label htmlFor="dup-name">New Group Name *</Label>
-              <Input id="dup-name" value={dupNewName} onChange={(e) => setDupNewName(e.target.value)} placeholder="e.g. Wird al-Latif (After Maghrib)" autoFocus />
+              <Input id="dup-name" value={dupNewName} onChange={(e) => setDupNewName(e.target.value)} placeholder="e.g. Wird al-Latif (After Maghrib)" autoFocus
+                className={groupsList.some((g) => g.name === dupNewName.trim() && dupNewName.trim()) ? 'border-red-400 focus-visible:ring-red-400' : ''}
+              />
+              {groupsList.some((g) => g.name === dupNewName.trim() && dupNewName.trim()) && (
+                <p className="text-[11px] text-red-600 font-medium">⚠ A group with this name already exists — choose a different name.</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="dup-prayer-time">Target Prayer Time *</Label>
@@ -1755,7 +1765,7 @@ const Adhkar = () => {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => { setDuplicateDialogOpen(false); setDuplicateSource(null); }} disabled={dupSaving}>Cancel</Button>
-            <Button onClick={handleDuplicateConfirm} disabled={dupSaving || !dupNewName.trim()} className="gap-2"
+            <Button onClick={handleDuplicateConfirm} disabled={dupSaving || !dupNewName.trim() || groupsList.some((g) => g.name === dupNewName.trim())} className="gap-2"
               style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
               {dupSaving ? <><Loader2 size={13} className="animate-spin" /> Duplicating…</> : <><Copy size={13} /> Duplicate Group</>}
             </Button>
