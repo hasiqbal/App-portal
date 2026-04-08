@@ -1027,16 +1027,24 @@ const Adhkar = () => {
         await updateAdhkarGroup(meta.id, { description });
         await cascadePromise;
         toast.success('Group description updated.');
+        // Refresh both caches so the UI reflects the persisted value
+        refetchGroups();
         refetch();
       } catch (err) {
+        console.error('[Adhkar] updateAdhkarGroup failed:', err);
+        // Rollback optimistic update
         queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
           old.map((g) => (g.name === groupName ? { ...g, description: meta.description ?? null } : g))
+        );
+        queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+          old.map((d) => (d.group_name === groupName ? { ...d, description: meta.description ?? null } : d))
         );
         toast.error(`Failed to save description: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
     } else {
       await cascadePromise;
       toast.success('Group description updated.');
+      refetchGroups();
       refetch();
     }
   };
@@ -1083,27 +1091,42 @@ const Adhkar = () => {
   };
 
   // ─── Quick prayer-time reassignment from group header dropdown ────────────
-  // Updates the GROUP LABEL only — individual entry prayer times are NOT changed.
+  // Updates the group record AND cascades to all entries so they move sections.
   const handleReassignPrayerTime = async (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined) => {
     const oldPrayerTime = meta?.prayer_time ?? '';
     if (newPrayerTime === oldPrayerTime) return;
 
-    // Update group record only
-    if (meta?.id) {
-      try {
-        await updateAdhkarGroup(meta.id, { prayer_time: newPrayerTime });
-      } catch (err) {
-        toast.error(`Failed to update group label: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        return;
-      }
-    }
+    const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
+    const affected = currentEntries.filter((d) => d.group_name === groupName);
 
-    // Update group cache only — entries keep their own individual prayer_time
+    // Optimistic update — move group + all its entries to new section
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
       old.map((g) => (g.name === groupName ? { ...g, prayer_time: newPrayerTime } : g))
     );
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+      old.map((d) => d.group_name === groupName ? { ...d, prayer_time: newPrayerTime } : d)
+    );
 
-    toast.success(`Group label updated to ${PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime}. Entry prayer times unchanged.`);
+    try {
+      const promises: Promise<unknown>[] = [];
+      if (meta?.id) {
+        promises.push(updateAdhkarGroup(meta.id, { prayer_time: newPrayerTime }));
+      }
+      promises.push(
+        ...affected.map((d) => updateDhikr(d.id, { prayer_time: newPrayerTime }))
+      );
+      await Promise.all(promises);
+      toast.success(`"${groupName}" moved to ${PRAYER_TIME_LABELS[newPrayerTime] ?? newPrayerTime} (${affected.length} entr${affected.length !== 1 ? 'ies' : 'y'} updated).`);
+    } catch (err) {
+      // Rollback
+      queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) =>
+        old.map((g) => (g.name === groupName ? { ...g, prayer_time: oldPrayerTime } : g))
+      );
+      queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+        old.map((d) => d.group_name === groupName ? { ...d, prayer_time: oldPrayerTime } : d)
+      );
+      toast.error(`Failed to reassign prayer time: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   // ─── Merge groups ─────────────────────────────────────────────────────────
