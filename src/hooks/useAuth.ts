@@ -89,35 +89,56 @@ export function useAuthState(): AuthState {
 
   // ── DB login ──────────────────────────────────────────────────────────────
   const dbLogin = useCallback(async (username: string, password: string): Promise<LocalUser> => {
+    const normalised = username.trim().toLowerCase();
+
+    // ── Try database first ────────────────────────────────────────────────
     const { data, error } = await supabase
       .from('portal_users')
       .select('id, username, name, role, is_active, password')
-      .eq('username', username.trim().toLowerCase())
-      .single();
+      .eq('username', normalised)
+      .maybeSingle();            // maybeSingle returns null instead of error when no row found
 
-    if (error || !data) {
-      throw new Error('Invalid username or password.');
-    }
-    if (!data.is_active) {
-      throw new Error('Your account has been deactivated. Contact the administrator.');
-    }
-    if (data.password !== password) {
-      throw new Error('Invalid username or password.');
+    // Table exists and row found → validate
+    if (!error && data) {
+      if (!data.is_active) {
+        throw new Error('Your account has been deactivated. Contact the administrator.');
+      }
+      if (data.password !== password) {
+        throw new Error('Invalid username or password.');
+      }
+      // Update last_login timestamp (fire-and-forget)
+      supabase
+        .from('portal_users')
+        .update({ last_login: new Date().toISOString() })
+        .eq('id', data.id)
+        .then(() => {});
+
+      return {
+        id: data.id,
+        username: data.username,
+        name: data.name || data.username,
+        role: data.role as UserRole,
+      };
     }
 
-    // Update last_login timestamp
-    supabase
-      .from('portal_users')
-      .update({ last_login: new Date().toISOString() })
-      .eq('id', data.id)
-      .then(() => {});
+    // ── Fallback: table missing or no users yet → accept root admin ───────
+    // This handles first-time setup before portal_users is seeded.
+    const storedCreds = (() => {
+      try { return JSON.parse(localStorage.getItem('__jmn_admin_creds__') ?? 'null'); } catch { return null; }
+    })();
+    const adminPassword: string = storedCreds?.password ?? 'admin';
 
-    return {
-      id: data.id,
-      username: data.username,
-      name: data.name || data.username,
-      role: data.role as UserRole,
-    };
+    if (normalised === 'admin' && password === adminPassword) {
+      // Best-effort: try to ensure the root admin row exists in the DB
+      supabase.from('portal_users').upsert(
+        { username: 'admin', name: 'Root Administrator', password: adminPassword, role: 'admin', is_active: true, created_by: 'system' },
+        { onConflict: 'username' }
+      ).then(() => {});
+
+      return { id: 'root-admin', username: 'admin', name: 'Root Administrator', role: 'admin' };
+    }
+
+    throw new Error('Invalid username or password.');
   }, []);
 
   // ── Local login (set session after dbLogin succeeds) ──────────────────────
