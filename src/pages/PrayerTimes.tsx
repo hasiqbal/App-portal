@@ -32,8 +32,16 @@ async function saveOffsetToDb(n: number) {
   try {
     const { error } = await supabaseAdmin
       .from('masjid_settings')
-      .update({ value: String(n), updated_at: new Date().toISOString() })
-      .eq('key', 'hijri_offset');
+      .upsert(
+        {
+          key:      'hijri_offset',
+          value:    String(n),
+          label:    'Hijri Date Offset',
+          category: 'preferences',
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' }
+      );
     if (error) console.error('[HijriOffset] DB save failed:', error.message);
     else console.log('[HijriOffset] Saved to DB:', n);
   } catch (e) {
