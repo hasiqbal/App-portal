@@ -152,7 +152,7 @@ export function useAuthState(): AuthState {
 
   // ── DB login ──────────────────────────────────────────────────────────────
   const dbLogin = useCallback(async (username: string, password: string): Promise<LocalUser> => {
-    const normalised = username.trim().toLowerCase();
+    const normalised = username.trim().toLowerCase().replace(/^@+/, '');
 
     // ── Try database first ────────────────────────────────────────────────
     const { data, error } = await supabase

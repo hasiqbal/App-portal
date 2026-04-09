@@ -126,7 +126,7 @@ const Login = () => {
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="admin"
+                    placeholder="e.g. admin (no @ needed)"
                     className="pl-9 border-[hsl(140_20%_88%)] focus:border-[hsl(142_50%_70%)]"
                     autoComplete="username"
                     autoFocus
