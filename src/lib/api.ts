@@ -1,6 +1,6 @@
 
 import { PrayerTime, PrayerTimeUpdate, Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, Announcement, AnnouncementPayload, SunnahReminder, SunnahReminderPayload, SunnahGroup, SunnahGroupPayload } from '@/types';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseAdmin } from '@/lib/supabase';
 
 // All data now lives in the single external Supabase project (lhaqqqatdztuijgdfdcf).
 // The supabase client in src/lib/supabase.ts already points there.
@@ -24,7 +24,7 @@ export async function fetchPrayerTimes(month?: number): Promise<PrayerTime[]> {
 }
 
 export async function updatePrayerTime(id: string, data: PrayerTimeUpdate): Promise<PrayerTime[]> {
-  const { data: rows, error } = await supabase
+  const { data: rows, error } = await supabaseAdmin
     .from('prayer_times')
     .update(data)
     .eq('id', id)

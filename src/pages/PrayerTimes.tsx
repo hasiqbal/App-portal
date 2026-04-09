@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { fetchPrayerTimes, bulkUpdatePrayerTimes } from '@/lib/api';
-import { PrayerTime } from '@/types';
+import { PrayerTime, HijriCalendarEntry } from '@/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
@@ -50,6 +50,88 @@ async function fetchHijriFromApi(
     hijri:      `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
     gregorian:  `${gDay}/${gMonth}/${gYear}`,
   };
+}
+
+// ─── Hijri Calendar DB helpers ────────────────────────────────────────────────
+
+/**
+ * Fetch all Hijri calendar entries for a given year+month from the hijri_calendar table.
+ * Returns a map: day → HijriCalendarEntry
+ */
+async function fetchHijriCalendarMonth(
+  year: number,
+  month: number,
+): Promise<Map<number, HijriCalendarEntry>> {
+  const { data, error } = await supabaseAdmin
+    .from('hijri_calendar')
+    .select('*')
+    .eq('gregorian_year', year)
+    .eq('gregorian_month', month);
+
+  if (error) {
+    console.error('[hijri_calendar] Fetch error:', error.message);
+    return new Map();
+  }
+
+  const map = new Map<number, HijriCalendarEntry>();
+  for (const row of (data ?? [])) {
+    map.set(row.gregorian_day, row as HijriCalendarEntry);
+  }
+  console.log(`[hijri_calendar] Loaded ${map.size} entries for ${year}-${month}`);
+  return map;
+}
+
+/**
+ * Upsert Hijri calendar entries into the hijri_calendar table.
+ * Uses gregorian_year + gregorian_month + gregorian_day as unique key.
+ */
+async function upsertHijriCalendarEntries(
+  entries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[],
+): Promise<{ saved: number; errors: string[] }> {
+  const errors: string[] = [];
+  let saved = 0;
+
+  for (const entry of entries) {
+    const { error } = await supabaseAdmin
+      .from('hijri_calendar')
+      .upsert(
+        {
+          gregorian_year:  entry.gregorian_year,
+          gregorian_month: entry.gregorian_month,
+          gregorian_day:   entry.gregorian_day,
+          gregorian_date:  entry.gregorian_date,
+          hijri_date:      entry.hijri_date,
+          updated_at:      new Date().toISOString(),
+        },
+        { onConflict: 'gregorian_year,gregorian_month,gregorian_day' },
+      );
+
+    if (error) {
+      // Try without onConflict in case the unique constraint name differs
+      const { error: e2 } = await supabaseAdmin
+        .from('hijri_calendar')
+        .upsert({
+          gregorian_year:  entry.gregorian_year,
+          gregorian_month: entry.gregorian_month,
+          gregorian_day:   entry.gregorian_day,
+          gregorian_date:  entry.gregorian_date,
+          hijri_date:      entry.hijri_date,
+          updated_at:      new Date().toISOString(),
+        });
+      if (e2) {
+        errors.push(`Day ${entry.gregorian_day}: ${e2.message}`);
+        console.error(`[hijri_calendar ✗] Day ${entry.gregorian_day}:`, e2);
+      } else {
+        saved++;
+        console.log(`[hijri_calendar ✓] Day ${entry.gregorian_day}: ${entry.gregorian_date} → ${entry.hijri_date}`);
+      }
+    } else {
+      saved++;
+      console.log(`[hijri_calendar ✓] Day ${entry.gregorian_day}: ${entry.gregorian_date} → ${entry.hijri_date}`);
+    }
+  }
+
+  return { saved, errors };
 }
 
 // ─── Hijri offset DB helpers ──────────────────────────────────────────────────
@@ -233,6 +315,11 @@ const PrayerTimes = () => {
   const [jumpInput,       setJumpInput]       = useState('');
   const [highlightDay,    setHighlightDay]    = useState<number | null>(null);
   const [searchParams,    setSearchParams]    = useSearchParams();
+
+  // Hijri calendar data: day → entry
+  const [hijriCalendar, setHijriCalendar] = useState<Map<number, HijriCalendarEntry>>(new Map());
+  const [hijriLoading,  setHijriLoading]  = useState(false);
+
   const queryClient = useQueryClient();
 
   // Handle CSV import from URL param
@@ -249,6 +336,15 @@ const PrayerTimes = () => {
     loadOffsetFromDb().then((n) => setHijriOffset(n));
   }, []);
 
+  // Load Hijri calendar whenever year/month changes
+  useEffect(() => {
+    setHijriLoading(true);
+    fetchHijriCalendarMonth(selectedYear, selectedMonth).then((map) => {
+      setHijriCalendar(map);
+      setHijriLoading(false);
+    });
+  }, [selectedYear, selectedMonth]);
+
   const changeOffset = (delta: number) => {
     setHijriOffset((prev) => {
       const next = Math.max(-30, Math.min(30, prev + delta));
@@ -257,29 +353,35 @@ const PrayerTimes = () => {
     });
   };
 
-  // ── Fill Dates: Aladhan API → DB (sequential, 120ms between requests) ──────
+  // ── Fill Dates: Aladhan API → hijri_calendar table ───────────────────────
   const handlePopulateHijriDates = async () => {
     if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
     setPopulatingHijri(true);
     const toastId = 'fill-hijri';
 
-    // Step 1: fetch from Aladhan API sequentially
+    // Step 1: fetch from Aladhan API sequentially (120ms gap to avoid rate limiting)
     toast.loading(`Fetching dates from Aladhan API… (0 / ${data.length})`, { id: toastId });
-    const resolved: { id: string; hijri_date: string; date: string }[] = [];
+    const resolved: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
     const apiFailed: number[] = [];
 
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       try {
         const result = await fetchHijriFromApi(selectedYear, selectedMonth, row.day, hijriOffset);
-        resolved.push({ id: row.id, hijri_date: result.hijri, date: result.gregorian });
+        resolved.push({
+          gregorian_year:  selectedYear,
+          gregorian_month: selectedMonth,
+          gregorian_day:   row.day,
+          gregorian_date:  result.gregorian,
+          hijri_date:      result.hijri,
+        });
         console.log(`[Aladhan ✓] Day ${row.day}: ${result.gregorian} → ${result.hijri}`);
       } catch (e) {
         apiFailed.push(row.day);
         console.error(`[Aladhan ✗] Day ${row.day}:`, e);
       }
       toast.loading(`Fetching dates from Aladhan API… (${i + 1} / ${data.length})`, { id: toastId });
-      if (i < data.length - 1) await new Promise((r) => setTimeout(r, 120)); // rate-limit guard
+      if (i < data.length - 1) await new Promise((r) => setTimeout(r, 120));
     }
 
     if (apiFailed.length > 0) {
@@ -291,33 +393,23 @@ const PrayerTimes = () => {
       return;
     }
 
-    // Step 2: save all to DB via supabaseAdmin (bypasses RLS)
-    toast.loading(`Saving ${resolved.length} dates to database…`, { id: toastId });
-    const dbErrors: string[] = [];
-    for (const upd of resolved) {
-      const { error } = await supabaseAdmin
-        .from('prayer_times')
-        .update({ hijri_date: upd.hijri_date, date: upd.date })
-        .eq('id', upd.id);
-      if (error) {
-        dbErrors.push(`ID ${upd.id}: ${error.message}`);
-        console.error('[DB ✗] Update failed:', upd, error);
-      } else {
-        console.log(`[DB ✓] Saved: ${upd.date} → ${upd.hijri_date}`);
-      }
-    }
+    // Step 2: upsert all to hijri_calendar table
+    toast.loading(`Saving ${resolved.length} dates to hijri_calendar table…`, { id: toastId });
+    const { saved, errors } = await upsertHijriCalendarEntries(resolved);
 
-    if (dbErrors.length > 0) {
+    if (errors.length > 0) {
       toast.error(
-        `${dbErrors.length} DB write(s) failed: ${dbErrors[0]}`,
+        `${errors.length} DB write(s) failed: ${errors[0]}`,
         { id: toastId, duration: 8000 },
       );
     } else {
       toast.success(
-        `✓ ${resolved.length} days saved — Gregorian + Hijri dates stored in database`,
+        `✓ ${saved} days saved to hijri_calendar — Gregorian + Hijri dates stored`,
         { id: toastId, duration: 4000 },
       );
-      queryClient.invalidateQueries({ queryKey: ['prayer_times', selectedMonth] });
+      // Refresh local hijri calendar map
+      const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
+      setHijriCalendar(updated);
     }
     setPopulatingHijri(false);
   };
@@ -334,6 +426,10 @@ const PrayerTimes = () => {
     );
     setEditingRow(null);
   }, [queryClient, selectedMonth]);
+
+  const handleHijriSaved = useCallback((day: number, entry: HijriCalendarEntry) => {
+    setHijriCalendar((prev) => new Map(prev).set(day, entry));
+  }, []);
 
   const handleJumpToDay = () => {
     const day = parseInt(jumpInput.trim(), 10);
@@ -382,6 +478,10 @@ const PrayerTimes = () => {
                     ? <span className="font-semibold text-[hsl(142_60%_32%)]">BST (UTC+1)</span>
                     : <span className="font-medium text-slate-500">GMT (UTC+0)</span>}
                   {monthHasBSTChange(selectedMonth) && <span className="ml-2 text-amber-600 font-medium">⚡ Clock change</span>}
+                  {hijriLoading && <span className="ml-2 text-[#7c3aed]">· loading Hijri…</span>}
+                  {!hijriLoading && hijriCalendar.size > 0 && (
+                    <span className="ml-2 text-[#7c3aed]">· {hijriCalendar.size} Hijri dates</span>
+                  )}
                 </p>
               </div>
             </div>
@@ -422,13 +522,13 @@ const PrayerTimes = () => {
                 <CalendarCheck size={14} /> Set Jumu'ah
               </Button>
 
-              {/* Fill Dates — Aladhan API → DB */}
+              {/* Fill Dates — Aladhan API → hijri_calendar DB */}
               <Button
                 variant="outline" size="sm"
                 onClick={handlePopulateHijriDates}
                 disabled={populatingHijri || !data || data.length === 0}
                 className="gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]"
-                title={`Fetch Gregorian + Hijri dates from Aladhan API for all ${data?.length ?? 0} days and save to database`}
+                title={`Fetch Gregorian + Hijri dates from Aladhan API for all ${data?.length ?? 0} days and save to hijri_calendar table`}
               >
                 {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
                 {populatingHijri ? 'Filling…' : 'Fill Dates'}
@@ -485,6 +585,9 @@ const PrayerTimes = () => {
           <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded bg-[#eff6ff] border border-blue-200" />Today</span>
           <span className="flex items-center gap-1.5"><span className="inline-block px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold text-[9px]">BST</span>Summer Time</span>
           <span className="flex items-center gap-1.5"><span className="inline-block px-1 py-0.5 rounded bg-slate-100 text-slate-600 font-bold text-[9px]">GMT</span>Winter Time</span>
+          {hijriCalendar.size > 0 && (
+            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded bg-[hsl(270_50%_95%)] border border-[hsl(270_50%_75%)]" /><span className="text-[#7c3aed]">Hijri from DB</span></span>
+          )}
         </div>
 
         {/* Content */}
@@ -506,6 +609,7 @@ const PrayerTimes = () => {
                 data={data}
                 year={selectedYear}
                 hijriOffset={hijriOffset}
+                hijriCalendar={hijriCalendar}
                 onEdit={setEditingRow}
                 highlightDay={highlightDay}
               />
@@ -534,7 +638,14 @@ const PrayerTimes = () => {
       </main>
 
       <JumuahYearModal open={jumuahModal} onClose={() => setJumuahModal(false)} year={selectedYear} queryClient={queryClient} />
-      <EditPrayerTimeModal row={editingRow} year={selectedYear} onClose={() => setEditingRow(null)} onSaved={handleSaved} />
+      <EditPrayerTimeModal
+        row={editingRow}
+        year={selectedYear}
+        hijriEntry={editingRow ? (hijriCalendar.get(editingRow.day) ?? null) : null}
+        onClose={() => setEditingRow(null)}
+        onSaved={handleSaved}
+        onHijriSaved={handleHijriSaved}
+      />
       <CsvImportModal
         open={csvModal}
         onClose={() => { setCsvModal(false); setCsvPreload(undefined); }}

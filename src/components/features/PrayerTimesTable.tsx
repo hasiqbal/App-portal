@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PrayerTime } from '@/types';
+import { PrayerTime, HijriCalendarEntry } from '@/types';
 import { Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 import { getDayInfo } from '@/lib/dateUtils';
 
@@ -7,6 +7,7 @@ interface PrayerTimesTableProps {
   data: PrayerTime[];
   year: number;
   hijriOffset: number;
+  hijriCalendar: Map<number, HijriCalendarEntry>;
   onEdit: (row: PrayerTime) => void;
   highlightDay?: number | null;
 }
@@ -96,6 +97,7 @@ const MobileRow = ({
   year,
   month,
   hijriOffset,
+  hijriEntry,
   isToday,
   isHighlighted,
   onEdit,
@@ -104,6 +106,7 @@ const MobileRow = ({
   year: number;
   month: number;
   hijriOffset: number;
+  hijriEntry: HijriCalendarEntry | undefined;
   isToday: boolean;
   isHighlighted: boolean;
   onEdit: (r: PrayerTime) => void;
@@ -126,6 +129,11 @@ const MobileRow = ({
     cardBg = 'bg-blue-50';
     borderAccent = 'border-blue-300';
   }
+
+  // Resolve Hijri text: prefer DB value, fall back to computed
+  const hijriText = hijriEntry?.hijri_date
+    ?? `${info.hijri.day} ${info.hijri.monthName} ${info.hijri.year} AH`;
+  const hijriFromDb = !!hijriEntry?.hijri_date;
 
   return (
     <div
@@ -221,13 +229,22 @@ const MobileRow = ({
               </div>
             );
           })}
-          {/* Hijri */}
+          {/* Hijri — from DB if available */}
           <div className="col-span-2 flex items-center justify-between pt-1 border-t border-[hsl(140_20%_88%)]">
-            <span className="text-[10px] font-semibold text-muted-foreground">Hijri</span>
-            <span className="text-xs font-medium text-foreground/70">
-              {row.hijri_date ?? `${info.hijri.day} ${info.hijri.monthName} ${info.hijri.year} AH`}
+            <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+              Hijri
+              {hijriFromDb && <span className="text-[8px] text-[#7c3aed] font-bold">DB</span>}
+            </span>
+            <span className={`text-xs font-medium ${hijriFromDb ? 'text-[#7c3aed]' : 'text-foreground/70'}`}>
+              {hijriText}
             </span>
           </div>
+          {hijriEntry?.gregorian_date && (
+            <div className="col-span-2 flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-muted-foreground">Gregorian</span>
+              <span className="text-xs text-foreground/60 font-mono">{hijriEntry.gregorian_date}</span>
+            </div>
+          )}
           {info.isClockChange && (
             <div className="col-span-2 text-[10px] font-bold text-amber-700 flex items-center gap-1">
               ⚡ {info.clockChangeLabel}
@@ -246,7 +263,7 @@ const MobileRow = ({
 };
 
 // ─── Main table component ──────────────────────────────────────────────────────
-const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: PrayerTimesTableProps) => {
+const PrayerTimesTable = ({ data, year, hijriOffset, hijriCalendar, onEdit, highlightDay }: PrayerTimesTableProps) => {
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-muted-foreground text-sm rounded-xl border border-[hsl(140_20%_88%)] bg-white">
@@ -274,6 +291,7 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
               year={year}
               month={month}
               hijriOffset={hijriOffset}
+              hijriEntry={hijriCalendar.get(row.day)}
               isToday={isToday}
               isHighlighted={highlightDay === row.day}
               onEdit={onEdit}
@@ -331,6 +349,7 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
             <tbody>
               {data.map((row, idx) => {
                 const info = getDayInfo(year, month, row.day, hijriOffset);
+                const hijriEntry = hijriCalendar.get(row.day);
                 const isToday =
                   year === today.getFullYear() &&
                   month === today.getMonth() + 1 &&
@@ -352,6 +371,9 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
                 } else {
                   rowBg = idx % 2 === 0 ? '#ffffff' : 'hsl(142 25% 98.5%)';
                 }
+
+                // Resolve Hijri display: prefer DB, fall back to computed
+                const hijriFromDb = !!hijriEntry?.hijri_date;
 
                 return (
                   <tr
@@ -378,27 +400,29 @@ const PrayerTimesTable = ({ data, year, hijriOffset, onEdit, highlightDay }: Pra
                       </div>
                     </td>
 
-                    {/* Hijri */}
+                    {/* Hijri — from hijri_calendar DB or local computed */}
                     <td className="px-2 py-1.5 border-r border-[hsl(140_20%_88%)]">
-                      <div className="flex flex-col leading-tight">
-                        {row.hijri_date ? (
-                          <span className="text-[11px] font-semibold text-foreground/75 whitespace-nowrap">{row.hijri_date}</span>
-                        ) : (
-                          <>
-                            <span className="text-[11px] font-semibold text-foreground/75 tabular-nums whitespace-nowrap">
-                              {info.hijri.day} {info.hijri.monthName.split(' ').slice(0, 2).join(' ')}
+                      {hijriFromDb ? (
+                        <div className="flex flex-col leading-tight">
+                          <span className="text-[11px] font-semibold text-[#7c3aed] whitespace-nowrap">
+                            {hijriEntry!.hijri_date}
+                          </span>
+                          {hijriEntry!.gregorian_date && (
+                            <span className="text-[9px] text-muted-foreground font-mono">
+                              {hijriEntry!.gregorian_date}
                             </span>
-                            <span className="text-[9px] text-muted-foreground tabular-nums">
-                              {info.hijri.year} AH
-                            </span>
-                            {hijriOffset !== 0 && (
-                              <span className="text-[8px] text-amber-500 font-medium">
-                                {hijriOffset > 0 ? `+${hijriOffset}d` : `${hijriOffset}d`}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col leading-tight">
+                          <span className="text-[11px] font-semibold text-foreground/55 tabular-nums whitespace-nowrap italic">
+                            {info.hijri.day} {info.hijri.monthName.split(' ').slice(0, 2).join(' ')}
+                          </span>
+                          <span className="text-[9px] text-muted-foreground/60 tabular-nums italic">
+                            {info.hijri.year} AH ~
+                          </span>
+                        </div>
+                      )}
                     </td>
 
                     {/* TZ */}

@@ -1,10 +1,20 @@
+// ─── Hijri Calendar (separate table, keyed by gregorian year/month/day) ─────
+export interface HijriCalendarEntry {
+  id?: string;
+  gregorian_year: number;
+  gregorian_month: number;
+  gregorian_day: number;
+  gregorian_date: string;   // DD/MM/YYYY
+  hijri_date: string;       // e.g. "5 Shawwal 1447 AH"
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface PrayerTime {
   id: string;
   month: number;
   day: number;
-  date: string;
-  hijri_date: string | null;
-  fajr: string;
+  fajr: string | null;
   fajr_jamat: string | null;
   sunrise: string;
   ishraq: string | null;

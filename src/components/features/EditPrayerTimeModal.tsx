@@ -3,8 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PrayerTime, PrayerTimeUpdate } from '@/types';
+import { PrayerTime, PrayerTimeUpdate, HijriCalendarEntry } from '@/types';
 import { updatePrayerTime } from '@/lib/api';
+import { supabaseAdmin } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { Minus, Plus, Clock, Moon } from 'lucide-react';
 
@@ -12,8 +13,10 @@ import { Minus, Plus, Clock, Moon } from 'lucide-react';
 interface EditPrayerTimeModalProps {
   row: PrayerTime | null;
   year: number;
+  hijriEntry: HijriCalendarEntry | null;
   onClose: () => void;
   onSaved: (updated: PrayerTime) => void;
+  onHijriSaved: (day: number, entry: HijriCalendarEntry) => void;
 }
 
 /**
@@ -33,6 +36,49 @@ async function fetchHijriFromApi(year: number, month: number, day: number): Prom
     hijri: `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
     gregorian: `${gDay}/${gMonth}/${year}`,
   };
+}
+
+/**
+ * Save Hijri date for a specific day to the hijri_calendar table.
+ */
+async function saveHijriToDb(
+  year: number,
+  month: number,
+  day: number,
+  hijriDate: string,
+  gregorianDate: string,
+): Promise<HijriCalendarEntry | null> {
+  const entry = {
+    gregorian_year:  year,
+    gregorian_month: month,
+    gregorian_day:   day,
+    gregorian_date:  gregorianDate,
+    hijri_date:      hijriDate,
+    updated_at:      new Date().toISOString(),
+  };
+
+  // Try with onConflict first
+  const { data, error } = await supabaseAdmin
+    .from('hijri_calendar')
+    .upsert(entry, { onConflict: 'gregorian_year,gregorian_month,gregorian_day' })
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    // Fallback: upsert without explicit conflict key
+    const { data: d2, error: e2 } = await supabaseAdmin
+      .from('hijri_calendar')
+      .upsert(entry)
+      .select()
+      .maybeSingle();
+    if (e2) {
+      console.error('[hijri_calendar] Save error:', e2.message);
+      return null;
+    }
+    return d2 as HijriCalendarEntry;
+  }
+
+  return data as HijriCalendarEntry;
 }
 
 const FIELDS: { key: keyof PrayerTimeUpdate; label: string; group: string }[] = [
@@ -116,10 +162,12 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
-const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModalProps) => {
+const EditPrayerTimeModal = ({ row, year, hijriEntry, onClose, onSaved, onHijriSaved }: EditPrayerTimeModalProps) => {
   const [form, setForm] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [fillingHijri, setFillingHijri] = useState(false);
+  const [hijriDateStr,  setHijriDateStr]  = useState('');
+  const [gregorianStr,  setGregorianStr]  = useState('');
+  const [saving,        setSaving]        = useState(false);
+  const [fillingHijri,  setFillingHijri]  = useState(false);
 
   useEffect(() => {
     if (row) {
@@ -127,13 +175,13 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
       FIELDS.forEach(({ key }) => {
         initial[key] = (row[key as keyof PrayerTime] as string | null) ?? '';
       });
-      // Pre-fill hijri_date from stored value or compute it
-      initial['hijri_date'] = row.hijri_date ?? '';
-      // Pre-fill gregorian date
-      initial['date'] = row.date ?? '';
       setForm(initial);
+
+      // Pre-fill Hijri from the passed hijriEntry (loaded from hijri_calendar table)
+      setHijriDateStr(hijriEntry?.hijri_date ?? '');
+      setGregorianStr(hijriEntry?.gregorian_date ?? '');
     }
-  }, [row]);
+  }, [row, hijriEntry]);
 
   const handleChange = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -144,7 +192,8 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
     setFillingHijri(true);
     try {
       const result = await fetchHijriFromApi(year, row.month, row.day);
-      setForm((prev) => ({ ...prev, hijri_date: result.hijri, date: result.gregorian }));
+      setHijriDateStr(result.hijri);
+      setGregorianStr(result.gregorian);
       console.log(`[Aladhan] Day ${row.day}: ${result.gregorian} → ${result.hijri}`);
     } catch (e) {
       console.error('[Aladhan] Auto-fill failed:', e);
@@ -158,20 +207,34 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
     if (!row) return;
     setSaving(true);
     try {
+      // 1. Save prayer times (no hijri_date here — different table)
       const payload: PrayerTimeUpdate = {};
       FIELDS.forEach(({ key }) => {
         const val = (form[key] ?? '').trim();
         (payload as Record<string, string | null>)[key] = val === '' ? null : val;
       });
-      // Include hijri_date and date (Gregorian)
-      const hijriVal = (form['hijri_date'] ?? '').trim();
-      (payload as Record<string, string | null>)['hijri_date'] = hijriVal === '' ? null : hijriVal;
-      const dateVal = (form['date'] ?? '').trim();
-      (payload as Record<string, string | null>)['date'] = dateVal === '' ? null : dateVal;
       const result = await updatePrayerTime(row.id, payload);
       const updated = result[0] ?? { ...row, ...payload };
       toast.success(`Day ${row.day} updated successfully`);
       onSaved(updated as PrayerTime);
+
+      // 2. Save Hijri date to hijri_calendar if provided
+      const hijriTrimmed = hijriDateStr.trim();
+      const gregTrimmed  = gregorianStr.trim();
+      if (hijriTrimmed) {
+        const gStr = gregTrimmed || (() => {
+          const gDay   = String(row.day).padStart(2, '0');
+          const gMonth = String(row.month).padStart(2, '0');
+          return `${gDay}/${gMonth}/${year}`;
+        })();
+        const saved = await saveHijriToDb(year, row.month, row.day, hijriTrimmed, gStr);
+        if (saved) {
+          onHijriSaved(row.day, saved);
+          console.log(`[hijri_calendar] Saved day ${row.day}:`, saved);
+        } else {
+          toast.error('Prayer times saved but Hijri date failed to save to hijri_calendar table.');
+        }
+      }
     } catch {
       toast.error('Failed to save changes. Please try again.');
     } finally {
@@ -239,13 +302,15 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
             </div>
           </div>
 
-          {/* Hijri date */}
+          {/* Hijri date — stored in hijri_calendar table */}
           <div className="rounded-xl border border-[hsl(210_30%_88%)] overflow-hidden">
             <div className="px-4 py-2.5 bg-[hsl(210_30%_97%)] border-b border-[hsl(210_30%_88%)] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Moon size={13} className="text-[#7c3aed]" />
                 <p className="text-xs font-bold text-[#7c3aed] uppercase tracking-wider">Hijri Date</p>
-                <span className="text-[10px] text-muted-foreground normal-case font-normal">stored in database</span>
+                <span className="text-[10px] text-muted-foreground normal-case font-normal">
+                  {hijriEntry ? '✓ from hijri_calendar DB' : '– not yet saved'}
+                </span>
               </div>
               <button
                 type="button"
@@ -253,19 +318,31 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
                 disabled={fillingHijri}
                 className="text-[10px] font-semibold text-[#7c3aed] hover:underline flex items-center gap-1 disabled:opacity-50"
               >
-                {fillingHijri ? 'Fetching…' : 'Auto-fill (API)'}
+                {fillingHijri ? 'Fetching…' : 'Auto-fill (Aladhan API)'}
               </button>
             </div>
-            <div className="px-4 py-3">
-              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)] mb-1.5 block">Hijri Date String</Label>
-              <Input
-                value={form['hijri_date'] ?? ''}
-                onChange={(e) => handleChange('hijri_date', e.target.value)}
-                placeholder="e.g. 21 Dhu al-Hijjah 1447 AH"
-                className="font-mono text-sm h-9 border-[hsl(210_30%_80%)] focus:border-[#7c3aed]"
-              />
-              <p className="text-[10px] text-muted-foreground mt-1.5">
-                Fetched from Aladhan API (accurate Islamic calendar) and stored in the database. "Auto-fill" calls the API; falls back to local calculation if offline.
+            <div className="px-4 py-3 space-y-3">
+              <div>
+                <Label className="text-xs font-semibold text-[hsl(150_30%_18%)] mb-1.5 block">Hijri Date</Label>
+                <Input
+                  value={hijriDateStr}
+                  onChange={(e) => setHijriDateStr(e.target.value)}
+                  placeholder="e.g. 5 Shawwal 1447 AH"
+                  className="font-mono text-sm h-9 border-[hsl(210_30%_80%)] focus:border-[#7c3aed]"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold text-[hsl(150_30%_18%)] mb-1.5 block">Gregorian Date</Label>
+                <Input
+                  value={gregorianStr}
+                  onChange={(e) => setGregorianStr(e.target.value)}
+                  placeholder="e.g. 03/04/2026"
+                  className="font-mono text-sm h-9 border-[hsl(210_30%_80%)] focus:border-[#7c3aed]"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Saved to the <strong>hijri_calendar</strong> table (separate from prayer_times).
+                "Auto-fill" fetches from Aladhan API for accurate Islamic calendar dates.
               </p>
             </div>
           </div>
