@@ -546,10 +546,10 @@ const PrayerTimes = () => {
     });
   }, [selectedYear, selectedMonth, schemaChecked, schemaError]);
 
-  // Load Eid prayers whenever year changes
+  // Load Eid prayers once on mount (permanent — no year filter)
   useEffect(() => {
-    fetchEidPrayers(selectedYear).then(setEidPrayers);
-  }, [selectedYear]);
+    fetchEidPrayers().then(setEidPrayers);
+  }, []);
 
   const changeOffset = (delta: number) => {
     setHijriOffset((prev) => {
@@ -1208,8 +1208,7 @@ const PrayerTimes = () => {
       <EidTimesModal
         open={eidModal}
         onClose={() => setEidModal(false)}
-        year={selectedYear}
-        onSaved={() => fetchEidPrayers(selectedYear).then(setEidPrayers)}
+        onSaved={() => fetchEidPrayers().then(setEidPrayers)}
       />
       <CsvImportModal
         open={csvModal}
