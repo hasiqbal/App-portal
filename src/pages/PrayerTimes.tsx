@@ -311,7 +311,9 @@ const PrayerTimes = () => {
   const [csvModal,        setCsvModal]        = useState(false);
   const [csvPreload,      setCsvPreload]      = useState<string | undefined>(undefined);
   const [hijriOffset,     setHijriOffset]     = useState<number>(0);
-  const [populatingHijri, setPopulatingHijri] = useState(false);
+  const [populatingHijri,    setPopulatingHijri]    = useState(false);
+  const [populatingAllMonths, setPopulatingAllMonths] = useState(false);
+  const [allMonthsProgress,   setAllMonthsProgress]   = useState('');
   const [jumpInput,       setJumpInput]       = useState('');
   const [highlightDay,    setHighlightDay]    = useState<number | null>(null);
   const [searchParams,    setSearchParams]    = useSearchParams();
@@ -351,6 +353,87 @@ const PrayerTimes = () => {
       saveOffsetToDb(next);
       return next;
     });
+  };
+
+  // ── Fill All 12 Months: Aladhan API → hijri_calendar table ───────────────
+  const handlePopulateAllMonths = async () => {
+    setPopulatingAllMonths(true);
+    const toastId = 'fill-all-hijri';
+
+    // Calculate total days in selected year
+    let totalDays = 0;
+    for (let m = 1; m <= 12; m++) totalDays += new Date(selectedYear, m, 0).getDate();
+
+    toast.loading(`Starting: fetching ${totalDays} days for ${selectedYear}…`, { id: toastId });
+
+    const allEntries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
+    const apiFailed: string[] = [];
+    let processed = 0;
+
+    for (let month = 1; month <= 12; month++) {
+      const monthName = MONTHS_SHORT[month - 1];
+      const lastDay = new Date(selectedYear, month, 0).getDate();
+
+      for (let day = 1; day <= lastDay; day++) {
+        setAllMonthsProgress(`${monthName} ${day}/${lastDay}`);
+        try {
+          const result = await fetchHijriFromApi(selectedYear, month, day, hijriOffset);
+          allEntries.push({
+            gregorian_year:  selectedYear,
+            gregorian_month: month,
+            gregorian_day:   day,
+            gregorian_date:  result.gregorian,
+            hijri_date:      result.hijri,
+          });
+          console.log(`[Aladhan ✓] ${monthName} ${day}: ${result.gregorian} → ${result.hijri}`);
+        } catch (e) {
+          apiFailed.push(`${monthName} ${day}`);
+          console.error(`[Aladhan ✗] ${monthName} ${day}:`, e);
+        }
+        processed++;
+        toast.loading(
+          `Aladhan API: ${processed}/${totalDays} days · ${monthName} ${day}/${lastDay}`,
+          { id: toastId },
+        );
+        // 120ms gap between calls to avoid rate limiting
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    }
+
+    if (apiFailed.length > 0) {
+      console.warn('[Fill All] API failed for:', apiFailed);
+      toast.loading(
+        `API: ${allEntries.length} OK, ${apiFailed.length} failed. Saving…`,
+        { id: toastId },
+      );
+    }
+
+    // Save all successfully fetched entries to hijri_calendar
+    toast.loading(`Saving ${allEntries.length} dates to hijri_calendar table…`, { id: toastId });
+    const { saved, errors } = await upsertHijriCalendarEntries(allEntries);
+
+    if (errors.length > 0) {
+      toast.error(
+        `Saved ${saved} days but ${errors.length} DB error(s): ${errors[0]}`,
+        { id: toastId, duration: 8000 },
+      );
+    } else if (apiFailed.length > 0) {
+      toast.warning(
+        `${saved} days saved · ${apiFailed.length} days skipped (API failure)`,
+        { id: toastId, duration: 6000 },
+      );
+    } else {
+      toast.success(
+        `✓ All ${saved} days saved to hijri_calendar for all 12 months of ${selectedYear}`,
+        { id: toastId, duration: 5000 },
+      );
+    }
+
+    // Refresh displayed month
+    const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
+    setHijriCalendar(updated);
+    setAllMonthsProgress('');
+    setPopulatingAllMonths(false);
   };
 
   // ── Fill Dates: Aladhan API → hijri_calendar table ───────────────────────
@@ -522,16 +605,30 @@ const PrayerTimes = () => {
                 <CalendarCheck size={14} /> Set Jumu'ah
               </Button>
 
-              {/* Fill Dates — Aladhan API → hijri_calendar DB */}
+              {/* Fill Dates — current month only */}
               <Button
                 variant="outline" size="sm"
                 onClick={handlePopulateHijriDates}
-                disabled={populatingHijri || !data || data.length === 0}
+                disabled={populatingHijri || populatingAllMonths || !data || data.length === 0}
                 className="gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]"
-                title={`Fetch Gregorian + Hijri dates from Aladhan API for all ${data?.length ?? 0} days and save to hijri_calendar table`}
+                title={`Fetch Gregorian + Hijri dates from Aladhan API for all ${data?.length ?? 0} days in this month and save to hijri_calendar`}
               >
                 {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
-                {populatingHijri ? 'Filling…' : 'Fill Dates'}
+                {populatingHijri ? 'Filling…' : 'Fill Month'}
+              </Button>
+
+              {/* Fill All Months — entire year */}
+              <Button
+                variant="outline" size="sm"
+                onClick={handlePopulateAllMonths}
+                disabled={populatingAllMonths || populatingHijri}
+                className="gap-2 border-[hsl(270_60%_65%)] bg-[hsl(270_50%_97%)] text-[#6d28d9] hover:bg-[hsl(270_50%_93%)] font-semibold"
+                title={`Fetch Hijri + Gregorian dates for ALL 12 months of ${selectedYear} from Aladhan API and save to hijri_calendar`}
+              >
+                {populatingAllMonths
+                  ? <><Loader2 size={14} className="animate-spin" />{allMonthsProgress ? allMonthsProgress : 'Working…'}</>
+                  : <><Moon size={14} />Fill All {selectedYear}</>
+                }
               </Button>
 
               <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
