@@ -5,6 +5,10 @@ import Sidebar from '@/components/layout/Sidebar';
 import PrayerTimesTable from '@/components/features/PrayerTimesTable';
 import EditPrayerTimeModal from '@/components/features/EditPrayerTimeModal';
 import CsvImportModal from '@/components/features/CsvImportModal';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { fetchPrayerTimes, bulkUpdatePrayerTimes } from '@/lib/api';
 import { PrayerTime } from '@/types';
 import { toast } from 'sonner';
@@ -12,50 +16,43 @@ import {
   Loader2, AlertCircle, RefreshCw,
   ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon,
 } from 'lucide-react';
-import { gregorianToHijri } from '@/lib/dateUtils';
-
-const HIJRI_MONTHS_FULL = [
-  'Muharram', 'Safar', "Rabi' al-Awwal", "Rabi' al-Akhir",
-  'Jumada al-Ula', 'Jumada al-Akhira', 'Rajab', "Sha'ban",
-  'Ramadan', 'Shawwal', "Dhu al-Qi'dah", 'Dhu al-Hijjah',
-];
-
-function computeHijriStr(year: number, month: number, day: number, offset = 0): string {
-  const shifted = new Date(year, month - 1, day + offset);
-  const h = gregorianToHijri(shifted.getFullYear(), shifted.getMonth() + 1, shifted.getDate());
-  return `${h.day} ${HIJRI_MONTHS_FULL[h.month - 1] ?? h.monthName} ${h.year} AH`;
-}
-
-/**
- * Fetch the accurate Hijri date from the Aladhan API.
- * Returns a formatted string like "14 Rajab 1447 AH", or null on failure.
- */
-async function fetchHijriFromApi(year: number, month: number, day: number, offset = 0): Promise<{ hijri: string; gregorian: string } | null> {
-  try {
-    const shifted = new Date(year, month - 1, day + offset);
-    const gDay   = String(shifted.getDate()).padStart(2, '0');
-    const gMonth = String(shifted.getMonth() + 1).padStart(2, '0');
-    const gYear  = shifted.getFullYear();
-    const gregStr = `${gDay}-${gMonth}-${gYear}`;
-    const res = await fetch(`https://api.aladhan.com/v1/gToH?date=${gregStr}`);
-    if (!res.ok) return null;
-    const json = await res.json();
-    const h = json?.data?.hijri;
-    if (!h) return null;
-    const hijriStr = `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`;
-    const gregorianStr = `${gDay}/${gMonth}/${gYear}`;
-    return { hijri: hijriStr, gregorian: gregorianStr };
-  } catch {
-    return null;
-  }
-}
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
 import { isBST } from '@/lib/dateUtils';
 import { supabaseAdmin } from '@/lib/supabase';
 import { SolarTimesCard } from '@/pages/Dashboard';
+
+// ─── Aladhan API — accurate Hijri dates, API only, no local fallback ──────────
+
+/**
+ * Fetch the accurate Hijri date from the Aladhan API.
+ * Path format: /v1/gToH/DD-MM-YYYY
+ * Throws on failure — caller decides how to handle.
+ */
+async function fetchHijriFromApi(
+  year: number,
+  month: number,
+  day: number,
+  offset = 0,
+): Promise<{ hijri: string; gregorian: string }> {
+  const shifted = new Date(year, month - 1, day + offset);
+  const gDay    = String(shifted.getDate()).padStart(2, '0');
+  const gMonth  = String(shifted.getMonth() + 1).padStart(2, '0');
+  const gYear   = shifted.getFullYear();
+  const dateStr = `${gDay}-${gMonth}-${gYear}`;
+
+  const res = await fetch(`https://api.aladhan.com/v1/gToH/${dateStr}`);
+  if (!res.ok) throw new Error(`Aladhan API ${res.status}: ${res.statusText}`);
+
+  const json = await res.json();
+  const h = json?.data?.hijri;
+  if (!h) throw new Error('Aladhan API: unexpected response structure');
+
+  return {
+    hijri:      `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
+    gregorian:  `${gDay}/${gMonth}/${gYear}`,
+  };
+}
+
+// ─── Hijri offset DB helpers ──────────────────────────────────────────────────
 
 async function saveOffsetToDb(n: number) {
   try {
@@ -63,20 +60,21 @@ async function saveOffsetToDb(n: number) {
       .from('masjid_settings')
       .upsert(
         {
-          key:      'hijri_offset',
-          value:    String(n),
-          label:    'Hijri Date Offset',
-          category: 'preferences',
+          key:        'hijri_offset',
+          value:      String(n),
+          label:      'Hijri Date Offset',
+          category:   'preferences',
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'key' }
+        { onConflict: 'key' },
       );
     if (error) console.error('[HijriOffset] DB save failed:', error.message);
-    else console.log('[HijriOffset] Saved to DB:', n);
+    else       console.log('[HijriOffset] Saved to DB:', n);
   } catch (e) {
     console.error('[HijriOffset] DB save error:', e);
   }
 }
+
 async function loadOffsetFromDb(): Promise<number> {
   try {
     const { data, error } = await supabaseAdmin
@@ -84,7 +82,7 @@ async function loadOffsetFromDb(): Promise<number> {
       .select('value')
       .eq('key', 'hijri_offset')
       .maybeSingle();
-    if (!error && data?.value !== null && data?.value !== undefined) {
+    if (!error && data?.value != null) {
       const n = parseInt(data.value, 10);
       if (!isNaN(n)) return n;
     }
@@ -92,8 +90,10 @@ async function loadOffsetFromDb(): Promise<number> {
   return 0;
 }
 
-const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const MONTHS_FULL  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const MONTHS_SHORT  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTHS_FULL   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR  = new Date().getFullYear();
 const CURRENT_MONTH = new Date().getMonth() + 1;
 const YEAR_RANGE: number[] = [];
@@ -106,6 +106,8 @@ function fridayCount(year: number, month: number): number {
   for (let d = 1; d <= lastDay; d++) if (new Date(year, month - 1, d).getDay() === 5) count++;
   return count;
 }
+
+// ─── Jumu'ah year modal ───────────────────────────────────────────────────────
 
 interface JumuahYearModalProps {
   open: boolean; onClose: () => void; year: number;
@@ -217,19 +219,23 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
   );
 };
 
-const PrayerTimes = () => {
-  const [selectedYear,  setSelectedYear]  = useState(CURRENT_YEAR);
-  const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH);
-  const [editingRow,    setEditingRow]    = useState<PrayerTime | null>(null);
-  const [jumuahModal,   setJumuahModal]   = useState(false);
-  const [csvModal,      setCsvModal]      = useState(false);
-  const [csvPreload,    setCsvPreload]    = useState<string | undefined>(undefined);
-  const [hijriOffset,   setHijriOffset]   = useState<number>(0);
-  const [populatingHijri, setPopulatingHijri] = useState(false);
-  const [jumpInput,     setJumpInput]     = useState('');
-  const [highlightDay,  setHighlightDay]  = useState<number | null>(null);
-  const [searchParams, setSearchParams]   = useSearchParams();
+// ─── Prayer Times page ────────────────────────────────────────────────────────
 
+const PrayerTimes = () => {
+  const [selectedYear,    setSelectedYear]    = useState(CURRENT_YEAR);
+  const [selectedMonth,   setSelectedMonth]   = useState(CURRENT_MONTH);
+  const [editingRow,      setEditingRow]      = useState<PrayerTime | null>(null);
+  const [jumuahModal,     setJumuahModal]     = useState(false);
+  const [csvModal,        setCsvModal]        = useState(false);
+  const [csvPreload,      setCsvPreload]      = useState<string | undefined>(undefined);
+  const [hijriOffset,     setHijriOffset]     = useState<number>(0);
+  const [populatingHijri, setPopulatingHijri] = useState(false);
+  const [jumpInput,       setJumpInput]       = useState('');
+  const [highlightDay,    setHighlightDay]    = useState<number | null>(null);
+  const [searchParams,    setSearchParams]    = useSearchParams();
+  const queryClient = useQueryClient();
+
+  // Handle CSV import from URL param
   useEffect(() => {
     if (searchParams.get('import') === '1') {
       const stored = sessionStorage.getItem('csv_import_payload');
@@ -238,54 +244,83 @@ const PrayerTimes = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  const changeOffset = (delta: number) => { setHijriOffset((prev) => { const next = Math.max(-30, Math.min(30, prev + delta)); saveOffsetToDb(next); return next; }); };
-
-  // Bulk-populate hijri_date + date (Gregorian) for all rows in the current month
-  const handlePopulateHijriDates = async () => {
-    if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
-    setPopulatingHijri(true);
-    try {
-      toast.info(`Fetching Hijri dates from Aladhan API for ${data.length} days…`, { duration: 4000 });
-
-      // Fetch all dates in parallel from API (with per-day fallback to local calc)
-      const resolved = await Promise.all(
-        data.map(async (row) => {
-          const api = await fetchHijriFromApi(selectedYear, selectedMonth, row.day, hijriOffset);
-          const hijriStr  = api?.hijri    ?? computeHijriStr(selectedYear, selectedMonth, row.day, hijriOffset);
-          const gregStr   = api?.gregorian ?? `${String(row.day).padStart(2,'0')}/${String(selectedMonth).padStart(2,'0')}/${selectedYear}`;
-          return { id: row.id, hijri_date: hijriStr, date: gregStr };
-        })
-      );
-
-      const errors: string[] = [];
-      for (const upd of resolved) {
-        const { error } = await supabaseAdmin
-          .from('prayer_times')
-          .update({ hijri_date: upd.hijri_date, date: upd.date })
-          .eq('id', upd.id);
-        if (error) errors.push(`Day ${upd.id}: ${error.message}`);
-      }
-
-      if (errors.length > 0) {
-        toast.error(`${errors.length} rows failed to update.`);
-      } else {
-        const apiCount = resolved.filter((_, i) => !!i).length;
-        toast.success(`✓ Dates saved for ${resolved.length} days in ${MONTHS_FULL[selectedMonth - 1]} (via Aladhan API)`);
-        queryClient.invalidateQueries({ queryKey: ['prayer_times', selectedMonth] });
-      }
-    } catch (e) {
-      toast.error('Failed to populate dates.');
-      console.error(e);
-    } finally {
-      setPopulatingHijri(false);
-    }
-  };
-
-  // Load hijri offset from DB on mount
+  // Load Hijri offset from DB on mount
   useEffect(() => {
     loadOffsetFromDb().then((n) => setHijriOffset(n));
   }, []);
-  const queryClient = useQueryClient();
+
+  const changeOffset = (delta: number) => {
+    setHijriOffset((prev) => {
+      const next = Math.max(-30, Math.min(30, prev + delta));
+      saveOffsetToDb(next);
+      return next;
+    });
+  };
+
+  // ── Fill Dates: Aladhan API → DB (sequential, 120ms between requests) ──────
+  const handlePopulateHijriDates = async () => {
+    if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
+    setPopulatingHijri(true);
+    const toastId = 'fill-hijri';
+
+    // Step 1: fetch from Aladhan API sequentially
+    toast.loading(`Fetching dates from Aladhan API… (0 / ${data.length})`, { id: toastId });
+    const resolved: { id: string; hijri_date: string; date: string }[] = [];
+    const apiFailed: number[] = [];
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      try {
+        const result = await fetchHijriFromApi(selectedYear, selectedMonth, row.day, hijriOffset);
+        resolved.push({ id: row.id, hijri_date: result.hijri, date: result.gregorian });
+        console.log(`[Aladhan ✓] Day ${row.day}: ${result.gregorian} → ${result.hijri}`);
+      } catch (e) {
+        apiFailed.push(row.day);
+        console.error(`[Aladhan ✗] Day ${row.day}:`, e);
+      }
+      toast.loading(`Fetching dates from Aladhan API… (${i + 1} / ${data.length})`, { id: toastId });
+      if (i < data.length - 1) await new Promise((r) => setTimeout(r, 120)); // rate-limit guard
+    }
+
+    if (apiFailed.length > 0) {
+      toast.error(
+        `Aladhan API failed for ${apiFailed.length} day(s): ${apiFailed.join(', ')}. No fallback — please retry.`,
+        { id: toastId, duration: 7000 },
+      );
+      setPopulatingHijri(false);
+      return;
+    }
+
+    // Step 2: save all to DB via supabaseAdmin (bypasses RLS)
+    toast.loading(`Saving ${resolved.length} dates to database…`, { id: toastId });
+    const dbErrors: string[] = [];
+    for (const upd of resolved) {
+      const { error } = await supabaseAdmin
+        .from('prayer_times')
+        .update({ hijri_date: upd.hijri_date, date: upd.date })
+        .eq('id', upd.id);
+      if (error) {
+        dbErrors.push(`ID ${upd.id}: ${error.message}`);
+        console.error('[DB ✗] Update failed:', upd, error);
+      } else {
+        console.log(`[DB ✓] Saved: ${upd.date} → ${upd.hijri_date}`);
+      }
+    }
+
+    if (dbErrors.length > 0) {
+      toast.error(
+        `${dbErrors.length} DB write(s) failed: ${dbErrors[0]}`,
+        { id: toastId, duration: 8000 },
+      );
+    } else {
+      toast.success(
+        `✓ ${resolved.length} days saved — Gregorian + Hijri dates stored in database`,
+        { id: toastId, duration: 4000 },
+      );
+      queryClient.invalidateQueries({ queryKey: ['prayer_times', selectedMonth] });
+    }
+    setPopulatingHijri(false);
+  };
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['prayer_times', selectedMonth],
@@ -294,7 +329,9 @@ const PrayerTimes = () => {
   });
 
   const handleSaved = useCallback((updated: PrayerTime) => {
-    queryClient.setQueryData<PrayerTime[]>(['prayer_times', selectedMonth], (old) => old ? old.map((r) => (r.id === updated.id ? updated : r)) : old);
+    queryClient.setQueryData<PrayerTime[]>(['prayer_times', selectedMonth], (old) =>
+      old ? old.map((r) => (r.id === updated.id ? updated : r)) : old,
+    );
     setEditingRow(null);
   }, [queryClient, selectedMonth]);
 
@@ -302,22 +339,21 @@ const PrayerTimes = () => {
     const day = parseInt(jumpInput.trim(), 10);
     if (isNaN(day) || day < 1 || day > 31) { setHighlightDay(null); return; }
     setHighlightDay(day);
-    setTimeout(() => { const el = document.querySelector(`[data-day="${day}"]`) as HTMLElement | null; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 50);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-day="${day}"]`) as HTMLElement | null;
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
     setTimeout(() => setHighlightDay(null), 3000);
   };
 
   const handleCsvImported = useCallback((updatedByMonth: Map<number, PrayerTime[]>) => {
-    // The returned rows are already freshly fetched from DB inside
-    // bulkUpdatePrayerTimesFromCsv. Write them directly into cache.
     updatedByMonth.forEach((rows, m) => {
       if (rows.length > 0) {
         const sorted = [...rows].sort((a, b) => a.day - b.day);
         queryClient.setQueryData<PrayerTime[]>(['prayer_times', m], sorted);
       }
     });
-    // Close modal first so the table re-renders with updated cache immediately
     setCsvModal(false);
-    // Then invalidate all affected months so next navigation triggers a re-fetch
     updatedByMonth.forEach((_rows, m) => {
       queryClient.invalidateQueries({ queryKey: ['prayer_times', m] });
     });
@@ -359,15 +395,23 @@ const PrayerTimes = () => {
                   {hijriOffset > 0 ? `+${hijriOffset}` : hijriOffset === 0 ? '±0' : hijriOffset}
                 </span>
                 <button onClick={() => changeOffset(1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-white transition-colors"><Plus size={10} /></button>
-                {hijriOffset !== 0 && <button onClick={() => { setHijriOffset(0); saveOffsetToDb(0); }} className="ml-1 text-[9px] text-muted-foreground hover:text-foreground">reset</button>}
+                {hijriOffset !== 0 && (
+                  <button onClick={() => { setHijriOffset(0); saveOffsetToDb(0); }} className="ml-1 text-[9px] text-muted-foreground hover:text-foreground">
+                    reset
+                  </button>
+                )}
               </div>
 
               {/* Jump to day */}
               <div className="flex items-center gap-1 border border-[hsl(140_20%_88%)] rounded-lg px-2 py-1.5 bg-[hsl(140_30%_97%)]">
                 <Search size={12} className="text-muted-foreground shrink-0" />
-                <input type="number" min={1} max={31} value={jumpInput} onChange={(e) => setJumpInput(e.target.value)}
+                <input
+                  type="number" min={1} max={31} value={jumpInput}
+                  onChange={(e) => setJumpInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleJumpToDay(); }}
-                  placeholder="Day" className="w-12 bg-transparent text-xs font-mono outline-none text-foreground placeholder:text-muted-foreground/60" />
+                  placeholder="Day"
+                  className="w-12 bg-transparent text-xs font-mono outline-none text-foreground placeholder:text-muted-foreground/60"
+                />
                 <button onClick={handleJumpToDay} className="text-[10px] font-semibold text-[hsl(142_60%_35%)] hover:underline">Go</button>
               </div>
 
@@ -377,16 +421,19 @@ const PrayerTimes = () => {
               <Button variant="outline" size="sm" onClick={() => setJumuahModal(true)} className="gap-2 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]">
                 <CalendarCheck size={14} /> Set Jumu'ah
               </Button>
+
+              {/* Fill Dates — Aladhan API → DB */}
               <Button
                 variant="outline" size="sm"
                 onClick={handlePopulateHijriDates}
                 disabled={populatingHijri || !data || data.length === 0}
                 className="gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]"
-                title={`Fetch Gregorian + Hijri dates from Aladhan API for all ${data?.length ?? 0} days in ${MONTHS_FULL[selectedMonth - 1]} and save to database`}
+                title={`Fetch Gregorian + Hijri dates from Aladhan API for all ${data?.length ?? 0} days and save to database`}
               >
                 {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
                 {populatingHijri ? 'Filling…' : 'Fill Dates'}
               </Button>
+
               <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
                 <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
               </Button>
@@ -455,17 +502,23 @@ const PrayerTimes = () => {
           )}
           {!isLoading && !isError && data && (
             <>
-              <PrayerTimesTable data={data} year={selectedYear} hijriOffset={hijriOffset} onEdit={setEditingRow} highlightDay={highlightDay} />
+              <PrayerTimesTable
+                data={data}
+                year={selectedYear}
+                hijriOffset={hijriOffset}
+                onEdit={setEditingRow}
+                highlightDay={highlightDay}
+              />
 
               {/* Solar Times card — shows today's values when viewing the current month */}
               {selectedYear === CURRENT_YEAR && selectedMonth === CURRENT_MONTH && (() => {
                 const today = new Date().getDate();
-                const todayRow = data.find(r => r.day === today);
+                const todayRow = data.find((r) => r.day === today);
                 if (!todayRow) return null;
                 return (
                   <div className="mt-4 max-w-2xl">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 px-1">
-                      Today’s Solar Times
+                      Today's Solar Times
                     </p>
                     <SolarTimesCard
                       sunrise={todayRow.sunrise ?? null}
@@ -482,9 +535,15 @@ const PrayerTimes = () => {
 
       <JumuahYearModal open={jumuahModal} onClose={() => setJumuahModal(false)} year={selectedYear} queryClient={queryClient} />
       <EditPrayerTimeModal row={editingRow} year={selectedYear} onClose={() => setEditingRow(null)} onSaved={handleSaved} />
-      <CsvImportModal open={csvModal} onClose={() => { setCsvModal(false); setCsvPreload(undefined); }}
-        month={selectedMonth} monthName={MONTHS_FULL[selectedMonth - 1]} year={selectedYear}
-        onImported={handleCsvImported} preloadedCsv={csvPreload} />
+      <CsvImportModal
+        open={csvModal}
+        onClose={() => { setCsvModal(false); setCsvPreload(undefined); }}
+        month={selectedMonth}
+        monthName={MONTHS_FULL[selectedMonth - 1]}
+        year={selectedYear}
+        onImported={handleCsvImported}
+        preloadedCsv={csvPreload}
+      />
     </div>
   );
 };

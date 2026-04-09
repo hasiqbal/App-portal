@@ -7,7 +7,7 @@ import { PrayerTime, PrayerTimeUpdate } from '@/types';
 import { updatePrayerTime } from '@/lib/api';
 import { toast } from 'sonner';
 import { Minus, Plus, Clock, Moon } from 'lucide-react';
-import { gregorianToHijri } from '@/lib/dateUtils';
+
 
 interface EditPrayerTimeModalProps {
   row: PrayerTime | null;
@@ -16,33 +16,23 @@ interface EditPrayerTimeModalProps {
   onSaved: (updated: PrayerTime) => void;
 }
 
-const HIJRI_MONTHS_FULL = [
-  'Muharram', 'Safar', "Rabi' al-Awwal", "Rabi' al-Akhir",
-  'Jumada al-Ula', 'Jumada al-Akhira', 'Rajab', "Sha'ban",
-  'Ramadan', 'Shawwal', "Dhu al-Qi'dah", 'Dhu al-Hijjah',
-];
-
-function computeHijriDateString(year: number, month: number, day: number): string {
-  const h = gregorianToHijri(year, month, day);
-  return `${h.day} ${HIJRI_MONTHS_FULL[h.month - 1] ?? h.monthName} ${h.year} AH`;
-}
-
-async function fetchHijriFromApi(year: number, month: number, day: number): Promise<{ hijri: string; gregorian: string } | null> {
-  try {
-    const gDay   = String(day).padStart(2, '0');
-    const gMonth = String(month).padStart(2, '0');
-    const res = await fetch(`https://api.aladhan.com/v1/gToH?date=${gDay}-${gMonth}-${year}`);
-    if (!res.ok) return null;
-    const json = await res.json();
-    const h = json?.data?.hijri;
-    if (!h) return null;
-    return {
-      hijri: `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
-      gregorian: `${gDay}/${gMonth}/${year}`,
-    };
-  } catch {
-    return null;
-  }
+/**
+ * Fetch accurate Hijri date from Aladhan API (path format).
+ * Throws on failure — no local fallback, API only.
+ */
+async function fetchHijriFromApi(year: number, month: number, day: number): Promise<{ hijri: string; gregorian: string }> {
+  const gDay   = String(day).padStart(2, '0');
+  const gMonth = String(month).padStart(2, '0');
+  const gregStr = `${gDay}-${gMonth}-${year}`;
+  const res = await fetch(`https://api.aladhan.com/v1/gToH/${gregStr}`);
+  if (!res.ok) throw new Error(`Aladhan API error ${res.status}`);
+  const json = await res.json();
+  const h = json?.data?.hijri;
+  if (!h) throw new Error('Unexpected API response');
+  return {
+    hijri: `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
+    gregorian: `${gDay}/${gMonth}/${year}`,
+  };
 }
 
 const FIELDS: { key: keyof PrayerTimeUpdate; label: string; group: string }[] = [
@@ -152,15 +142,16 @@ const EditPrayerTimeModal = ({ row, year, onClose, onSaved }: EditPrayerTimeModa
   const autoFillHijri = async () => {
     if (!row) return;
     setFillingHijri(true);
-    const api = await fetchHijriFromApi(year, row.month, row.day);
-    if (api) {
-      setForm((prev) => ({ ...prev, hijri_date: api.hijri, date: api.gregorian }));
-    } else {
-      // Fallback to local calculation
-      const computed = computeHijriDateString(year, row.month, row.day);
-      setForm((prev) => ({ ...prev, hijri_date: computed }));
+    try {
+      const result = await fetchHijriFromApi(year, row.month, row.day);
+      setForm((prev) => ({ ...prev, hijri_date: result.hijri, date: result.gregorian }));
+      console.log(`[Aladhan] Day ${row.day}: ${result.gregorian} → ${result.hijri}`);
+    } catch (e) {
+      console.error('[Aladhan] Auto-fill failed:', e);
+      toast.error('Aladhan API request failed. Check connection and try again.');
+    } finally {
+      setFillingHijri(false);
     }
-    setFillingHijri(false);
   };
 
   const handleSave = async () => {
