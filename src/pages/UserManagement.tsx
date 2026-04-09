@@ -1,19 +1,38 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Users, Plus, Pencil, Trash2, RefreshCw, Shield, Eye, EyeOff,
-  Search, CheckCircle2, XCircle, Activity, Filter,
-  UserCheck, UserX, ChevronDown, ChevronUp, Loader2,
-  KeyRound, LogIn, LogOut,
+  Search, CheckCircle2, XCircle, Activity,
+  UserCheck, UserX, Loader2,
+  KeyRound, LogIn, LogOut, FileText, Edit3, ToggleLeft,
+  ChevronDown, ChevronUp, Download, Clock, Filter,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import Sidebar from '@/components/layout/Sidebar';
-import { supabase, supabaseAdmin } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+
+// ─── OnSpace Cloud — read activity logs from here ─────────────────────────────
+const ONSPACE_URL      = 'https://erwtsmhykudttxbeerwt.backend.onspace.ai';
+const ONSPACE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyd3RzbWhva3VkdHR4YmVlcnd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.sNXApMNqRjBbVDI-BOZ3kQZXCmpAkUWJqkIWB1FqvLc';
+
+async function fetchActivityLogs(): Promise<ActivityLog[]> {
+  const res = await fetch(
+    `${ONSPACE_URL}/rest/v1/activity_log?select=*&order=created_at.desc&limit=500`,
+    {
+      headers: {
+        'apikey':        ONSPACE_ANON_KEY,
+        'Authorization': `Bearer ${ONSPACE_ANON_KEY}`,
+      },
+    }
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,22 +77,27 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const ROLE_AVATAR_BG: Record<string, string> = {
-  admin: '#7c3aed',
+  admin:  '#7c3aed',
   editor: '#1d4ed8',
   viewer: '#475569',
 };
 
-const ACTION_ICONS: Record<string, React.ReactNode> = {
-  login:    <LogIn  size={12} className="text-emerald-500" />,
-  logout:   <LogOut size={12} className="text-slate-400" />,
-  create:   <Plus   size={12} className="text-blue-500" />,
-  update:   <Pencil size={12} className="text-amber-500" />,
-  delete:   <Trash2 size={12} className="text-red-500" />,
-  toggle:   <CheckCircle2 size={12} className="text-teal-500" />,
-  reorder:  <RefreshCw size={12} className="text-violet-500" />,
-  send:     <Activity size={12} className="text-orange-500" />,
-  import:   <Plus size={12} className="text-green-500" />,
+// Action metadata
+const ACTION_META: Record<string, { icon: React.ReactNode; color: string; bg: string; label: string }> = {
+  login:   { icon: <LogIn    size={13} />, color: '#059669', bg: '#d1fae5', label: 'Login'   },
+  logout:  { icon: <LogOut   size={13} />, color: '#6b7280', bg: '#f3f4f6', label: 'Logout'  },
+  create:  { icon: <Plus     size={13} />, color: '#2563eb', bg: '#dbeafe', label: 'Create'  },
+  update:  { icon: <Edit3    size={13} />, color: '#d97706', bg: '#fef3c7', label: 'Update'  },
+  delete:  { icon: <Trash2   size={13} />, color: '#dc2626', bg: '#fee2e2', label: 'Delete'  },
+  toggle:  { icon: <ToggleLeft size={13} />, color: '#0891b2', bg: '#cffafe', label: 'Toggle' },
+  reorder: { icon: <RefreshCw size={13} />, color: '#7c3aed', bg: '#ede9fe', label: 'Reorder' },
+  send:    { icon: <Activity size={13} />,  color: '#ea580c', bg: '#ffedd5', label: 'Send'   },
+  import:  { icon: <FileText size={13} />,  color: '#16a34a', bg: '#dcfce7', label: 'Import'  },
 };
+
+function getActionMeta(action: string) {
+  return ACTION_META[action] ?? { icon: <Activity size={13} />, color: '#6b7280', bg: '#f3f4f6', label: action };
+}
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -87,14 +111,393 @@ function timeAgo(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function groupByDate(logs: ActivityLog[]): { date: string; logs: ActivityLog[] }[] {
+  const groups: Record<string, ActivityLog[]> = {};
+  for (const log of logs) {
+    const d = new Date(log.created_at);
+    const today    = new Date();
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    let label: string;
+    if (d.toDateString() === today.toDateString())     label = 'Today';
+    else if (d.toDateString() === yesterday.toDateString()) label = 'Yesterday';
+    else label = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(log);
+  }
+  return Object.entries(groups).map(([date, logs]) => ({ date, logs }));
+}
+
+// ─── Export helper ────────────────────────────────────────────────────────────
+
+function exportToCsv(logs: ActivityLog[]) {
+  const headers = ['Timestamp', 'Username', 'Role', 'Action', 'Entity Type', 'Entity', 'IP'];
+  const rows = logs.map((l) => [
+    formatDateTime(l.created_at),
+    l.username,
+    l.user_role,
+    l.action,
+    l.entity_type,
+    l.entity_label ?? l.entity_id ?? '',
+    l.ip_address ?? '',
+  ]);
+  const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `activity-log-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Activity Log Panel ───────────────────────────────────────────────────────
+
+type ActionTab = 'all' | 'auth' | 'content' | 'settings';
+
+const ActivityLogPanel = ({
+  logs,
+  loading,
+  onRefresh,
+}: {
+  logs: ActivityLog[];
+  loading: boolean;
+  onRefresh: () => void;
+}) => {
+  const [search,      setSearch]      = useState('');
+  const [filterUser,  setFilterUser]  = useState('all');
+  const [activeTab,   setActiveTab]   = useState<ActionTab>('all');
+  const [expanded,    setExpanded]    = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+
+  // Auto-refresh every 30s
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(onRefresh, 30_000);
+    return () => clearInterval(id);
+  }, [autoRefresh, onRefresh]);
+
+  const uniqueUsers = useMemo(() =>
+    [...new Set(logs.map((l) => l.username))].sort(), [logs]);
+
+  const tabFilteredLogs = useMemo(() => {
+    switch (activeTab) {
+      case 'auth':     return logs.filter((l) => ['login', 'logout'].includes(l.action));
+      case 'content':  return logs.filter((l) => ['create', 'update', 'delete', 'toggle', 'reorder', 'import', 'send'].includes(l.action));
+      case 'settings': return logs.filter((l) => l.entity_type === 'settings' || l.entity_type === 'user');
+      default:         return logs;
+    }
+  }, [logs, activeTab]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return tabFilteredLogs.filter((l) => {
+      const matchSearch = !q
+        || l.username.toLowerCase().includes(q)
+        || l.action.toLowerCase().includes(q)
+        || (l.entity_label ?? '').toLowerCase().includes(q)
+        || (l.entity_type  ?? '').toLowerCase().includes(q);
+      const matchUser = filterUser === 'all' || l.username === filterUser;
+      return matchSearch && matchUser;
+    });
+  }, [tabFilteredLogs, search, filterUser]);
+
+  const grouped = useMemo(() => groupByDate(filtered), [filtered]);
+
+  // Stats
+  const todayCount  = useMemo(() => {
+    const today = new Date().toDateString();
+    return logs.filter((l) => new Date(l.created_at).toDateString() === today).length;
+  }, [logs]);
+
+  const loginCount  = logs.filter((l) => l.action === 'login').length;
+  const activeUsers = new Set(logs.map((l) => l.username)).size;
+
+  const tabs: { key: ActionTab; label: string; count: number }[] = [
+    { key: 'all',      label: 'All',      count: logs.length },
+    { key: 'auth',     label: 'Auth',     count: logs.filter((l) => ['login','logout'].includes(l.action)).length },
+    { key: 'content',  label: 'Content',  count: logs.filter((l) => ['create','update','delete','toggle','reorder','import','send'].includes(l.action)).length },
+    { key: 'settings', label: 'Settings', count: logs.filter((l) => l.entity_type === 'settings' || l.entity_type === 'user').length },
+  ];
+
+  return (
+    <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="px-5 pt-5 pb-4 border-b border-border bg-gradient-to-r from-[hsl(142_50%_97%)] to-white">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+              <Activity size={16} style={{ color: 'hsl(var(--primary))' }} />
+              Activity Log
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Full audit trail of all portal actions</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Auto-refresh toggle */}
+            <button
+              onClick={() => setAutoRefresh((v) => !v)}
+              title={autoRefresh ? 'Auto-refresh on (every 30s)' : 'Auto-refresh off'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                autoRefresh
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  : 'bg-white border-border text-muted-foreground hover:bg-muted/30'
+              }`}
+            >
+              <Clock size={12} className={autoRefresh ? 'animate-pulse' : ''} />
+              <span className="hidden sm:inline">{autoRefresh ? 'Live' : 'Live'}</span>
+            </button>
+            <Button
+              variant="outline" size="sm"
+              onClick={() => filtered.length > 0 && exportToCsv(filtered)}
+              disabled={filtered.length === 0}
+              className="gap-1.5 text-xs"
+            >
+              <Download size={12} /> Export
+            </Button>
+            <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading} className="gap-1.5">
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            </Button>
+          </div>
+        </div>
+
+        {/* Stats pills */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {[
+            { label: 'Total events',   value: logs.length,  color: 'hsl(var(--primary))' },
+            { label: 'Today',          value: todayCount,   color: '#059669' },
+            { label: 'Logins',         value: loginCount,   color: '#2563eb' },
+            { label: 'Active users',   value: activeUsers,  color: '#7c3aed' },
+          ].map((s) => (
+            <div
+              key={s.label}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/80 shadow-sm"
+            >
+              <span className="text-sm font-bold" style={{ color: s.color }}>{s.value}</span>
+              <span className="text-[11px] text-muted-foreground">{s.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-1 mb-4 border-b border-border -mx-5 px-5 overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+              }`}
+            >
+              {tab.label}
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                activeTab === tab.key
+                  ? 'bg-primary/10 text-primary'
+                  : 'bg-muted text-muted-foreground'
+              }`}>
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap gap-2">
+          <div className="relative flex-1 min-w-[160px]">
+            <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by user, action, entity…"
+              className="pl-8 h-8 text-xs"
+            />
+          </div>
+          <div className="relative">
+            <Filter size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <select
+              value={filterUser}
+              onChange={(e) => setFilterUser(e.target.value)}
+              className="h-8 pl-7 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring appearance-none"
+            >
+              <option value="all">All users</option>
+              {uniqueUsers.map((u) => <option key={u} value={u}>@{u}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Body ───────────────────────────────────────────────────────────── */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+          <Loader2 size={22} className="animate-spin" style={{ color: 'hsl(var(--primary))' }} />
+          <p className="text-sm">Loading activity logs…</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+          <Activity size={32} className="opacity-15" />
+          <div className="text-center">
+            <p className="text-sm font-medium">
+              {logs.length === 0 ? 'No activity recorded yet' : 'No logs match your filter'}
+            </p>
+            <p className="text-xs mt-1 opacity-70">
+              {logs.length === 0
+                ? 'Sign in or out to start generating activity events'
+                : 'Try adjusting your search or filters'}
+            </p>
+          </div>
+          {logs.length === 0 && (
+            <Button size="sm" variant="outline" onClick={onRefresh} className="gap-2 mt-1">
+              <RefreshCw size={12} /> Refresh
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="divide-y divide-border/40">
+          {grouped.map(({ date, logs: dateLogs }) => (
+            <div key={date}>
+              {/* Date group header */}
+              <div className="sticky top-0 z-10 px-5 py-2 bg-muted/30 backdrop-blur-sm border-b border-border/40">
+                <div className="flex items-center gap-2">
+                  <div className="h-px flex-1 bg-border/60" />
+                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+                    {date}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/60">({dateLogs.length})</span>
+                  <div className="h-px flex-1 bg-border/60" />
+                </div>
+              </div>
+
+              {/* Log entries */}
+              {dateLogs.map((log) => {
+                const meta      = getActionMeta(log.action);
+                const isExpanded = expanded === log.id;
+
+                return (
+                  <div
+                    key={log.id}
+                    className="hover:bg-muted/10 transition-colors"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(isExpanded ? null : log.id)}
+                      className="w-full px-5 py-3 flex items-start gap-3 text-left"
+                    >
+                      {/* Action icon bubble */}
+                      <div
+                        className="mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ background: meta.bg, color: meta.color }}
+                      >
+                        {meta.icon}
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* User avatar initial */}
+                          <div
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                            style={{ background: ROLE_AVATAR_BG[log.user_role] ?? '#475569' }}
+                          >
+                            {log.username.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-xs font-bold text-foreground">@{log.username}</span>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${ROLE_COLORS[log.user_role] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}
+                          >
+                            {log.user_role}
+                          </span>
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                            style={{ background: meta.bg, color: meta.color }}
+                          >
+                            {meta.label}
+                          </span>
+                          {log.entity_type && log.entity_type !== 'session' && (
+                            <span className="text-[11px] text-muted-foreground">
+                              {log.entity_type}
+                              {log.entity_label ? ` · ${log.entity_label}` : ''}
+                            </span>
+                          )}
+                          {log.entity_type === 'session' && log.entity_label && (
+                            <span className="text-[11px] text-muted-foreground">{log.entity_label}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Timestamp + expand chevron */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">{timeAgo(log.created_at)}</span>
+                        {isExpanded
+                          ? <ChevronUp  size={13} className="text-muted-foreground" />
+                          : <ChevronDown size={13} className="text-muted-foreground" />}
+                      </div>
+                    </button>
+
+                    {/* Expanded detail */}
+                    {isExpanded && (
+                      <div className="px-5 pb-4 pl-[60px]">
+                        <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 text-xs">
+                            {[
+                              { label: 'Timestamp',   value: formatDateTime(log.created_at) },
+                              { label: 'Action',      value: log.action },
+                              { label: 'Entity type', value: log.entity_type || '—' },
+                              { label: 'Entity',      value: log.entity_label || log.entity_id || '—' },
+                              ...(log.ip_address ? [{ label: 'IP address', value: log.ip_address }] : []),
+                            ].map(({ label, value }) => (
+                              <div key={label} className="flex gap-2">
+                                <span className="text-muted-foreground w-24 shrink-0">{label}</span>
+                                <span className="text-foreground/80 font-medium break-all">{value}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {log.details && Object.keys(log.details).length > 0 && (
+                            <div className="pt-2 border-t border-border">
+                              <p className="text-[11px] font-semibold text-muted-foreground mb-1">Details</p>
+                              <pre className="text-[10px] text-foreground/70 bg-background rounded-lg px-3 py-2 overflow-x-auto whitespace-pre-wrap border border-border/60">
+                                {JSON.stringify(log.details, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+          {/* Footer */}
+          <div className="px-5 py-3 flex items-center justify-between text-xs text-muted-foreground bg-muted/10">
+            <span>Showing {filtered.length} of {logs.length} total entries</span>
+            {filtered.length > 0 && (
+              <button
+                onClick={() => exportToCsv(filtered)}
+                className="flex items-center gap-1.5 text-primary font-semibold hover:underline"
+              >
+                <Download size={11} /> Export {filtered.length} rows
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── User Form Modal ──────────────────────────────────────────────────────────
 
 const UserModal = ({
-  open,
-  user,
-  currentAdminUsername,
-  onClose,
-  onSaved,
+  open, user, currentAdminUsername, onClose, onSaved,
 }: {
   open: boolean;
   user: PortalUser | null;
@@ -103,26 +506,16 @@ const UserModal = ({
   onSaved: (u: PortalUser) => void;
 }) => {
   const isEdit = !!user;
-  const [form, setForm] = useState({
-    username: '',
-    name: '',
-    password: '',
-    role: 'viewer' as 'admin' | 'editor' | 'viewer',
-    is_active: true,
-  });
+  const [form, setForm] = useState({ username: '', name: '', password: '', role: 'viewer' as PortalUser['role'], is_active: true });
   const [showPassword, setShowPassword] = useState(false);
   const [usernameChanged, setUsernameChanged] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Sync form when modal opens
   const [lastUser, setLastUser] = useState(user);
   if (user !== lastUser) {
     setLastUser(user);
-    if (user) {
-      setForm({ username: user.username, name: user.name, password: '', role: user.role, is_active: user.is_active });
-    } else {
-      setForm({ username: '', name: '', password: '', role: 'viewer', is_active: true });
-    }
+    if (user) setForm({ username: user.username, name: user.name, password: '', role: user.role, is_active: user.is_active });
+    else       setForm({ username: '', name: '', password: '', role: 'viewer', is_active: true });
     setShowPassword(false);
     setUsernameChanged(false);
   }
@@ -132,46 +525,34 @@ const UserModal = ({
 
   const handleSave = async () => {
     if (!form.username.trim()) { toast.error('Username is required.'); return; }
-    if (!form.name.trim()) { toast.error('Name is required.'); return; }
+    if (!form.name.trim())     { toast.error('Name is required.'); return; }
     if (!isEdit && !form.password.trim()) { toast.error('Password is required.'); return; }
     if (form.password && form.password.length < 6) { toast.error('Password must be at least 6 characters.'); return; }
 
     setSaving(true);
-    const newUsername = form.username.trim().toLowerCase();
+    const newUsername = form.username.trim().toLowerCase().replace(/\s+/g, '_');
 
     try {
       const payload: Partial<PortalUser> = {
-        username: newUsername,
-        name: form.name.trim(),
-        role: form.role,
+        username:  newUsername,
+        name:      form.name.trim(),
+        role:      form.role,
         is_active: form.is_active,
         ...(form.password.trim() ? { password: form.password } : {}),
       };
 
       if (isEdit) {
         const { data, error } = await supabaseAdmin
-          .from('portal_users')
-          .update(payload)
-          .eq('id', user!.id)
-          .select()
-          .single();
+          .from('portal_users').update(payload).eq('id', user!.id).select().single();
         if (error) {
           if (error.code === '23505') throw new Error(`Username "${newUsername}" is already taken.`);
           throw error;
         }
-        const changes: string[] = [];
-        if (newUsername !== user!.username) changes.push(`username → @${newUsername}`);
-        if (form.role !== user!.role) changes.push(`role → ${form.role}`);
-        if (form.is_active !== user!.is_active) changes.push(form.is_active ? 'activated' : 'deactivated');
-        if (form.password.trim()) changes.push('password changed');
-        toast.success(`"${form.name.trim()}" updated${changes.length ? ` (${changes.join(', ')})` : ''}.`);
+        toast.success(`"${form.name.trim()}" updated.`);
         onSaved(data as PortalUser);
       } else {
         const { data, error } = await supabaseAdmin
-          .from('portal_users')
-          .insert({ ...payload, password: form.password, created_by: currentAdminUsername })
-          .select()
-          .single();
+          .from('portal_users').insert({ ...payload, password: form.password, created_by: currentAdminUsername }).select().single();
         if (error) {
           if (error.code === '23505') throw new Error(`Username "${newUsername}" is already taken.`);
           throw error;
@@ -194,13 +575,12 @@ const UserModal = ({
             <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
               <Users size={14} className="text-[hsl(142_60%_32%)]" />
             </div>
-            {isEdit ? `Edit User — ${user?.name}` : 'Create New User'}
+            {isEdit ? `Edit — ${user?.name}` : 'Create New User'}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
           <div className="grid grid-cols-2 gap-4">
-            {/* Username — editable even in edit mode */}
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Username *</Label>
               <Input
@@ -209,26 +589,16 @@ const UserModal = ({
                   set('username', e.target.value.toLowerCase().replace(/\s/g, '_'));
                   if (isEdit) setUsernameChanged(true);
                 }}
-                placeholder="e.g. masjid_editor"
+                placeholder="e.g. editor_ali"
                 autoFocus={!isEdit}
               />
               {isEdit && usernameChanged && form.username !== user?.username && (
-                <p className="text-[10px] text-amber-600 font-medium">
-                  ⚠ Changes their login username to @{form.username || '…'}
-                </p>
-              )}
-              {isEdit && !usernameChanged && (
-                <p className="text-[10px] text-muted-foreground">Editable — affects login credentials.</p>
+                <p className="text-[10px] text-amber-600 font-medium">⚠ Login username will change to @{form.username || '…'}</p>
               )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Display Name *</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => set('name', e.target.value)}
-                placeholder="e.g. Abdullah Khan"
-                autoFocus={isEdit}
-              />
+              <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Abdullah Khan" autoFocus={isEdit} />
             </div>
           </div>
 
@@ -243,37 +613,27 @@ const UserModal = ({
                 placeholder={isEdit ? 'Leave blank to keep current' : 'Minimum 6 characters'}
                 className="pl-9 pr-9"
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
+              <button type="button" onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                 {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>
             </div>
           </div>
 
-          {/* Role selector */}
           <div className="space-y-2">
             <Label className="text-xs font-semibold">Role *</Label>
             <div className="space-y-2">
               {ROLES.map((r) => (
-                <button
-                  key={r.value}
-                  type="button"
-                  onClick={() => set('role', r.value as typeof form.role)}
+                <button key={r.value} type="button" onClick={() => set('role', r.value as PortalUser['role'])}
                   className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
-                    form.role === r.value
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-primary/30 hover:bg-muted/30'
-                  }`}
-                >
+                    form.role === r.value ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30 hover:bg-muted/30'
+                  }`}>
                   <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${form.role === r.value ? 'border-primary bg-primary' : 'border-border'}`}>
                     {form.role === r.value && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-foreground">{r.label}</span>
+                      <span className="text-sm font-semibold">{r.label}</span>
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${r.color}`}>{r.label}</span>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{r.desc}</p>
@@ -283,13 +643,9 @@ const UserModal = ({
             </div>
           </div>
 
-          {/* Active toggle */}
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => set('is_active', !form.is_active)}
-              className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${form.is_active ? 'bg-emerald-500' : 'bg-border'}`}
-            >
+            <button type="button" onClick={() => set('is_active', !form.is_active)}
+              className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${form.is_active ? 'bg-emerald-500' : 'bg-border'}`}>
               <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${form.is_active ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </button>
             <div>
@@ -302,7 +658,7 @@ const UserModal = ({
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving} style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
-            {saving ? <><Loader2 size={13} className="animate-spin" /> Saving…</> : isEdit ? 'Save Changes' : 'Create User'}
+            {saving ? <><Loader2 size={13} className="animate-spin mr-1" /> Saving…</> : isEdit ? 'Save Changes' : 'Create User'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -310,280 +666,72 @@ const UserModal = ({
   );
 };
 
-// ─── User Card ─────────────────────────────────────────────────────────────────
+// ─── User Card ────────────────────────────────────────────────────────────────
 
 const UserCard = ({
-  user,
-  currentUsername,
-  onEdit,
-  onToggle,
-  onDelete,
-  onRoleChange,
-  toggling,
-  deleting,
-  roleChanging,
+  user, currentUsername, onEdit, onToggle, onDelete, onRoleChange, toggling, deleting, roleChanging,
 }: {
   user: PortalUser;
   currentUsername: string;
   onEdit: (u: PortalUser) => void;
   onToggle: (u: PortalUser) => void;
   onDelete: (u: PortalUser) => void;
-  onRoleChange: (u: PortalUser, role: 'admin' | 'editor' | 'viewer') => void;
+  onRoleChange: (u: PortalUser, role: PortalUser['role']) => void;
   toggling: string | null;
   deleting: string | null;
   roleChanging: string | null;
 }) => {
   const isSelf = user.username === currentUsername;
-
   return (
     <div className={`rounded-xl border bg-white shadow-sm transition-all ${user.is_active ? 'border-border' : 'border-dashed border-border opacity-60'}`}>
       <div className="px-5 py-4 flex items-start gap-4">
-        {/* Avatar */}
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center text-lg font-bold text-white shrink-0"
-          style={{ background: ROLE_AVATAR_BG[user.role] ?? '#475569' }}
-        >
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center text-lg font-bold text-white shrink-0"
+          style={{ background: ROLE_AVATAR_BG[user.role] ?? '#475569' }}>
           {(user.name || user.username).charAt(0).toUpperCase()}
         </div>
-
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-bold text-sm text-foreground">{user.name}</span>
-            {isSelf && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">YOU</span>
-            )}
-            {!user.is_active && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">Inactive</span>
-            )}
+            <span className="font-bold text-sm">{user.name}</span>
+            {isSelf && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">YOU</span>}
+            {!user.is_active && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">Inactive</span>}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">@{user.username}</p>
-
-          {/* Quick role selector — one click to change */}
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
             <span className="text-[10px] text-muted-foreground mr-0.5">Role:</span>
             {(['admin', 'editor', 'viewer'] as const).map((r) => (
-              <button
-                key={r}
+              <button key={r}
                 onClick={() => !isSelf && r !== user.role && onRoleChange(user, r)}
                 disabled={isSelf || roleChanging === user.id}
-                title={
-                  isSelf ? 'Cannot change own role'
-                  : r === user.role ? 'Current role'
-                  : `Switch to ${r}`
-                }
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all ${
-                  user.role === r
-                    ? ROLE_COLORS[r] + ' shadow-sm'
-                    : 'border-border/60 text-muted-foreground/60 hover:border-border hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed'
-                } ${r !== user.role && !isSelf ? 'cursor-pointer' : ''}`}
-              >
-                {roleChanging === user.id && r === user.role ? '…' : ROLES.find((x) => x.value === r)?.label}
+                  user.role === r ? ROLE_COLORS[r] + ' shadow-sm' : 'border-border/60 text-muted-foreground/60 hover:border-border hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed'
+                } ${r !== user.role && !isSelf ? 'cursor-pointer' : ''}`}>
+                {roleChanging === user.id && r === user.role ? '…' : r.charAt(0).toUpperCase() + r.slice(1)}
               </button>
             ))}
           </div>
-
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-            {user.last_login ? (
-              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                <LogIn size={10} /> Last login {timeAgo(user.last_login)}
-              </span>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">Never logged in</span>
-            )}
-            {user.created_by && (
-              <span className="text-[11px] text-muted-foreground">Created by @{user.created_by}</span>
-            )}
+            {user.last_login
+              ? <span className="text-[11px] text-muted-foreground flex items-center gap-1"><LogIn size={10} /> {timeAgo(user.last_login)}</span>
+              : <span className="text-[11px] text-muted-foreground">Never logged in</span>}
+            {user.created_by && <span className="text-[11px] text-muted-foreground">by @{user.created_by}</span>}
           </div>
         </div>
-
-        {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => onToggle(user)}
-            disabled={toggling === user.id || isSelf}
-            title={isSelf ? 'Cannot deactivate your own account' : user.is_active ? 'Deactivate' : 'Activate'}
-            className="p-2 rounded-lg hover:bg-secondary/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {toggling === user.id
-              ? <Loader2 size={14} className="animate-spin text-muted-foreground" />
-              : user.is_active
-              ? <UserCheck size={14} className="text-emerald-600" />
+          <button onClick={() => onToggle(user)} disabled={toggling === user.id || isSelf}
+            className="p-2 rounded-lg hover:bg-secondary/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            {toggling === user.id ? <Loader2 size={14} className="animate-spin text-muted-foreground" />
+              : user.is_active ? <UserCheck size={14} className="text-emerald-600" />
               : <UserX size={14} className="text-muted-foreground" />}
           </button>
-          <button
-            onClick={() => onEdit(user)}
-            className="p-2 rounded-lg hover:bg-accent/10 transition-colors"
-            title="Edit user (name, username, password, role)"
-          >
+          <button onClick={() => onEdit(user)} className="p-2 rounded-lg hover:bg-accent/10 transition-colors">
             <Pencil size={14} style={{ color: 'hsl(var(--accent))' }} />
           </button>
-          <button
-            onClick={() => onDelete(user)}
-            disabled={deleting === user.id || isSelf}
-            title={isSelf ? 'Cannot delete your own account' : 'Delete user'}
-            className="p-2 rounded-lg hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {deleting === user.id
-              ? <Loader2 size={14} className="animate-spin text-muted-foreground" />
-              : <Trash2 size={14} className="text-destructive" />}
+          <button onClick={() => onDelete(user)} disabled={deleting === user.id || isSelf}
+            className="p-2 rounded-lg hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            {deleting === user.id ? <Loader2 size={14} className="animate-spin text-muted-foreground" /> : <Trash2 size={14} className="text-destructive" />}
           </button>
         </div>
       </div>
-    </div>
-  );
-};
-
-// ─── Activity Log Panel ───────────────────────────────────────────────────────
-
-const ActivityLogPanel = ({ logs, loading, onRefresh }: { logs: ActivityLog[]; loading: boolean; onRefresh: () => void }) => {
-  const [search, setSearch] = useState('');
-  const [filterUser, setFilterUser] = useState('all');
-  const [filterAction, setFilterAction] = useState('all');
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
-
-  const uniqueUsers = [...new Set(logs.map((l) => l.username))].sort();
-  const uniqueActions = [...new Set(logs.map((l) => l.action))].sort();
-
-  const filtered = useMemo(() => {
-    return logs.filter((l) => {
-      const q = search.toLowerCase();
-      const matchSearch = !q
-        || l.username.toLowerCase().includes(q)
-        || l.action.toLowerCase().includes(q)
-        || (l.entity_label ?? '').toLowerCase().includes(q)
-        || (l.entity_type ?? '').toLowerCase().includes(q);
-      const matchUser   = filterUser   === 'all' || l.username === filterUser;
-      const matchAction = filterAction === 'all' || l.action   === filterAction;
-      return matchSearch && matchUser && matchAction;
-    });
-  }, [logs, search, filterUser, filterAction]);
-
-  const displayed = showAll ? filtered : filtered.slice(0, 50);
-
-  return (
-    <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-border" style={{ background: 'hsl(var(--primary) / 0.05)' }}>
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-            <Activity size={15} style={{ color: 'hsl(var(--primary))' }} />
-            Activity Log
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{logs.length}</span>
-          </h3>
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading} className="gap-1.5">
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          </Button>
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-wrap gap-2">
-          <div className="relative flex-1 min-w-[160px] max-w-xs">
-            <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search logs…" className="pl-8 h-8 text-xs" />
-          </div>
-          <select
-            value={filterUser}
-            onChange={(e) => setFilterUser(e.target.value)}
-            className="h-8 rounded-md border border-input bg-background px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="all">All users</option>
-            {uniqueUsers.map((u) => <option key={u} value={u}>@{u}</option>)}
-          </select>
-          <select
-            value={filterAction}
-            onChange={(e) => setFilterAction(e.target.value)}
-            className="h-8 rounded-md border border-input bg-background px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="all">All actions</option>
-            {uniqueActions.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
-      </div>
-
-      {/* Log rows */}
-      {loading ? (
-        <div className="flex items-center justify-center h-40 gap-2 text-muted-foreground">
-          <Loader2 size={16} className="animate-spin" /> Loading logs…
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
-          <Activity size={28} className="opacity-20" />
-          <p className="text-sm">{logs.length === 0 ? 'No activity recorded yet. Sign in/out to generate logs.' : 'No logs match your filter.'}</p>
-        </div>
-      ) : (
-        <div className="divide-y divide-border/60">
-          {displayed.map((log) => {
-            const isExpanded = expanded === log.id;
-            const icon = ACTION_ICONS[log.action] ?? <Activity size={12} className="text-muted-foreground" />;
-            return (
-              <div key={log.id} className="hover:bg-muted/10 transition-colors">
-                <div
-                  className="px-5 py-3 flex items-start gap-3 cursor-pointer"
-                  onClick={() => setExpanded(isExpanded ? null : log.id)}
-                >
-                  <div className="mt-0.5 shrink-0">{icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-foreground">@{log.username}</span>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${ROLE_COLORS[log.user_role] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                        {log.user_role}
-                      </span>
-                      <span className="text-xs font-medium capitalize text-foreground/80">{log.action}</span>
-                      {log.entity_type && (
-                        <span className="text-xs text-muted-foreground">
-                          {log.entity_type}{log.entity_label ? ` — ${log.entity_label}` : ''}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[11px] text-muted-foreground whitespace-nowrap">{timeAgo(log.created_at)}</span>
-                    {isExpanded ? <ChevronUp size={13} className="text-muted-foreground" /> : <ChevronDown size={13} className="text-muted-foreground" />}
-                  </div>
-                </div>
-                {isExpanded && (
-                  <div className="px-5 pb-3 pl-10">
-                    <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-1.5 text-xs">
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-                        {[
-                          { label: 'Time',        value: new Date(log.created_at).toLocaleString() },
-                          { label: 'Action',      value: log.action },
-                          { label: 'Entity Type', value: log.entity_type || '—' },
-                          { label: 'Entity',      value: log.entity_label || log.entity_id || '—' },
-                          ...(log.ip_address ? [{ label: 'IP Address', value: log.ip_address }] : []),
-                        ].map(({ label, value }) => (
-                          <div key={label} className="flex gap-2">
-                            <span className="text-muted-foreground w-24 shrink-0">{label}:</span>
-                            <span className="text-foreground/80 font-medium break-all">{value}</span>
-                          </div>
-                        ))}
-                      </div>
-                      {log.details && Object.keys(log.details).length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-border">
-                          <p className="text-muted-foreground mb-1">Details:</p>
-                          <pre className="text-[10px] text-foreground/70 bg-background/60 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap">
-                            {JSON.stringify(log.details, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {!showAll && filtered.length > 50 && (
-            <div className="px-5 py-3 flex items-center justify-between border-t border-border/60">
-              <p className="text-xs text-muted-foreground">{filtered.length - 50} more entries not shown</p>
-              <button onClick={() => setShowAll(true)} className="text-xs font-semibold text-primary hover:underline">
-                Show all {filtered.length}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };
@@ -593,57 +741,44 @@ const ActivityLogPanel = ({ logs, loading, onRefresh }: { logs: ActivityLog[]; l
 const UserManagement = () => {
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editUser, setEditUser] = useState<PortalUser | null>(null);
-  const [search, setSearch] = useState('');
-  const [filterRole, setFilterRole] = useState('all');
-  const [toggling, setToggling] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [modalOpen,    setModalOpen]    = useState(false);
+  const [editUser,     setEditUser]     = useState<PortalUser | null>(null);
+  const [search,       setSearch]       = useState('');
+  const [filterRole,   setFilterRole]   = useState('all');
+  const [toggling,     setToggling]     = useState<string | null>(null);
+  const [deleting,     setDeleting]     = useState<string | null>(null);
   const [roleChanging, setRoleChanging] = useState<string | null>(null);
 
-  // ── Data fetching ─────────────────────────────────────────────────────────
+  // ── Users from external Supabase ──────────────────────────────────────────
   const { data: users = [], isFetching: usersFetching, refetch: refetchUsers } = useQuery({
     queryKey: ['portal-users'],
     queryFn: async () => {
-      const { data, error } = await supabaseAdmin
-        .from('portal_users')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data, error } = await supabaseAdmin.from('portal_users').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       return data as PortalUser[];
     },
   });
 
+  // ── Activity logs from OnSpace Cloud ─────────────────────────────────────
   const { data: logs = [], isFetching: logsFetching, refetch: refetchLogs } = useQuery({
-    queryKey: ['activity-log'],
-    queryFn: async () => {
-      const { data, error } = await supabaseAdmin
-        .from('activity_log')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      return data as ActivityLog[];
-    },
+    queryKey: ['activity-log-onspace'],
+    queryFn: fetchActivityLogs,
+    staleTime: 30_000,
   });
 
-  const filteredUsers = useMemo(() => {
-    return users.filter((u) => {
-      const q = search.toLowerCase();
-      const matchSearch = !q || u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q);
-      const matchRole = filterRole === 'all' || u.role === filterRole;
-      return matchSearch && matchRole;
-    });
-  }, [users, search, filterRole]);
+  const filteredUsers = useMemo(() => users.filter((u) => {
+    const q = search.toLowerCase();
+    return (!q || u.username.includes(q) || u.name.toLowerCase().includes(q))
+      && (filterRole === 'all' || u.role === filterRole);
+  }), [users, search, filterRole]);
 
   const stats = useMemo(() => ({
-    total:   users.length,
-    active:  users.filter((u) => u.is_active).length,
-    admins:  users.filter((u) => u.role === 'admin').length,
-    logins:  logs.filter((l) => l.action === 'login').length,
+    total:  users.length,
+    active: users.filter((u) => u.is_active).length,
+    admins: users.filter((u) => u.role === 'admin').length,
+    logins: logs.filter((l) => l.action === 'login').length,
   }), [users, logs]);
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const openCreate = () => { setEditUser(null); setModalOpen(true); };
   const openEdit   = (u: PortalUser) => { setEditUser(u); setModalOpen(true); };
 
@@ -656,30 +791,21 @@ const UserManagement = () => {
     setEditUser(null);
   };
 
-  // Quick role change — one click on the role pill
-  const handleRoleChange = async (u: PortalUser, role: 'admin' | 'editor' | 'viewer') => {
+  const handleRoleChange = async (u: PortalUser, role: PortalUser['role']) => {
     if (u.username === currentUser?.username || u.role === role) return;
     setRoleChanging(u.id);
     const prev = u.role;
     queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
-      old.map((x) => (x.id === u.id ? { ...x, role } : x))
-    );
+      old.map((x) => (x.id === u.id ? { ...x, role } : x)));
     try {
-      const { data, error } = await supabaseAdmin
-        .from('portal_users')
-        .update({ role })
-        .eq('id', u.id)
-        .select()
-        .single();
+      const { data, error } = await supabaseAdmin.from('portal_users').update({ role }).eq('id', u.id).select().single();
       if (error) throw error;
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
-        old.map((x) => (x.id === u.id ? data as PortalUser : x))
-      );
+        old.map((x) => (x.id === u.id ? data as PortalUser : x)));
       toast.success(`${u.name}'s role updated to ${role}.`);
     } catch {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
-        old.map((x) => (x.id === u.id ? { ...x, role: prev } : x))
-      );
+        old.map((x) => (x.id === u.id ? { ...x, role: prev } : x)));
       toast.error('Failed to update role.');
     } finally {
       setRoleChanging(null);
@@ -691,24 +817,16 @@ const UserManagement = () => {
     setToggling(u.id);
     const newActive = !u.is_active;
     queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
-      old.map((x) => (x.id === u.id ? { ...x, is_active: newActive } : x))
-    );
+      old.map((x) => (x.id === u.id ? { ...x, is_active: newActive } : x)));
     try {
-      const { data, error } = await supabaseAdmin
-        .from('portal_users')
-        .update({ is_active: newActive })
-        .eq('id', u.id)
-        .select()
-        .single();
+      const { data, error } = await supabaseAdmin.from('portal_users').update({ is_active: newActive }).eq('id', u.id).select().single();
       if (error) throw error;
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
-        old.map((x) => (x.id === u.id ? data as PortalUser : x))
-      );
+        old.map((x) => (x.id === u.id ? data as PortalUser : x)));
       toast.success(`${u.name} ${newActive ? 'activated' : 'deactivated'}.`);
     } catch {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
-        old.map((x) => (x.id === u.id ? u : x))
-      );
+        old.map((x) => (x.id === u.id ? u : x)));
       toast.error('Failed to update user.');
     } finally {
       setToggling(null);
@@ -717,7 +835,7 @@ const UserManagement = () => {
 
   const handleDelete = async (u: PortalUser) => {
     if (u.username === currentUser?.username) return;
-    if (!confirm(`Delete user "${u.name}" (@${u.username})?\n\nThis cannot be undone. Their activity log entries will be preserved.`)) return;
+    if (!confirm(`Delete "${u.name}" (@${u.username})?\n\nThis cannot be undone.`)) return;
     setDeleting(u.id);
     queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) => old.filter((x) => x.id !== u.id));
     try {
@@ -735,7 +853,6 @@ const UserManagement = () => {
   return (
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
       <Sidebar />
-
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
         {/* Banner */}
         <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
@@ -763,28 +880,26 @@ const UserManagement = () => {
         </div>
 
         <div className="px-4 sm:px-8 py-6 space-y-6">
-          {/* Stats row */}
+          {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Total Users',   value: stats.total,   icon: <Users size={14} />,         accent: 'hsl(var(--primary))' },
-              { label: 'Active',        value: stats.active,  icon: <CheckCircle2 size={14} />,   accent: '#10b981' },
-              { label: 'Admins',        value: stats.admins,  icon: <Shield size={14} />,         accent: '#7c3aed' },
-              { label: 'Total Logins',  value: stats.logins,  icon: <LogIn size={14} />,          accent: '#0ea5e9' },
+              { label: 'Total Users',   value: stats.total,  icon: <Users size={14} />,        accent: 'hsl(var(--primary))' },
+              { label: 'Active',        value: stats.active, icon: <CheckCircle2 size={14} />, accent: '#10b981' },
+              { label: 'Admins',        value: stats.admins, icon: <Shield size={14} />,       accent: '#7c3aed' },
+              { label: 'Total Logins',  value: stats.logins, icon: <LogIn size={14} />,        accent: '#0ea5e9' },
             ].map((card) => (
               <div key={card.label} className="rounded-xl border border-border bg-white px-4 py-3 flex items-center gap-3 shadow-sm">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: `${card.accent}18`, color: card.accent }}>
-                  {card.icon}
-                </div>
+                  style={{ background: `${card.accent}18`, color: card.accent }}>{card.icon}</div>
                 <div>
-                  <p className="text-lg font-bold text-foreground leading-none">{card.value}</p>
+                  <p className="text-lg font-bold leading-none">{card.value}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">{card.label}</p>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Users section */}
+          {/* Users */}
           <div>
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <div className="relative flex-1 min-w-[200px] max-w-xs">
@@ -792,7 +907,6 @@ const UserManagement = () => {
                 <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users…" className="pl-9 h-9 text-sm" />
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Filter size={13} className="text-muted-foreground" />
                 {(['all', 'admin', 'editor', 'viewer'] as const).map((r) => {
                   const count = r === 'all' ? users.length : users.filter((u) => u.role === r).length;
                   return (
@@ -802,9 +916,8 @@ const UserManagement = () => {
                           ? r === 'all' ? 'border-transparent text-white' : `${ROLE_COLORS[r]} font-semibold`
                           : 'border-border bg-muted text-muted-foreground hover:bg-secondary'
                       }`}
-                      style={filterRole === r && r === 'all' ? { background: 'hsl(var(--primary))' } : {}}
-                    >
-                      {r === 'all' ? 'All' : ROLES.find((x) => x.value === r)?.label} ({count})
+                      style={filterRole === r && r === 'all' ? { background: 'hsl(var(--primary))' } : {}}>
+                      {r === 'all' ? 'All' : r.charAt(0).toUpperCase() + r.slice(1)} ({count})
                     </button>
                   );
                 })}
@@ -822,29 +935,19 @@ const UserManagement = () => {
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {filteredUsers.map((u) => (
-                  <UserCard
-                    key={u.id}
-                    user={u}
-                    currentUsername={currentUser?.username ?? ''}
-                    onEdit={openEdit}
-                    onToggle={handleToggle}
-                    onDelete={handleDelete}
-                    onRoleChange={handleRoleChange}
-                    toggling={toggling}
-                    deleting={deleting}
-                    roleChanging={roleChanging}
-                  />
+                  <UserCard key={u.id} user={u} currentUsername={currentUser?.username ?? ''}
+                    onEdit={openEdit} onToggle={handleToggle} onDelete={handleDelete}
+                    onRoleChange={handleRoleChange} toggling={toggling} deleting={deleting} roleChanging={roleChanging} />
                 ))}
               </div>
             )}
           </div>
 
-          {/* Role permissions matrix */}
+          {/* Role Permissions Matrix */}
           <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-border" style={{ background: 'hsl(var(--primary) / 0.04)' }}>
-              <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                <Shield size={14} style={{ color: 'hsl(var(--primary))' }} />
-                Role Permissions
+            <div className="px-5 py-4 border-b border-border bg-[hsl(var(--primary)/0.04)]">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <Shield size={14} style={{ color: 'hsl(var(--primary))' }} /> Role Permissions
               </h3>
             </div>
             <div className="overflow-x-auto">
@@ -861,24 +964,23 @@ const UserManagement = () => {
                 </thead>
                 <tbody>
                   {[
-                    { label: 'View all content',            admin: true,  editor: true,  viewer: true  },
-                    { label: 'Edit adhkar & prayer times',  admin: true,  editor: true,  viewer: false },
-                    { label: 'Create announcements',        admin: true,  editor: true,  viewer: false },
-                    { label: 'Send push notifications',     admin: true,  editor: true,  viewer: false },
-                    { label: 'Manage sunnah reminders',     admin: true,  editor: true,  viewer: false },
-                    { label: 'Import CSV data',             admin: true,  editor: true,  viewer: false },
-                    { label: 'Access settings',             admin: true,  editor: false, viewer: false },
-                    { label: 'Manage portal users',         admin: true,  editor: false, viewer: false },
-                    { label: 'View cloud data',             admin: true,  editor: false, viewer: false },
-                    { label: 'View activity logs',          admin: true,  editor: false, viewer: false },
+                    { label: 'View all content',           admin: true,  editor: true,  viewer: true  },
+                    { label: 'Edit adhkar & prayer times', admin: true,  editor: true,  viewer: false },
+                    { label: 'Create announcements',       admin: true,  editor: true,  viewer: false },
+                    { label: 'Send push notifications',    admin: true,  editor: true,  viewer: false },
+                    { label: 'Manage sunnah reminders',    admin: true,  editor: true,  viewer: false },
+                    { label: 'Import CSV data',            admin: true,  editor: true,  viewer: false },
+                    { label: 'Access settings',            admin: true,  editor: false, viewer: false },
+                    { label: 'Manage portal users',        admin: true,  editor: false, viewer: false },
+                    { label: 'View activity logs',         admin: true,  editor: false, viewer: false },
                   ].map((perm, idx) => (
-                    <tr key={perm.label} className={`border-b border-border/40 ${idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
+                    <tr key={perm.label} className={`border-b border-border/40 ${idx % 2 === 0 ? '' : 'bg-muted/10'}`}>
                       <td className="px-5 py-2.5 font-medium text-foreground/80">{perm.label}</td>
                       {(['admin', 'editor', 'viewer'] as const).map((role) => (
                         <td key={role} className="px-4 py-2.5 text-center">
                           {perm[role]
                             ? <CheckCircle2 size={14} className="text-emerald-500 mx-auto" />
-                            : <XCircle    size={14} className="text-red-200 mx-auto" />}
+                            : <XCircle      size={14} className="text-red-200 mx-auto" />}
                         </td>
                       ))}
                     </tr>

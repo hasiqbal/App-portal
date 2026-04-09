@@ -6,19 +6,22 @@
  * - Local session persisted in localStorage
  * - 30-minute inactivity timeout with a 2-minute warning toast
  * - Auto-resets on any user interaction (mouse, keyboard, touch)
+ * - Activity logs written directly to OnSpace Cloud activity_log table
  */
 
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
 import { toast } from 'sonner';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 
-// ─── Supabase connection details (mirrored for direct fetch fallback) ─────────
-const EXT_SUPABASE_URL        = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
-const EXT_SERVICE_KEY         = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
+// ─── OnSpace Cloud — activity log destination ─────────────────────────────────
+// We write activity logs here (not to external Supabase) because OnSpace Cloud
+// is reliably accessible with anon key and we have full control over its schema.
+const ONSPACE_URL     = 'https://erwtsmhykudttxbeerwt.backend.onspace.ai';
+const ONSPACE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyd3RzbWhva3VkdHR4YmVlcnd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NDgxMTksImV4cCI6MjA1OTQyNDExOX0.sNXApMNqRjBbVDI-BOZ3kQZXCmpAkUWJqkIWB1FqvLc';
 
 // ─── Activity Log Helper ──────────────────────────────────────────────────────
 
-async function logActivity(params: {
+export async function logActivity(params: {
   username: string;
   user_role: string;
   action: string;
@@ -28,60 +31,36 @@ async function logActivity(params: {
   details?: Record<string, unknown> | null;
 }) {
   const row = {
-    username: params.username,
-    user_role: params.user_role,
-    action: params.action,
-    entity_type: params.entity_type,
-    entity_id: params.entity_id ?? null,
+    username:     params.username,
+    user_role:    params.user_role,
+    action:       params.action,
+    entity_type:  params.entity_type,
+    entity_id:    params.entity_id   ?? null,
     entity_label: params.entity_label ?? null,
-    details: params.details ?? null,
-    ip_address: null,
+    details:      params.details      ?? null,
+    ip_address:   null,
   };
-  console.log('[ActivityLog] Inserting row:', JSON.stringify(row));
 
-  // ── Method 1: supabaseAdmin (service role — bypasses RLS) ─────────────────
   try {
-    const { error } = await supabaseAdmin.from('activity_log').insert(row);
-    if (!error) {
-      console.log('[ActivityLog] ✓ supabaseAdmin insert succeeded for', params.username, params.action);
-      return;
-    }
-    console.error('[ActivityLog] supabaseAdmin insert failed:', error.code, error.message, error.details);
-  } catch (e) {
-    console.error('[ActivityLog] supabaseAdmin threw:', e);
-  }
-
-  // ── Method 2: raw fetch with service role key (bypasses Supabase JS client) ─
-  console.log('[ActivityLog] Trying raw fetch fallback…');
-  try {
-    const res = await fetch(`${EXT_SUPABASE_URL}/rest/v1/activity_log`, {
+    const res = await fetch(`${ONSPACE_URL}/rest/v1/activity_log`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': EXT_SERVICE_KEY,
-        'Authorization': `Bearer ${EXT_SERVICE_KEY}`,
-        'Prefer': 'return=minimal',
+        'apikey':        ONSPACE_ANON_KEY,
+        'Authorization': `Bearer ${ONSPACE_ANON_KEY}`,
+        'Prefer':        'return=minimal',
       },
       body: JSON.stringify(row),
     });
-    if (res.ok) {
-      console.log('[ActivityLog] ✓ raw fetch insert succeeded for', params.username, params.action);
-      return;
-    }
-    const text = await res.text().catch(() => res.statusText);
-    console.error('[ActivityLog] raw fetch failed:', res.status, text);
-  } catch (e) {
-    console.error('[ActivityLog] raw fetch threw:', e);
-  }
 
-  // ── Method 3: regular supabase client (authenticated session) ──────────────
-  console.log('[ActivityLog] Trying regular supabase client fallback…');
-  try {
-    const { error: err3 } = await supabase.from('activity_log').insert(row);
-    if (!err3) console.log('[ActivityLog] ✓ regular client insert succeeded.');
-    else console.error('[ActivityLog] regular client also failed:', err3.code, err3.message);
+    if (res.ok) {
+      console.log('[ActivityLog] ✓ logged:', params.action, 'for', params.username);
+    } else {
+      const text = await res.text().catch(() => res.statusText);
+      console.error('[ActivityLog] ✗ failed:', res.status, text);
+    }
   } catch (e) {
-    console.error('[ActivityLog] regular client threw:', e);
+    console.error('[ActivityLog] ✗ network error:', e);
   }
 }
 
@@ -114,8 +93,7 @@ const WARNING_BEFORE =  2 * 60 * 1000;  // warn 2 minutes before
 const CHECK_INTERVAL = 30 * 1000;       // check every 30 seconds
 
 // Shared Supabase Auth service account — gives portal sessions the `authenticated`
-// role so RLS write policies are satisfied. All portal roles are still managed
-// by the portal_users table; this is purely for Supabase JWT authentication.
+// role so RLS write policies are satisfied on the external Supabase.
 const PORTAL_SERVICE_EMAIL    = 'portal@jmn-masjid.internal';
 const PORTAL_SERVICE_PASSWORD = 'JMN_Portal_2024!Secure';
 
@@ -141,18 +119,17 @@ export function useAuthState(): AuthState {
 
   // ── Core sign-out ─────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
-    // Log logout event before clearing session
     const stored = localStorage.getItem(SESSION_KEY);
     if (stored) {
       try {
         const parsed: LocalUser = JSON.parse(stored);
         await logActivity({
-          username: parsed.username,
-          user_role: parsed.role,
-          action: 'logout',
-          entity_type: 'session',
+          username:     parsed.username,
+          user_role:    parsed.role,
+          action:       'logout',
+          entity_type:  'session',
           entity_label: 'Signed out',
-          details: { name: parsed.name },
+          details:      { name: parsed.name },
         });
       } catch { /* ignore */ }
     }
@@ -165,7 +142,7 @@ export function useAuthState(): AuthState {
       warningToastId.current = null;
     }
     await supabase.auth.signOut();
-  }, [user]);
+  }, []);
 
   signOutRef.current = signOut;
 
@@ -186,7 +163,7 @@ export function useAuthState(): AuthState {
   // ── Supabase Auth sign-in (gets authenticated JWT for write access) ─────
   const signIntoSupabase = useCallback(async () => {
     const { error } = await supabase.auth.signInWithPassword({
-      email: PORTAL_SERVICE_EMAIL,
+      email:    PORTAL_SERVICE_EMAIL,
       password: PORTAL_SERVICE_PASSWORD,
     });
     if (error) {
@@ -199,16 +176,20 @@ export function useAuthState(): AuthState {
     const normalised = username.trim().toLowerCase().replace(/^@+/, '').replace(/\s+/g, '_');
     console.log('[Auth] dbLogin attempt for:', normalised);
 
-    // ── Try database first (use admin client to bypass RLS on external Supabase) ─
+    // Use admin client to bypass RLS on external Supabase portal_users
     const { data, error } = await supabaseAdmin
       .from('portal_users')
       .select('id, username, name, role, is_active, password')
       .eq('username', normalised)
-      .maybeSingle();            // maybeSingle returns null instead of error when no row found
+      .maybeSingle();
 
-    console.log('[Auth] portal_users lookup result:', { data: data ? { username: data.username, role: data.role, is_active: data.is_active } : null, error });
+    console.log('[Auth] portal_users result:', {
+      found: !!data,
+      error: error?.message,
+      username: data?.username,
+      role: data?.role,
+    });
 
-    // Table exists and row found → validate
     if (!error && data) {
       if (!data.is_active) {
         throw new Error('Your account has been deactivated. Contact the administrator.');
@@ -216,50 +197,49 @@ export function useAuthState(): AuthState {
       if (data.password !== password) {
         throw new Error('Incorrect password. Please try again.');
       }
-      // Update last_login timestamp (fire-and-forget)
+
+      // Update last_login (fire-and-forget)
       supabaseAdmin
         .from('portal_users')
         .update({ last_login: new Date().toISOString() })
         .eq('id', data.id)
         .then(() => {});
 
-      // Establish Supabase Auth session for authenticated write access
+      // Establish Supabase Auth session for write access
       await signIntoSupabase();
 
       const localUser: LocalUser = {
-        id: data.id,
+        id:       data.id,
         username: data.username,
-        name: data.name || data.username,
-        role: data.role as UserRole,
+        name:     data.name || data.username,
+        role:     data.role as UserRole,
       };
 
-      // Log login event — awaited so errors surface in console
+      // Log to OnSpace Cloud activity_log
       await logActivity({
-        username: data.username,
-        user_role: data.role,
-        action: 'login',
-        entity_type: 'session',
+        username:     data.username,
+        user_role:    data.role,
+        action:       'login',
+        entity_type:  'session',
         entity_label: `Signed in as ${data.role}`,
-        details: { name: data.name, platform: navigator.platform, userAgent: navigator.userAgent.substring(0, 120) },
+        details:      { name: data.name, platform: navigator.platform },
       });
 
       return localUser;
     }
 
-    // ── Fallback: table missing or no users yet → accept root admin ───────
-    // This handles first-time setup before portal_users is seeded.
+    // ── Fallback: root admin hardcoded ─────────────────────────────────────
     const storedCreds = (() => {
       try { return JSON.parse(localStorage.getItem('__jmn_admin_creds__') ?? 'null'); } catch { return null; }
     })();
     const adminPassword: string = storedCreds?.password ?? 'admin';
 
     if (normalised === 'admin' && password === adminPassword) {
-          // Best-effort: try to ensure the root admin row exists in the DB
+      // Seed default users on first admin login
       supabaseAdmin.from('portal_users').upsert(
         { username: 'admin', name: 'Root Administrator', password: adminPassword, role: 'admin', is_active: true, created_by: 'system' },
         { onConflict: 'username' }
       ).then(() => {
-        // Also seed editor/viewer users on first login
         supabaseAdmin.from('portal_users').upsert(
           [
             { username: 'masjid_editor', name: 'Masjid Editor', password: 'editor123', role: 'editor', is_active: true, created_by: 'admin' },
@@ -269,41 +249,39 @@ export function useAuthState(): AuthState {
         ).then(() => {});
       });
 
-      // Establish Supabase Auth session for authenticated write access
       await signIntoSupabase();
 
-      // Log login event for root admin — awaited so errors surface in console
       await logActivity({
-        username: 'admin',
-        user_role: 'admin',
-        action: 'login',
-        entity_type: 'session',
-        entity_label: 'Signed in as admin (root fallback)',
-        details: { platform: navigator.platform, userAgent: navigator.userAgent.substring(0, 120) },
+        username:     'admin',
+        user_role:    'admin',
+        action:       'login',
+        entity_type:  'session',
+        entity_label: 'Signed in as admin',
+        details:      { platform: navigator.platform },
       });
 
       return { id: 'root-admin', username: 'admin', name: 'Root Administrator', role: 'admin' };
     }
 
-    // ── No user found in DB ─ try to load all usernames for helpful error ──
+    // User not found — list available usernames for debugging
     const { data: allUsers } = await supabaseAdmin
       .from('portal_users')
       .select('username')
       .order('username');
     const hint = allUsers && allUsers.length > 0
-      ? ` Available users: ${allUsers.map((u: { username: string }) => u.username).join(', ')}`
+      ? ` Available: ${allUsers.map((u: { username: string }) => u.username).join(', ')}`
       : '';
     throw new Error(`Username "${normalised}" not found.${hint}`);
   }, [signIntoSupabase]);
 
-  // ── Local login (set session after dbLogin succeeds) ──────────────────────
+  // ── Local login ────────────────────────────────────────────────────────────
   const localLogin = useCallback((u: LocalUser) => {
     setUser(u);
     localStorage.setItem(SESSION_KEY, JSON.stringify(u));
     touchActivity();
   }, [touchActivity]);
 
-  // ── Restore session on mount ──────────────────────────────────────────────
+  // ── Restore session on mount ───────────────────────────────────────────────
   useEffect(() => {
     const restore = async () => {
       try {
@@ -313,12 +291,8 @@ export function useAuthState(): AuthState {
           const idle = Date.now() - getLastActive();
           if (idle < TIMEOUT_MS) {
             setUser(parsed);
-            // Re-establish Supabase Auth session on page reload
-            // (check if we already have a valid session first)
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-              await signIntoSupabase();
-            }
+            if (!session) await signIntoSupabase();
           } else {
             localStorage.removeItem(SESSION_KEY);
             localStorage.removeItem(SESSION_TS_KEY);
@@ -333,7 +307,7 @@ export function useAuthState(): AuthState {
     restore();
   }, [signIntoSupabase]);
 
-  // ── Activity listeners ────────────────────────────────────────────────────
+  // ── Activity listeners ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
     const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
@@ -343,11 +317,11 @@ export function useAuthState(): AuthState {
     return () => events.forEach((e) => window.removeEventListener(e, handler));
   }, [user, touchActivity]);
 
-  // ── Inactivity checker ────────────────────────────────────────────────────
+  // ── Inactivity checker ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
     const interval = setInterval(() => {
-      const idle = Date.now() - getLastActive();
+      const idle      = Date.now() - getLastActive();
       const remaining = TIMEOUT_MS - idle;
       if (remaining <= 0) {
         clearInterval(interval);
@@ -359,9 +333,9 @@ export function useAuthState(): AuthState {
         warningToastId.current = toast.warning(
           'You will be signed out in 2 minutes due to inactivity.',
           {
-            duration: WARNING_BEFORE,
-            id: 'session-warning',
-            action: { label: 'Stay signed in', onClick: () => touchActivity() },
+            duration:  WARNING_BEFORE,
+            id:        'session-warning',
+            action:    { label: 'Stay signed in', onClick: () => touchActivity() },
           }
         );
       }
