@@ -155,9 +155,14 @@ async function fetchHijriFromApi(
   const h = json?.data?.hijri;
   if (!h) throw new Error('Aladhan API: unexpected response structure');
 
+  // Always return the ORIGINAL Gregorian date (not the shifted one).
+  // The offset only affects which Hijri date is fetched from the API.
+  const origDay   = String(day).padStart(2, '0');
+  const origMonth = String(month).padStart(2, '0');
+
   return {
     hijri:     `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
-    gregorian: `${gYear}-${gMonth}-${gDay}`,
+    gregorian: `${year}-${origMonth}-${origDay}`,
   };
 }
 
