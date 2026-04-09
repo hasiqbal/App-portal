@@ -66,6 +66,13 @@ async function saveHijriToDb(
 
   if (error) {
     console.error('[hijri_calendar] Save error:', error.message);
+    // Provide helpful context for schema errors
+    if (error.message.includes('schema cache') || error.message.includes('column')) {
+      console.error(
+        '[hijri_calendar] Schema error — run the SQL setup in your Supabase dashboard.\n',
+        'Required columns: gregorian_year, gregorian_month, gregorian_day, gregorian_date, hijri_date',
+      );
+    }
     return null;
   }
 
@@ -230,7 +237,10 @@ const EditPrayerTimeModal = ({ row, year, hijriEntry, onClose, onSaved, onHijriS
           onHijriSaved(row.day, hijriResult);
           toast.success(`Day ${row.day} saved — prayer times + Hijri date updated`);
         } else {
-          toast.warning(`Prayer times saved but Hijri date failed to write to hijri_calendar.`);
+          toast.warning(
+            `Prayer times saved, but Hijri date write failed. ` +
+            `Check the hijri_calendar table schema in your Supabase dashboard.`
+          );
         }
       } else {
         toast.success(`Day ${row.day} updated successfully`);

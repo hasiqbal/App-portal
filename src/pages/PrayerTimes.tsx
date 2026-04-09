@@ -14,19 +14,128 @@ import { PrayerTime, HijriCalendarEntry } from '@/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
-  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download,
+  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download, Database,
 } from 'lucide-react';
 import { isBST } from '@/lib/dateUtils';
 import { supabaseAdmin } from '@/lib/supabase';
 import { SolarTimesCard } from '@/pages/Dashboard';
 
-// ─── Aladhan API — accurate Hijri dates, API only, no local fallback ──────────
+// ─── External Supabase config (same as supabase.ts) ───────────────────────────
+const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
+const EXT_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
 
 /**
- * Fetch the accurate Hijri date from the Aladhan API.
- * Path format: /v1/gToH/DD-MM-YYYY
- * Throws on failure — caller decides how to handle.
+ * Run raw SQL on the external Supabase via the pg REST SQL endpoint.
+ * Requires service role key. Used only for schema migrations.
  */
+async function runExternalSql(sql: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${EXT_URL}/rest/v1/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${EXT_SERVICE_KEY}`,
+        'apikey': EXT_SERVICE_KEY,
+        'Prefer': 'resolution=ignore-duplicates',
+      },
+      body: JSON.stringify({ query: sql }),
+    });
+    // Try the SQL API endpoint
+    const res2 = await fetch(`${EXT_URL}/pg/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${EXT_SERVICE_KEY}`,
+        'apikey': EXT_SERVICE_KEY,
+      },
+      body: JSON.stringify({ query: sql }),
+    });
+    if (res2.ok) return { ok: true };
+    const text = await res2.text().catch(() => '');
+    return { ok: false, error: text };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+// ─── Schema migration: ensure hijri_calendar has all required columns ─────────
+
+let schemaMigrated = false; // run once per session
+
+async function ensureHijriCalendarSchema(): Promise<{ ok: boolean; message: string }> {
+  if (schemaMigrated) return { ok: true, message: 'Already checked' };
+
+  // Step 1: probe the table — try a SELECT to see what columns exist
+  const { data: probe, error: probeErr } = await supabaseAdmin
+    .from('hijri_calendar')
+    .select('*')
+    .limit(1);
+
+  console.log('[hijri_calendar] Schema probe:', { probe, probeErr });
+
+  if (probeErr) {
+    const msg = probeErr.message ?? '';
+    // Table doesn't exist at all — we can't create it via supabaseAdmin (no DDL)
+    if (msg.includes('does not exist') || msg.includes('relation')) {
+      return {
+        ok: false,
+        message: 'Table hijri_calendar does not exist. Run the SQL setup in your Supabase dashboard.',
+      };
+    }
+    // Column missing — need ALTER TABLE
+    if (msg.includes('column') || msg.includes('schema cache')) {
+      console.warn('[hijri_calendar] Column missing, attempting to probe columns via empty insert...');
+    }
+  }
+
+  // Step 2: detect which columns are present by attempting a minimal INSERT and observing errors
+  const testEntry = {
+    gregorian_year: 1900,
+    gregorian_month: 1,
+    gregorian_day: 1,
+    gregorian_date: '01/01/1900',
+    hijri_date: '__schema_test__',
+  };
+
+  const { error: insertErr } = await supabaseAdmin
+    .from('hijri_calendar')
+    .upsert(testEntry, { onConflict: 'gregorian_year,gregorian_month,gregorian_day' })
+    .select();
+
+  if (!insertErr) {
+    // Clean up the test row
+    await supabaseAdmin
+      .from('hijri_calendar')
+      .delete()
+      .eq('gregorian_year', 1900)
+      .eq('gregorian_month', 1)
+      .eq('gregorian_day', 1);
+    schemaMigrated = true;
+    console.log('[hijri_calendar] ✓ Schema OK — all columns present');
+    return { ok: true, message: 'Schema OK' };
+  }
+
+  const errMsg = insertErr.message ?? '';
+  console.error('[hijri_calendar] Insert test failed:', errMsg);
+
+  // Identify missing columns from the error message
+  const missingCols: string[] = [];
+  if (errMsg.includes('gregorian_year'))  missingCols.push('gregorian_year');
+  if (errMsg.includes('gregorian_month')) missingCols.push('gregorian_month');
+  if (errMsg.includes('gregorian_day'))   missingCols.push('gregorian_day');
+  if (errMsg.includes('gregorian_date'))  missingCols.push('gregorian_date');
+  if (errMsg.includes('hijri_date'))      missingCols.push('hijri_date');
+
+  return {
+    ok: false,
+    message: missingCols.length > 0
+      ? `Missing columns: ${missingCols.join(', ')}. Run the SQL fix in your Supabase dashboard.`
+      : `Schema error: ${errMsg}`,
+  };
+}
+
+// ─── Aladhan API — accurate Hijri dates, API only ─────────────────────────────
+
 async function fetchHijriFromApi(
   year: number,
   month: number,
@@ -47,17 +156,13 @@ async function fetchHijriFromApi(
   if (!h) throw new Error('Aladhan API: unexpected response structure');
 
   return {
-    hijri:      `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
-    gregorian:  `${gDay}/${gMonth}/${gYear}`,
+    hijri:     `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
+    gregorian: `${gDay}/${gMonth}/${gYear}`,
   };
 }
 
 // ─── Hijri Calendar DB helpers ────────────────────────────────────────────────
 
-/**
- * Fetch all Hijri calendar entries for a given year+month from the hijri_calendar table.
- * Returns a map: day → HijriCalendarEntry
- */
 async function fetchHijriCalendarMonth(
   year: number,
   month: number,
@@ -75,16 +180,12 @@ async function fetchHijriCalendarMonth(
 
   const map = new Map<number, HijriCalendarEntry>();
   for (const row of (data ?? [])) {
-    map.set(row.gregorian_day, row as HijriCalendarEntry);
+    map.set(row.gregorian_day as number, row as HijriCalendarEntry);
   }
   console.log(`[hijri_calendar] Loaded ${map.size} entries for ${year}-${month}`);
   return map;
 }
 
-/**
- * Upsert Hijri calendar entries into the hijri_calendar table.
- * Uses gregorian_year + gregorian_month + gregorian_day as unique key.
- */
 async function upsertHijriCalendarEntries(
   entries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[],
 ): Promise<{ saved: number; errors: string[] }> {
@@ -92,39 +193,22 @@ async function upsertHijriCalendarEntries(
   let saved = 0;
 
   for (const entry of entries) {
+    const payload = {
+      gregorian_year:  entry.gregorian_year,
+      gregorian_month: entry.gregorian_month,
+      gregorian_day:   entry.gregorian_day,
+      gregorian_date:  entry.gregorian_date,
+      hijri_date:      entry.hijri_date,
+      updated_at:      new Date().toISOString(),
+    };
+
     const { error } = await supabaseAdmin
       .from('hijri_calendar')
-      .upsert(
-        {
-          gregorian_year:  entry.gregorian_year,
-          gregorian_month: entry.gregorian_month,
-          gregorian_day:   entry.gregorian_day,
-          gregorian_date:  entry.gregorian_date,
-          hijri_date:      entry.hijri_date,
-          updated_at:      new Date().toISOString(),
-        },
-        { onConflict: 'gregorian_year,gregorian_month,gregorian_day' },
-      );
+      .upsert(payload, { onConflict: 'gregorian_year,gregorian_month,gregorian_day' });
 
     if (error) {
-      // Try without onConflict in case the unique constraint name differs
-      const { error: e2 } = await supabaseAdmin
-        .from('hijri_calendar')
-        .upsert({
-          gregorian_year:  entry.gregorian_year,
-          gregorian_month: entry.gregorian_month,
-          gregorian_day:   entry.gregorian_day,
-          gregorian_date:  entry.gregorian_date,
-          hijri_date:      entry.hijri_date,
-          updated_at:      new Date().toISOString(),
-        });
-      if (e2) {
-        errors.push(`Day ${entry.gregorian_day}: ${e2.message}`);
-        console.error(`[hijri_calendar ✗] Day ${entry.gregorian_day}:`, e2);
-      } else {
-        saved++;
-        console.log(`[hijri_calendar ✓] Day ${entry.gregorian_day}: ${entry.gregorian_date} → ${entry.hijri_date}`);
-      }
+      errors.push(`Day ${entry.gregorian_day}: ${error.message}`);
+      console.error(`[hijri_calendar ✗] Day ${entry.gregorian_day}:`, error.message);
     } else {
       saved++;
       console.log(`[hijri_calendar ✓] Day ${entry.gregorian_day}: ${entry.gregorian_date} → ${entry.hijri_date}`);
@@ -141,13 +225,7 @@ async function saveOffsetToDb(n: number) {
     const { error } = await supabaseAdmin
       .from('masjid_settings')
       .upsert(
-        {
-          key:        'hijri_offset',
-          value:      String(n),
-          label:      'Hijri Date Offset',
-          category:   'preferences',
-          updated_at: new Date().toISOString(),
-        },
+        { key: 'hijri_offset', value: String(n), label: 'Hijri Date Offset', category: 'preferences', updated_at: new Date().toISOString() },
         { onConflict: 'key' },
       );
     if (error) console.error('[HijriOffset] DB save failed:', error.message);
@@ -188,6 +266,90 @@ function fridayCount(year: number, month: number): number {
   for (let d = 1; d <= lastDay; d++) if (new Date(year, month - 1, d).getDay() === 5) count++;
   return count;
 }
+
+// ─── SQL setup banner ─────────────────────────────────────────────────────────
+
+const SQL_SETUP = `-- Run this in your Supabase SQL Editor (lhaqqqatdztuijgdfdcf):
+-- Step 1: Create table if it doesn't exist
+create table if not exists public.hijri_calendar (
+  id uuid primary key default gen_random_uuid(),
+  gregorian_year  integer not null,
+  gregorian_month integer not null,
+  gregorian_day   integer not null,
+  gregorian_date  text,
+  hijri_date      text not null,
+  created_at      timestamptz default now(),
+  updated_at      timestamptz default now(),
+  unique (gregorian_year, gregorian_month, gregorian_day)
+);
+
+-- Step 2: Add missing columns if table already exists with different schema
+alter table public.hijri_calendar add column if not exists gregorian_year  integer;
+alter table public.hijri_calendar add column if not exists gregorian_month integer;
+alter table public.hijri_calendar add column if not exists gregorian_day   integer;
+alter table public.hijri_calendar add column if not exists gregorian_date  text;
+alter table public.hijri_calendar add column if not exists hijri_date      text;
+alter table public.hijri_calendar add column if not exists updated_at      timestamptz default now();
+
+-- Step 3: Add unique constraint (ignore error if already exists)
+alter table public.hijri_calendar
+  add constraint if not exists hijri_calendar_unique_day
+  unique (gregorian_year, gregorian_month, gregorian_day);
+
+-- Step 4: Enable RLS
+alter table public.hijri_calendar enable row level security;
+
+create policy if not exists "anon_select_hijri_calendar"
+  on public.hijri_calendar for select to anon using (true);
+
+create policy if not exists "auth_all_hijri_calendar"
+  on public.hijri_calendar for all to authenticated using (true) with check (true);
+
+create policy if not exists "service_all_hijri_calendar"
+  on public.hijri_calendar for all to service_role using (true) with check (true);`;
+
+const DbSetupBanner = ({ onDismiss }: { onDismiss: () => void }) => {
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    navigator.clipboard.writeText(SQL_SETUP).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="mx-2 sm:mx-0 mb-4 rounded-xl border border-red-200 bg-red-50 p-4">
+      <div className="flex items-start gap-3">
+        <Database size={16} className="text-red-600 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-red-700">hijri_calendar table needs setup</p>
+          <p className="text-xs text-red-600 mt-1">
+            The table is missing required columns. Copy and run this SQL in your{' '}
+            <strong>Supabase dashboard → SQL Editor</strong> (project: lhaqqqatdztuijgdfdcf):
+          </p>
+          <pre className="mt-2 p-3 bg-white border border-red-200 rounded-lg text-[10px] font-mono text-slate-700 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed">
+            {SQL_SETUP}
+          </pre>
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              onClick={copy}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              {copied ? '✓ Copied!' : 'Copy SQL'}
+            </button>
+            <button
+              onClick={onDismiss}
+              className="text-xs font-medium text-red-500 hover:text-red-700 transition-colors"
+            >
+              Dismiss (after running SQL)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ─── Jumu'ah year modal ───────────────────────────────────────────────────────
 
@@ -318,6 +480,8 @@ const PrayerTimes = () => {
   const [jumpInput,       setJumpInput]       = useState('');
   const [highlightDay,    setHighlightDay]    = useState<number | null>(null);
   const [searchParams,    setSearchParams]    = useSearchParams();
+  const [schemaError,     setSchemaError]     = useState<string | null>(null);
+  const [schemaChecked,   setSchemaChecked]   = useState(false);
 
   // Hijri calendar data: day → entry
   const [hijriCalendar, setHijriCalendar] = useState<Map<number, HijriCalendarEntry>>(new Map());
@@ -339,14 +503,27 @@ const PrayerTimes = () => {
     loadOffsetFromDb().then((n) => setHijriOffset(n));
   }, []);
 
-  // Load Hijri calendar whenever year/month changes
+  // Check schema once on mount
   useEffect(() => {
+    ensureHijriCalendarSchema().then((result) => {
+      console.log('[Schema check]', result);
+      if (!result.ok) {
+        setSchemaError(result.message);
+      }
+      setSchemaChecked(true);
+    });
+  }, []);
+
+  // Load Hijri calendar whenever year/month changes (only if schema is OK)
+  useEffect(() => {
+    if (!schemaChecked) return;
+    if (schemaError) return;
     setHijriLoading(true);
     fetchHijriCalendarMonth(selectedYear, selectedMonth).then((map) => {
       setHijriCalendar(map);
       setHijriLoading(false);
     });
-  }, [selectedYear, selectedMonth]);
+  }, [selectedYear, selectedMonth, schemaChecked, schemaError]);
 
   const changeOffset = (delta: number) => {
     setHijriOffset((prev) => {
@@ -409,10 +586,10 @@ const PrayerTimes = () => {
 
   // ── Fill All 12 Months: Aladhan API → hijri_calendar table ───────────────
   const handlePopulateAllMonths = async () => {
+    if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     setPopulatingAllMonths(true);
     const toastId = 'fill-all-hijri';
 
-    // Calculate total days in selected year
     let totalDays = 0;
     for (let m = 1; m <= 12; m++) totalDays += new Date(selectedYear, m, 0).getDate();
 
@@ -447,41 +624,31 @@ const PrayerTimes = () => {
           `Aladhan API: ${processed}/${totalDays} days · ${monthName} ${day}/${lastDay}`,
           { id: toastId },
         );
-        // 120ms gap between calls to avoid rate limiting
         await new Promise((r) => setTimeout(r, 120));
       }
     }
 
     if (apiFailed.length > 0) {
-      console.warn('[Fill All] API failed for:', apiFailed);
-      toast.loading(
-        `API: ${allEntries.length} OK, ${apiFailed.length} failed. Saving…`,
-        { id: toastId },
-      );
+      toast.loading(`API: ${allEntries.length} OK, ${apiFailed.length} failed. Saving…`, { id: toastId });
     }
 
-    // Save all successfully fetched entries to hijri_calendar
     toast.loading(`Saving ${allEntries.length} dates to hijri_calendar table…`, { id: toastId });
     const { saved, errors } = await upsertHijriCalendarEntries(allEntries);
 
     if (errors.length > 0) {
-      toast.error(
-        `Saved ${saved} days but ${errors.length} DB error(s): ${errors[0]}`,
-        { id: toastId, duration: 8000 },
-      );
+      // Schema error — show banner
+      if (errors[0].includes('schema cache') || errors[0].includes('column')) {
+        setSchemaError(errors[0]);
+        toast.error('DB schema error — see the red banner for the SQL fix.', { id: toastId, duration: 8000 });
+      } else {
+        toast.error(`Saved ${saved} days but ${errors.length} DB error(s): ${errors[0]}`, { id: toastId, duration: 8000 });
+      }
     } else if (apiFailed.length > 0) {
-      toast.warning(
-        `${saved} days saved · ${apiFailed.length} days skipped (API failure)`,
-        { id: toastId, duration: 6000 },
-      );
+      toast.warning(`${saved} days saved · ${apiFailed.length} days skipped (API failure)`, { id: toastId, duration: 6000 });
     } else {
-      toast.success(
-        `✓ All ${saved} days saved to hijri_calendar for all 12 months of ${selectedYear}`,
-        { id: toastId, duration: 5000 },
-      );
+      toast.success(`✓ All ${saved} days saved to hijri_calendar for all 12 months of ${selectedYear}`, { id: toastId, duration: 5000 });
     }
 
-    // Refresh displayed month
     const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
     setHijriCalendar(updated);
     setAllMonthsProgress('');
@@ -490,11 +657,11 @@ const PrayerTimes = () => {
 
   // ── Fill Dates: Aladhan API → hijri_calendar table ───────────────────────
   const handlePopulateHijriDates = async () => {
+    if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
     setPopulatingHijri(true);
     const toastId = 'fill-hijri';
 
-    // Step 1: fetch from Aladhan API sequentially (120ms gap to avoid rate limiting)
     toast.loading(`Fetching dates from Aladhan API… (0 / ${data.length})`, { id: toastId });
     const resolved: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
     const apiFailed: number[] = [];
@@ -521,28 +688,25 @@ const PrayerTimes = () => {
 
     if (apiFailed.length > 0) {
       toast.error(
-        `Aladhan API failed for ${apiFailed.length} day(s): ${apiFailed.join(', ')}. No fallback — please retry.`,
+        `Aladhan API failed for ${apiFailed.length} day(s): ${apiFailed.join(', ')}. Please retry.`,
         { id: toastId, duration: 7000 },
       );
       setPopulatingHijri(false);
       return;
     }
 
-    // Step 2: upsert all to hijri_calendar table
     toast.loading(`Saving ${resolved.length} dates to hijri_calendar table…`, { id: toastId });
     const { saved, errors } = await upsertHijriCalendarEntries(resolved);
 
     if (errors.length > 0) {
-      toast.error(
-        `${errors.length} DB write(s) failed: ${errors[0]}`,
-        { id: toastId, duration: 8000 },
-      );
+      if (errors[0].includes('schema cache') || errors[0].includes('column')) {
+        setSchemaError(errors[0]);
+        toast.error('DB schema error — see the red banner for the SQL fix.', { id: toastId, duration: 8000 });
+      } else {
+        toast.error(`${errors.length} DB write(s) failed: ${errors[0]}`, { id: toastId, duration: 8000 });
+      }
     } else {
-      toast.success(
-        `✓ ${saved} days saved to hijri_calendar — Gregorian + Hijri dates stored`,
-        { id: toastId, duration: 4000 },
-      );
-      // Refresh local hijri calendar map
+      toast.success(`✓ ${saved} days saved to hijri_calendar`, { id: toastId, duration: 4000 });
       const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
       setHijriCalendar(updated);
     }
@@ -661,9 +825,9 @@ const PrayerTimes = () => {
               <Button
                 variant="outline" size="sm"
                 onClick={handlePopulateHijriDates}
-                disabled={populatingHijri || populatingAllMonths || !data || data.length === 0}
+                disabled={populatingHijri || populatingAllMonths || !data || data.length === 0 || !!schemaError}
                 className="gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)]"
-                title={`Fetch Gregorian + Hijri dates from Aladhan API for all ${data?.length ?? 0} days in this month and save to hijri_calendar`}
+                title={schemaError ? 'Fix DB schema first' : `Fetch Gregorian + Hijri dates from Aladhan API for this month`}
               >
                 {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
                 {populatingHijri ? 'Filling…' : 'Fill Month'}
@@ -673,9 +837,9 @@ const PrayerTimes = () => {
               <Button
                 variant="outline" size="sm"
                 onClick={handlePopulateAllMonths}
-                disabled={populatingAllMonths || populatingHijri}
+                disabled={populatingAllMonths || populatingHijri || !!schemaError}
                 className="gap-2 border-[hsl(270_60%_65%)] bg-[hsl(270_50%_97%)] text-[#6d28d9] hover:bg-[hsl(270_50%_93%)] font-semibold"
-                title={`Fetch Hijri + Gregorian dates for ALL 12 months of ${selectedYear} from Aladhan API and save to hijri_calendar`}
+                title={schemaError ? 'Fix DB schema first' : `Fetch Hijri + Gregorian dates for ALL 12 months of ${selectedYear}`}
               >
                 {populatingAllMonths
                   ? <><Loader2 size={14} className="animate-spin" />{allMonthsProgress ? allMonthsProgress : 'Working…'}</>
@@ -753,6 +917,21 @@ const PrayerTimes = () => {
 
         {/* Content */}
         <div className="px-2 sm:px-6 py-4 flex-1 overflow-x-auto">
+
+          {/* DB Schema Error Banner */}
+          {schemaError && (
+            <DbSetupBanner onDismiss={() => {
+              setSchemaError(null);
+              schemaMigrated = false;
+              ensureHijriCalendarSchema().then((r) => {
+                if (!r.ok) setSchemaError(r.message);
+                else {
+                  fetchHijriCalendarMonth(selectedYear, selectedMonth).then(setHijriCalendar);
+                }
+              });
+            }} />
+          )}
+
           {isLoading && (
             <div className="flex items-center justify-center h-64 gap-3 text-muted-foreground">
               <Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" />
@@ -775,7 +954,6 @@ const PrayerTimes = () => {
                 highlightDay={highlightDay}
               />
 
-              {/* Solar Times card — shows today's values when viewing the current month */}
               {selectedYear === CURRENT_YEAR && selectedMonth === CURRENT_MONTH && (() => {
                 const today = new Date().getDate();
                 const todayRow = data.find((r) => r.day === today);
