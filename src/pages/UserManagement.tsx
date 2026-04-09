@@ -2,14 +2,13 @@ import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Users, Plus, Pencil, Trash2, RefreshCw, Shield, Eye, EyeOff,
-  Search, Clock, CheckCircle2, XCircle, Activity, Filter,
+  Search, CheckCircle2, XCircle, Activity, Filter,
   UserCheck, UserX, ChevronDown, ChevronUp, Loader2,
-  KeyRound, LogIn,
+  KeyRound, LogIn, LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import Sidebar from '@/components/layout/Sidebar';
 import { supabase } from '@/lib/supabase';
@@ -58,9 +57,16 @@ const ROLE_COLORS: Record<string, string> = {
   viewer: 'bg-slate-100 text-slate-600 border-slate-200',
 };
 
+const ROLE_AVATAR_BG: Record<string, string> = {
+  admin: '#7c3aed',
+  editor: '#1d4ed8',
+  viewer: '#475569',
+};
+
 const ACTION_ICONS: Record<string, React.ReactNode> = {
-  login:    <LogIn size={12} className="text-emerald-500" />,
-  create:   <Plus size={12} className="text-blue-500" />,
+  login:    <LogIn  size={12} className="text-emerald-500" />,
+  logout:   <LogOut size={12} className="text-slate-400" />,
+  create:   <Plus   size={12} className="text-blue-500" />,
   update:   <Pencil size={12} className="text-amber-500" />,
   delete:   <Trash2 size={12} className="text-red-500" />,
   toggle:   <CheckCircle2 size={12} className="text-teal-500" />,
@@ -105,6 +111,7 @@ const UserModal = ({
     is_active: true,
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [usernameChanged, setUsernameChanged] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Sync form when modal opens
@@ -112,11 +119,12 @@ const UserModal = ({
   if (user !== lastUser) {
     setLastUser(user);
     if (user) {
-      setForm({ username: user.username, name: user.name, password: user.password, role: user.role, is_active: user.is_active });
+      setForm({ username: user.username, name: user.name, password: '', role: user.role, is_active: user.is_active });
     } else {
       setForm({ username: '', name: '', password: '', role: 'viewer', is_active: true });
     }
     setShowPassword(false);
+    setUsernameChanged(false);
   }
 
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
@@ -129,9 +137,11 @@ const UserModal = ({
     if (form.password && form.password.length < 6) { toast.error('Password must be at least 6 characters.'); return; }
 
     setSaving(true);
+    const newUsername = form.username.trim().toLowerCase();
+
     try {
       const payload: Partial<PortalUser> = {
-        username: form.username.trim().toLowerCase(),
+        username: newUsername,
         name: form.name.trim(),
         role: form.role,
         is_active: form.is_active,
@@ -145,8 +155,16 @@ const UserModal = ({
           .eq('id', user!.id)
           .select()
           .single();
-        if (error) throw error;
-        toast.success(`User "${form.name}" updated.`);
+        if (error) {
+          if (error.code === '23505') throw new Error(`Username "${newUsername}" is already taken.`);
+          throw error;
+        }
+        const changes: string[] = [];
+        if (newUsername !== user!.username) changes.push(`username → @${newUsername}`);
+        if (form.role !== user!.role) changes.push(`role → ${form.role}`);
+        if (form.is_active !== user!.is_active) changes.push(form.is_active ? 'activated' : 'deactivated');
+        if (form.password.trim()) changes.push('password changed');
+        toast.success(`"${form.name.trim()}" updated${changes.length ? ` (${changes.join(', ')})` : ''}.`);
         onSaved(data as PortalUser);
       } else {
         const { data, error } = await supabase
@@ -155,10 +173,10 @@ const UserModal = ({
           .select()
           .single();
         if (error) {
-          if (error.code === '23505') throw new Error(`Username "${form.username}" is already taken.`);
+          if (error.code === '23505') throw new Error(`Username "${newUsername}" is already taken.`);
           throw error;
         }
-        toast.success(`User "${form.name}" created.`);
+        toast.success(`User "${form.name.trim()}" created.`);
         onSaved(data as PortalUser);
       }
     } catch (err) {
@@ -182,16 +200,26 @@ const UserModal = ({
 
         <div className="space-y-4 py-1">
           <div className="grid grid-cols-2 gap-4">
+            {/* Username — editable even in edit mode */}
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Username *</Label>
               <Input
                 value={form.username}
-                onChange={(e) => set('username', e.target.value.toLowerCase().replace(/\s/g, '_'))}
+                onChange={(e) => {
+                  set('username', e.target.value.toLowerCase().replace(/\s/g, '_'));
+                  if (isEdit) setUsernameChanged(true);
+                }}
                 placeholder="e.g. masjid_editor"
-                disabled={isEdit}
-                className={isEdit ? 'bg-muted/50 cursor-not-allowed' : ''}
+                autoFocus={!isEdit}
               />
-              {isEdit && <p className="text-[10px] text-muted-foreground">Username cannot be changed.</p>}
+              {isEdit && usernameChanged && form.username !== user?.username && (
+                <p className="text-[10px] text-amber-600 font-medium">
+                  ⚠ Changes their login username to @{form.username || '…'}
+                </p>
+              )}
+              {isEdit && !usernameChanged && (
+                <p className="text-[10px] text-muted-foreground">Editable — affects login credentials.</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Display Name *</Label>
@@ -199,7 +227,7 @@ const UserModal = ({
                 value={form.name}
                 onChange={(e) => set('name', e.target.value)}
                 placeholder="e.g. Abdullah Khan"
-                autoFocus={!isEdit}
+                autoFocus={isEdit}
               />
             </div>
           </div>
@@ -225,6 +253,7 @@ const UserModal = ({
             </div>
           </div>
 
+          {/* Role selector */}
           <div className="space-y-2">
             <Label className="text-xs font-semibold">Role *</Label>
             <div className="space-y-2">
@@ -254,6 +283,7 @@ const UserModal = ({
             </div>
           </div>
 
+          {/* Active toggle */}
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -288,16 +318,20 @@ const UserCard = ({
   onEdit,
   onToggle,
   onDelete,
+  onRoleChange,
   toggling,
   deleting,
+  roleChanging,
 }: {
   user: PortalUser;
   currentUsername: string;
   onEdit: (u: PortalUser) => void;
   onToggle: (u: PortalUser) => void;
   onDelete: (u: PortalUser) => void;
+  onRoleChange: (u: PortalUser, role: 'admin' | 'editor' | 'viewer') => void;
   toggling: string | null;
   deleting: string | null;
+  roleChanging: string | null;
 }) => {
   const isSelf = user.username === currentUsername;
 
@@ -307,9 +341,7 @@ const UserCard = ({
         {/* Avatar */}
         <div
           className="w-11 h-11 rounded-xl flex items-center justify-center text-lg font-bold text-white shrink-0"
-          style={{
-            background: user.role === 'admin' ? '#7c3aed' : user.role === 'editor' ? '#1d4ed8' : '#475569',
-          }}
+          style={{ background: ROLE_AVATAR_BG[user.role] ?? '#475569' }}
         >
           {(user.name || user.username).charAt(0).toUpperCase()}
         </div>
@@ -321,14 +353,36 @@ const UserCard = ({
             {isSelf && (
               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">YOU</span>
             )}
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${ROLE_COLORS[user.role]}`}>
-              {ROLES.find((r) => r.value === user.role)?.label}
-            </span>
             {!user.is_active && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">Inactive</span>
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">@{user.username}</p>
+
+          {/* Quick role selector — one click to change */}
+          <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+            <span className="text-[10px] text-muted-foreground mr-0.5">Role:</span>
+            {(['admin', 'editor', 'viewer'] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => !isSelf && r !== user.role && onRoleChange(user, r)}
+                disabled={isSelf || roleChanging === user.id}
+                title={
+                  isSelf ? 'Cannot change own role'
+                  : r === user.role ? 'Current role'
+                  : `Switch to ${r}`
+                }
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all ${
+                  user.role === r
+                    ? ROLE_COLORS[r] + ' shadow-sm'
+                    : 'border-border/60 text-muted-foreground/60 hover:border-border hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed'
+                } ${r !== user.role && !isSelf ? 'cursor-pointer' : ''}`}
+              >
+                {roleChanging === user.id && r === user.role ? '…' : ROLES.find((x) => x.value === r)?.label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
             {user.last_login ? (
               <span className="text-[11px] text-muted-foreground flex items-center gap-1">
@@ -348,7 +402,7 @@ const UserCard = ({
           <button
             onClick={() => onToggle(user)}
             disabled={toggling === user.id || isSelf}
-            title={isSelf ? "Cannot deactivate your own account" : user.is_active ? 'Deactivate' : 'Activate'}
+            title={isSelf ? 'Cannot deactivate your own account' : user.is_active ? 'Deactivate' : 'Activate'}
             className="p-2 rounded-lg hover:bg-secondary/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {toggling === user.id
@@ -360,14 +414,14 @@ const UserCard = ({
           <button
             onClick={() => onEdit(user)}
             className="p-2 rounded-lg hover:bg-accent/10 transition-colors"
-            title="Edit user"
+            title="Edit user (name, username, password, role)"
           >
             <Pencil size={14} style={{ color: 'hsl(var(--accent))' }} />
           </button>
           <button
             onClick={() => onDelete(user)}
             disabled={deleting === user.id || isSelf}
-            title={isSelf ? "Cannot delete your own account" : 'Delete user'}
+            title={isSelf ? 'Cannot delete your own account' : 'Delete user'}
             className="p-2 rounded-lg hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {deleting === user.id
@@ -395,9 +449,13 @@ const ActivityLogPanel = ({ logs, loading, onRefresh }: { logs: ActivityLog[]; l
   const filtered = useMemo(() => {
     return logs.filter((l) => {
       const q = search.toLowerCase();
-      const matchSearch = !q || l.username.toLowerCase().includes(q) || l.action.toLowerCase().includes(q) || (l.entity_label ?? '').toLowerCase().includes(q) || (l.entity_type ?? '').toLowerCase().includes(q);
-      const matchUser = filterUser === 'all' || l.username === filterUser;
-      const matchAction = filterAction === 'all' || l.action === filterAction;
+      const matchSearch = !q
+        || l.username.toLowerCase().includes(q)
+        || l.action.toLowerCase().includes(q)
+        || (l.entity_label ?? '').toLowerCase().includes(q)
+        || (l.entity_type ?? '').toLowerCase().includes(q);
+      const matchUser   = filterUser   === 'all' || l.username === filterUser;
+      const matchAction = filterAction === 'all' || l.action   === filterAction;
       return matchSearch && matchUser && matchAction;
     });
   }, [logs, search, filterUser, filterAction]);
@@ -452,7 +510,7 @@ const ActivityLogPanel = ({ logs, loading, onRefresh }: { logs: ActivityLog[]; l
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
           <Activity size={28} className="opacity-20" />
-          <p className="text-sm">{logs.length === 0 ? 'No activity recorded yet.' : 'No logs match your filter.'}</p>
+          <p className="text-sm">{logs.length === 0 ? 'No activity recorded yet. Sign in/out to generate logs.' : 'No logs match your filter.'}</p>
         </div>
       ) : (
         <div className="divide-y divide-border/60">
@@ -474,7 +532,9 @@ const ActivityLogPanel = ({ logs, loading, onRefresh }: { logs: ActivityLog[]; l
                       </span>
                       <span className="text-xs font-medium capitalize text-foreground/80">{log.action}</span>
                       {log.entity_type && (
-                        <span className="text-xs text-muted-foreground">{log.entity_type}{log.entity_label ? ` — ${log.entity_label}` : ''}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {log.entity_type}{log.entity_label ? ` — ${log.entity_label}` : ''}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -488,10 +548,10 @@ const ActivityLogPanel = ({ logs, loading, onRefresh }: { logs: ActivityLog[]; l
                     <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 space-y-1.5 text-xs">
                       <div className="grid grid-cols-2 gap-x-6 gap-y-1">
                         {[
-                          { label: 'Time', value: new Date(log.created_at).toLocaleString() },
-                          { label: 'Action', value: log.action },
+                          { label: 'Time',        value: new Date(log.created_at).toLocaleString() },
+                          { label: 'Action',      value: log.action },
                           { label: 'Entity Type', value: log.entity_type || '—' },
-                          { label: 'Entity', value: log.entity_label || log.entity_id || '—' },
+                          { label: 'Entity',      value: log.entity_label || log.entity_id || '—' },
                           ...(log.ip_address ? [{ label: 'IP Address', value: log.ip_address }] : []),
                         ].map(({ label, value }) => (
                           <div key={label} className="flex gap-2">
@@ -517,7 +577,9 @@ const ActivityLogPanel = ({ logs, loading, onRefresh }: { logs: ActivityLog[]; l
           {!showAll && filtered.length > 50 && (
             <div className="px-5 py-3 flex items-center justify-between border-t border-border/60">
               <p className="text-xs text-muted-foreground">{filtered.length - 50} more entries not shown</p>
-              <button onClick={() => setShowAll(true)} className="text-xs font-semibold text-primary hover:underline">Show all {filtered.length}</button>
+              <button onClick={() => setShowAll(true)} className="text-xs font-semibold text-primary hover:underline">
+                Show all {filtered.length}
+              </button>
             </div>
           )}
         </div>
@@ -537,8 +599,9 @@ const UserManagement = () => {
   const [filterRole, setFilterRole] = useState('all');
   const [toggling, setToggling] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [roleChanging, setRoleChanging] = useState<string | null>(null);
 
-  // Fetch users
+  // ── Data fetching ─────────────────────────────────────────────────────────
   const { data: users = [], isFetching: usersFetching, refetch: refetchUsers } = useQuery({
     queryKey: ['portal-users'],
     queryFn: async () => {
@@ -551,7 +614,6 @@ const UserManagement = () => {
     },
   });
 
-  // Fetch activity logs
   const { data: logs = [], isFetching: logsFetching, refetch: refetchLogs } = useQuery({
     queryKey: ['activity-log'],
     queryFn: async () => {
@@ -575,15 +637,15 @@ const UserManagement = () => {
   }, [users, search, filterRole]);
 
   const stats = useMemo(() => ({
-    total: users.length,
-    active: users.filter((u) => u.is_active).length,
-    admins: users.filter((u) => u.role === 'admin').length,
-    editors: users.filter((u) => u.role === 'editor').length,
-    viewers: users.filter((u) => u.role === 'viewer').length,
-  }), [users]);
+    total:   users.length,
+    active:  users.filter((u) => u.is_active).length,
+    admins:  users.filter((u) => u.role === 'admin').length,
+    logins:  logs.filter((l) => l.action === 'login').length,
+  }), [users, logs]);
 
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const openCreate = () => { setEditUser(null); setModalOpen(true); };
-  const openEdit = (u: PortalUser) => { setEditUser(u); setModalOpen(true); };
+  const openEdit   = (u: PortalUser) => { setEditUser(u); setModalOpen(true); };
 
   const handleSaved = (saved: PortalUser) => {
     queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) => {
@@ -592,6 +654,36 @@ const UserManagement = () => {
     });
     setModalOpen(false);
     setEditUser(null);
+  };
+
+  // Quick role change — one click on the role pill
+  const handleRoleChange = async (u: PortalUser, role: 'admin' | 'editor' | 'viewer') => {
+    if (u.username === currentUser?.username || u.role === role) return;
+    setRoleChanging(u.id);
+    const prev = u.role;
+    queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
+      old.map((x) => (x.id === u.id ? { ...x, role } : x))
+    );
+    try {
+      const { data, error } = await supabase
+        .from('portal_users')
+        .update({ role })
+        .eq('id', u.id)
+        .select()
+        .single();
+      if (error) throw error;
+      queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
+        old.map((x) => (x.id === u.id ? data as PortalUser : x))
+      );
+      toast.success(`${u.name}'s role updated to ${role}.`);
+    } catch {
+      queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
+        old.map((x) => (x.id === u.id ? { ...x, role: prev } : x))
+      );
+      toast.error('Failed to update role.');
+    } finally {
+      setRoleChanging(null);
+    }
   };
 
   const handleToggle = async (u: PortalUser) => {
@@ -674,10 +766,10 @@ const UserManagement = () => {
           {/* Stats row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Total Users',    value: stats.total,   icon: <Users size={14} />,       accent: 'hsl(var(--primary))' },
-              { label: 'Active',         value: stats.active,  icon: <CheckCircle2 size={14} />, accent: '#10b981' },
-              { label: 'Admins',         value: stats.admins,  icon: <Shield size={14} />,       accent: '#7c3aed' },
-              { label: 'Activity Logs',  value: logs.length,   icon: <Activity size={14} />,     accent: '#0ea5e9' },
+              { label: 'Total Users',   value: stats.total,   icon: <Users size={14} />,         accent: 'hsl(var(--primary))' },
+              { label: 'Active',        value: stats.active,  icon: <CheckCircle2 size={14} />,   accent: '#10b981' },
+              { label: 'Admins',        value: stats.admins,  icon: <Shield size={14} />,         accent: '#7c3aed' },
+              { label: 'Total Logins',  value: stats.logins,  icon: <LogIn size={14} />,          accent: '#0ea5e9' },
             ].map((card) => (
               <div key={card.label} className="rounded-xl border border-border bg-white px-4 py-3 flex items-center gap-3 shadow-sm">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -694,7 +786,6 @@ const UserManagement = () => {
 
           {/* Users section */}
           <div>
-            {/* Filters */}
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <div className="relative flex-1 min-w-[200px] max-w-xs">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -720,7 +811,6 @@ const UserManagement = () => {
               </div>
             </div>
 
-            {/* User cards */}
             {filteredUsers.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 gap-3 text-muted-foreground rounded-2xl border-2 border-dashed border-[hsl(140_20%_88%)] bg-white">
                 <Users size={28} className="opacity-20" />
@@ -739,8 +829,10 @@ const UserManagement = () => {
                     onEdit={openEdit}
                     onToggle={handleToggle}
                     onDelete={handleDelete}
+                    onRoleChange={handleRoleChange}
                     toggling={toggling}
                     deleting={deleting}
+                    roleChanging={roleChanging}
                   />
                 ))}
               </div>
@@ -786,7 +878,7 @@ const UserManagement = () => {
                         <td key={role} className="px-4 py-2.5 text-center">
                           {perm[role]
                             ? <CheckCircle2 size={14} className="text-emerald-500 mx-auto" />
-                            : <XCircle size={14} className="text-red-200 mx-auto" />}
+                            : <XCircle    size={14} className="text-red-200 mx-auto" />}
                         </td>
                       ))}
                     </tr>

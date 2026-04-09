@@ -12,6 +12,35 @@ import { useState, useEffect, useRef, createContext, useContext, useCallback } f
 import { toast } from 'sonner';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 
+// ─── Activity Log Helper ──────────────────────────────────────────────────────
+
+async function logActivity(params: {
+  username: string;
+  user_role: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string | null;
+  entity_label?: string | null;
+  details?: Record<string, unknown> | null;
+}) {
+  // Fire-and-forget: never block the auth flow
+  supabaseAdmin
+    .from('activity_log')
+    .insert({
+      username: params.username,
+      user_role: params.user_role,
+      action: params.action,
+      entity_type: params.entity_type,
+      entity_id: params.entity_id ?? null,
+      entity_label: params.entity_label ?? null,
+      details: params.details ?? null,
+      ip_address: null, // IP unavailable client-side without external call
+    })
+    .then(({ error }) => {
+      if (error) console.warn('[ActivityLog]', error.message);
+    });
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type UserRole = 'admin' | 'editor' | 'viewer';
@@ -68,6 +97,22 @@ export function useAuthState(): AuthState {
 
   // ── Core sign-out ─────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
+    // Log logout event before clearing session
+    const stored = localStorage.getItem(SESSION_KEY);
+    if (stored) {
+      try {
+        const parsed: LocalUser = JSON.parse(stored);
+        logActivity({
+          username: parsed.username,
+          user_role: parsed.role,
+          action: 'logout',
+          entity_type: 'session',
+          entity_label: 'Signed out',
+          details: { name: parsed.name },
+        });
+      } catch { /* ignore */ }
+    }
+
     setUser(null);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(SESSION_TS_KEY);
@@ -140,6 +185,17 @@ export function useAuthState(): AuthState {
         name: data.name || data.username,
         role: data.role as UserRole,
       };
+
+      // Log login event
+      logActivity({
+        username: data.username,
+        user_role: data.role,
+        action: 'login',
+        entity_type: 'session',
+        entity_label: `Signed in as ${data.role}`,
+        details: { name: data.name, platform: navigator.platform, userAgent: navigator.userAgent.substring(0, 120) },
+      });
+
       return localUser;
     }
 
@@ -168,6 +224,16 @@ export function useAuthState(): AuthState {
 
       // Establish Supabase Auth session for authenticated write access
       await signIntoSupabase();
+
+      // Log login event for root admin
+      logActivity({
+        username: 'admin',
+        user_role: 'admin',
+        action: 'login',
+        entity_type: 'session',
+        entity_label: 'Signed in as admin (root fallback)',
+        details: { platform: navigator.platform, userAgent: navigator.userAgent.substring(0, 120) },
+      });
 
       return { id: 'root-admin', username: 'admin', name: 'Root Administrator', role: 'admin' };
     }
