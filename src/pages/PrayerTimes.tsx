@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import Sidebar from '@/components/layout/Sidebar';
@@ -14,7 +14,7 @@ import { PrayerTime, HijriCalendarEntry } from '@/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
-  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download, Database,
+  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download, Database, CheckCircle2, XCircle, Zap,
 } from 'lucide-react';
 import { isBST } from '@/lib/dateUtils';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -220,7 +220,7 @@ async function upsertHijriCalendarEntries(
 
 // ─── Hijri offset DB helpers ──────────────────────────────────────────────────
 
-async function saveOffsetToDb(n: number) {
+async function saveOffsetToDb(n: number): Promise<{ ok: boolean }> {
   try {
     const { error } = await supabaseAdmin
       .from('masjid_settings')
@@ -228,10 +228,12 @@ async function saveOffsetToDb(n: number) {
         { key: 'hijri_offset', value: String(n), label: 'Hijri Date Offset', category: 'preferences', updated_at: new Date().toISOString() },
         { onConflict: 'key' },
       );
-    if (error) console.error('[HijriOffset] DB save failed:', error.message);
-    else       console.log('[HijriOffset] Saved to DB:', n);
+    if (error) { console.error('[HijriOffset] DB save failed:', error.message); return { ok: false }; }
+    console.log('[HijriOffset] Saved to DB:', n);
+    return { ok: true };
   } catch (e) {
     console.error('[HijriOffset] DB save error:', e);
+    return { ok: false };
   }
 }
 
@@ -474,9 +476,14 @@ const PrayerTimes = () => {
   const [csvPreload,      setCsvPreload]      = useState<string | undefined>(undefined);
   const [hijriOffset,     setHijriOffset]     = useState<number>(0);
   const [populatingHijri,    setPopulatingHijri]    = useState(false);
-  const [populatingAllMonths, setPopulatingAllMonths] = useState(false);
-  const [allMonthsProgress,   setAllMonthsProgress]   = useState('');
-  const [exportingCsv,        setExportingCsv]        = useState(false);
+  const [populatingAllMonths,   setPopulatingAllMonths]   = useState(false);
+  const [populatingMissing,     setPopulatingMissing]     = useState(false);
+  const [allMonthsProgress,     setAllMonthsProgress]     = useState('');
+  const [exportingCsv,          setExportingCsv]          = useState(false);
+  // Hijri offset save status: 'idle' | 'saving' | 'saved' | 'error'
+  const [offsetStatus,          setOffsetStatus]          = useState<'idle'|'saving'|'saved'|'error'>('idle');
+  const offsetDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const offsetStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [jumpInput,       setJumpInput]       = useState('');
   const [highlightDay,    setHighlightDay]    = useState<number | null>(null);
   const [searchParams,    setSearchParams]    = useSearchParams();
@@ -528,8 +535,28 @@ const PrayerTimes = () => {
   const changeOffset = (delta: number) => {
     setHijriOffset((prev) => {
       const next = Math.max(-30, Math.min(30, prev + delta));
-      saveOffsetToDb(next);
+      // Debounce DB save — wait 800ms after last click before saving
+      if (offsetDebounceRef.current) clearTimeout(offsetDebounceRef.current);
+      if (offsetStatusTimerRef.current) clearTimeout(offsetStatusTimerRef.current);
+      setOffsetStatus('saving');
+      offsetDebounceRef.current = setTimeout(async () => {
+        const { ok } = await saveOffsetToDb(next);
+        setOffsetStatus(ok ? 'saved' : 'error');
+        // Auto-clear after 3 seconds
+        offsetStatusTimerRef.current = setTimeout(() => setOffsetStatus('idle'), 3000);
+      }, 800);
       return next;
+    });
+  };
+
+  const handleResetOffset = () => {
+    if (offsetDebounceRef.current) clearTimeout(offsetDebounceRef.current);
+    if (offsetStatusTimerRef.current) clearTimeout(offsetStatusTimerRef.current);
+    setHijriOffset(0);
+    setOffsetStatus('saving');
+    saveOffsetToDb(0).then(({ ok }) => {
+      setOffsetStatus(ok ? 'saved' : 'error');
+      offsetStatusTimerRef.current = setTimeout(() => setOffsetStatus('idle'), 3000);
     });
   };
 
@@ -582,6 +609,124 @@ const PrayerTimes = () => {
     } finally {
       setExportingCsv(false);
     }
+  };
+
+  // ── Fill Missing Only: Aladhan API → skips days already in hijri_calendar ─
+  const handleFillMissingOnly = async () => {
+    if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
+    setPopulatingMissing(true);
+    const toastId = 'fill-missing-hijri';
+
+    // Step 1: Fetch all existing entries for the year from DB
+    toast.loading(`Checking existing entries for ${selectedYear}…`, { id: toastId });
+    const { data: existing, error: existErr } = await supabaseAdmin
+      .from('hijri_calendar')
+      .select('gregorian_month, gregorian_day')
+      .eq('gregorian_year', selectedYear);
+
+    if (existErr) {
+      toast.error(`DB check failed: ${existErr.message}`, { id: toastId });
+      setPopulatingMissing(false);
+      return;
+    }
+
+    // Build a Set of keys already in DB: "month-day"
+    const existingSet = new Set<string>((existing ?? []).map((r) => `${r.gregorian_month}-${r.gregorian_day}`));
+    console.log(`[Fill Missing] ${existingSet.size} days already in DB for ${selectedYear}`);
+
+    // Step 2: Build the list of missing days
+    const missingDays: { month: number; day: number }[] = [];
+    for (let month = 1; month <= 12; month++) {
+      const lastDay = new Date(selectedYear, month, 0).getDate();
+      for (let day = 1; day <= lastDay; day++) {
+        if (!existingSet.has(`${month}-${day}`)) {
+          missingDays.push({ month, day });
+        }
+      }
+    }
+
+    if (missingDays.length === 0) {
+      toast.success(
+        `✓ All days for ${selectedYear} already exist in hijri_calendar — nothing to fill!`,
+        { id: toastId, duration: 5000 },
+      );
+      setPopulatingMissing(false);
+      return;
+    }
+
+    toast.loading(
+      `Skipping ${existingSet.size} existing · Fetching ${missingDays.length} missing days…`,
+      { id: toastId },
+    );
+
+    // Step 3: Fetch only missing days from Aladhan API
+    const newEntries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
+    const apiFailed: string[] = [];
+
+    for (let i = 0; i < missingDays.length; i++) {
+      const { month, day } = missingDays[i];
+      const monthName = MONTHS_SHORT[month - 1];
+      setAllMonthsProgress(`${monthName} ${day} (${i + 1}/${missingDays.length})`);
+      try {
+        const result = await fetchHijriFromApi(selectedYear, month, day, hijriOffset);
+        newEntries.push({
+          gregorian_year:  selectedYear,
+          gregorian_month: month,
+          gregorian_day:   day,
+          gregorian_date:  result.gregorian,
+          hijri_date:      result.hijri,
+        });
+        console.log(`[Aladhan ✓] ${monthName} ${day}: ${result.gregorian} → ${result.hijri}`);
+      } catch (e) {
+        apiFailed.push(`${monthName} ${day}`);
+        console.error(`[Aladhan ✗] ${monthName} ${day}:`, e);
+      }
+      toast.loading(
+        `Fetching missing: ${i + 1}/${missingDays.length} · ${monthName} ${day}`,
+        { id: toastId },
+      );
+      if (i < missingDays.length - 1) await new Promise((r) => setTimeout(r, 120));
+    }
+
+    if (newEntries.length === 0) {
+      toast.error(
+        apiFailed.length > 0
+          ? `All ${apiFailed.length} API calls failed. Check connection.`
+          : 'No new entries to save.',
+        { id: toastId, duration: 6000 },
+      );
+      setPopulatingMissing(false);
+      setAllMonthsProgress('');
+      return;
+    }
+
+    // Step 4: Save new entries to DB
+    toast.loading(`Saving ${newEntries.length} new dates to hijri_calendar…`, { id: toastId });
+    const { saved, errors } = await upsertHijriCalendarEntries(newEntries);
+
+    if (errors.length > 0) {
+      if (errors[0].includes('schema cache') || errors[0].includes('column')) {
+        setSchemaError(errors[0]);
+        toast.error('DB schema error — see red banner.', { id: toastId, duration: 8000 });
+      } else {
+        toast.error(`Saved ${saved} but ${errors.length} errors: ${errors[0]}`, { id: toastId, duration: 8000 });
+      }
+    } else if (apiFailed.length > 0) {
+      toast.warning(
+        `✓ ${saved} new days saved · ${apiFailed.length} failed (API) · ${existingSet.size} already existed`,
+        { id: toastId, duration: 6000 },
+      );
+    } else {
+      toast.success(
+        `✓ ${saved} missing days filled · ${existingSet.size} days already existed (skipped)`,
+        { id: toastId, duration: 5000 },
+      );
+    }
+
+    const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
+    setHijriCalendar(updated);
+    setAllMonthsProgress('');
+    setPopulatingMissing(false);
   };
 
   // ── Fill All 12 Months: Aladhan API → hijri_calendar table ───────────────
@@ -795,9 +940,25 @@ const PrayerTimes = () => {
                 </span>
                 <button onClick={() => changeOffset(1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-white transition-colors"><Plus size={10} /></button>
                 {hijriOffset !== 0 && (
-                  <button onClick={() => { setHijriOffset(0); saveOffsetToDb(0); }} className="ml-1 text-[9px] text-muted-foreground hover:text-foreground">
+                  <button onClick={handleResetOffset} className="ml-1 text-[9px] text-muted-foreground hover:text-foreground">
                     reset
                   </button>
+                )}
+                {/* Save status indicator */}
+                {offsetStatus === 'saving' && (
+                  <span className="ml-1 flex items-center gap-0.5">
+                    <Loader2 size={9} className="animate-spin text-muted-foreground" />
+                  </span>
+                )}
+                {offsetStatus === 'saved' && (
+                  <span className="ml-1 flex items-center gap-0.5" title="Saved to database">
+                    <CheckCircle2 size={10} className="text-emerald-500" />
+                  </span>
+                )}
+                {offsetStatus === 'error' && (
+                  <span className="ml-1 flex items-center gap-0.5" title="DB save failed">
+                    <XCircle size={10} className="text-red-500" />
+                  </span>
                 )}
               </div>
 
@@ -833,13 +994,26 @@ const PrayerTimes = () => {
                 {populatingHijri ? 'Filling…' : 'Fill Month'}
               </Button>
 
+              {/* Fill Missing Only — fast partial update */}
+              <Button
+                variant="outline" size="sm"
+                onClick={handleFillMissingOnly}
+                disabled={populatingMissing || populatingAllMonths || populatingHijri || !!schemaError}
+                className="gap-2 border-[hsl(38_80%_65%)] bg-[hsl(38_80%_97%)] text-[hsl(38_70%_30%)] hover:bg-[hsl(38_80%_93%)] font-semibold"
+                title={schemaError ? 'Fix DB schema first' : `Only fetch days not yet in hijri_calendar for ${selectedYear} — much faster than Fill All`}
+              >
+                {populatingMissing
+                  ? <><Loader2 size={14} className="animate-spin" />{allMonthsProgress || 'Checking…'}</>
+                  : <><Zap size={14} />Fill Missing</>}
+              </Button>
+
               {/* Fill All Months — entire year */}
               <Button
                 variant="outline" size="sm"
                 onClick={handlePopulateAllMonths}
-                disabled={populatingAllMonths || populatingHijri || !!schemaError}
+                disabled={populatingAllMonths || populatingHijri || populatingMissing || !!schemaError}
                 className="gap-2 border-[hsl(270_60%_65%)] bg-[hsl(270_50%_97%)] text-[#6d28d9] hover:bg-[hsl(270_50%_93%)] font-semibold"
-                title={schemaError ? 'Fix DB schema first' : `Fetch Hijri + Gregorian dates for ALL 12 months of ${selectedYear}`}
+                title={schemaError ? 'Fix DB schema first' : `Fetch + overwrite Hijri dates for ALL 12 months of ${selectedYear}`}
               >
                 {populatingAllMonths
                   ? <><Loader2 size={14} className="animate-spin" />{allMonthsProgress ? allMonthsProgress : 'Working…'}</>
