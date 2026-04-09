@@ -20,15 +20,7 @@ import { isBST } from '@/lib/dateUtils';
 import { supabaseAdmin } from '@/lib/supabase';
 import { SolarTimesCard } from '@/pages/Dashboard';
 
-const HIJRI_OFFSET_KEY = 'hijri_offset';
-function loadOffset(): number {
-  try { return parseInt(localStorage.getItem(HIJRI_OFFSET_KEY) ?? '0', 10) || 0; } catch { return 0; }
-}
-function saveOffset(n: number) {
-  try { localStorage.setItem(HIJRI_OFFSET_KEY, String(n)); } catch { /* noop */ }
-}
 async function saveOffsetToDb(n: number) {
-  saveOffset(n); // always update localStorage immediately
   try {
     const { error } = await supabaseAdmin
       .from('masjid_settings')
@@ -57,10 +49,10 @@ async function loadOffsetFromDb(): Promise<number> {
       .maybeSingle();
     if (!error && data?.value !== null && data?.value !== undefined) {
       const n = parseInt(data.value, 10);
-      if (!isNaN(n)) { saveOffset(n); return n; }
+      if (!isNaN(n)) return n;
     }
   } catch { /* ignore */ }
-  return loadOffset();
+  return 0;
 }
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -195,7 +187,7 @@ const PrayerTimes = () => {
   const [jumuahModal,   setJumuahModal]   = useState(false);
   const [csvModal,      setCsvModal]      = useState(false);
   const [csvPreload,    setCsvPreload]    = useState<string | undefined>(undefined);
-  const [hijriOffset,   setHijriOffset]   = useState<number>(loadOffset);
+  const [hijriOffset,   setHijriOffset]   = useState<number>(0);
   const [jumpInput,     setJumpInput]     = useState('');
   const [highlightDay,  setHighlightDay]  = useState<number | null>(null);
   const [searchParams, setSearchParams]   = useSearchParams();
@@ -208,7 +200,7 @@ const PrayerTimes = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  const changeOffset = (delta: number) => setHijriOffset((prev) => { const next = Math.max(-30, Math.min(30, prev + delta)); saveOffsetToDb(next); return next; });
+  const changeOffset = (delta: number) => { setHijriOffset((prev) => { const next = Math.max(-30, Math.min(30, prev + delta)); saveOffsetToDb(next); return next; }); };
 
   // Load hijri offset from DB on mount
   useEffect(() => {
@@ -288,7 +280,7 @@ const PrayerTimes = () => {
                   {hijriOffset > 0 ? `+${hijriOffset}` : hijriOffset === 0 ? '±0' : hijriOffset}
                 </span>
                 <button onClick={() => changeOffset(1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-white transition-colors"><Plus size={10} /></button>
-                {hijriOffset !== 0 && <button onClick={() => { saveOffsetToDb(0); setHijriOffset(0); }} className="ml-1 text-[9px] text-muted-foreground hover:text-foreground">reset</button>}
+                {hijriOffset !== 0 && <button onClick={() => { setHijriOffset(0); saveOffsetToDb(0); }} className="ml-1 text-[9px] text-muted-foreground hover:text-foreground">reset</button>}
               </div>
 
               {/* Jump to day */}

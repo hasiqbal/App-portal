@@ -447,9 +447,7 @@ const Dashboard = () => {
   const dayName = DAYS[now.getDay()];
 
   // ── Hijri offset from DB ───────────────────────────────────────────────────
-  const [hijriOffset, setHijriOffset] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem('hijri_offset') ?? '0', 10) || 0; } catch { return 0; }
-  });
+  const [hijriOffset, setHijriOffset] = useState<number>(0);
   const hijriOffsetFetched = useRef(false);
   useEffect(() => {
     if (hijriOffsetFetched.current) return;
@@ -462,10 +460,7 @@ const Dashboard = () => {
       .then(({ data }) => {
         if (data?.value !== null && data?.value !== undefined) {
           const n = parseInt(data.value, 10);
-          if (!isNaN(n)) {
-            setHijriOffset(n);
-            try { localStorage.setItem('hijri_offset', String(n)); } catch { /* noop */ }
-          }
+          if (!isNaN(n)) setHijriOffset(n);
         }
       });
   }, []);

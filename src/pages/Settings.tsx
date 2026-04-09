@@ -197,10 +197,6 @@ const Settings = () => {
           supabaseAdmin.from('masjid_settings').update({ value, updated_at: new Date().toISOString() }).eq('key', key)
         )
       );
-      // Keep localStorage in sync for hijri_offset
-      if (pending['hijri_offset'] !== undefined) {
-        try { localStorage.setItem('hijri_offset', pending['hijri_offset']); } catch { /* noop */ }
-      }
       // Update local state
       setSettings((prev) => prev.map((s) => (pending[s.key] !== undefined ? { ...s, value: pending[s.key] } : s)));
       setPending({});
