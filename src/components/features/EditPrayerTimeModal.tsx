@@ -40,6 +40,7 @@ async function fetchHijriFromApi(year: number, month: number, day: number): Prom
 
 /**
  * Save Hijri date for a specific day to the hijri_calendar table.
+ * Single upsert — no double-call fallback (faster saves).
  */
 async function saveHijriToDb(
   year: number,
@@ -57,7 +58,6 @@ async function saveHijriToDb(
     updated_at:      new Date().toISOString(),
   };
 
-  // Try with onConflict first
   const { data, error } = await supabaseAdmin
     .from('hijri_calendar')
     .upsert(entry, { onConflict: 'gregorian_year,gregorian_month,gregorian_day' })
@@ -65,17 +65,8 @@ async function saveHijriToDb(
     .maybeSingle();
 
   if (error) {
-    // Fallback: upsert without explicit conflict key
-    const { data: d2, error: e2 } = await supabaseAdmin
-      .from('hijri_calendar')
-      .upsert(entry)
-      .select()
-      .maybeSingle();
-    if (e2) {
-      console.error('[hijri_calendar] Save error:', e2.message);
-      return null;
-    }
-    return d2 as HijriCalendarEntry;
+    console.error('[hijri_calendar] Save error:', error.message);
+    return null;
   }
 
   return data as HijriCalendarEntry;
@@ -207,33 +198,42 @@ const EditPrayerTimeModal = ({ row, year, hijriEntry, onClose, onSaved, onHijriS
     if (!row) return;
     setSaving(true);
     try {
-      // 1. Save prayer times (no hijri_date here — different table)
+      // Build prayer time payload
       const payload: PrayerTimeUpdate = {};
       FIELDS.forEach(({ key }) => {
         const val = (form[key] ?? '').trim();
         (payload as Record<string, string | null>)[key] = val === '' ? null : val;
       });
-      const result = await updatePrayerTime(row.id, payload);
-      const updated = result[0] ?? { ...row, ...payload };
-      toast.success(`Day ${row.day} updated successfully`);
-      onSaved(updated as PrayerTime);
 
-      // 2. Save Hijri date to hijri_calendar if provided
+      // Build hijri payload (if provided)
       const hijriTrimmed = hijriDateStr.trim();
       const gregTrimmed  = gregorianStr.trim();
+      const gStr = gregTrimmed || (() => {
+        const gDay   = String(row.day).padStart(2, '0');
+        const gMonth = String(row.month).padStart(2, '0');
+        return `${gDay}/${gMonth}/${year}`;
+      })();
+
+      // Run prayer time save + hijri save in PARALLEL for speed
+      const [prayerResult, hijriResult] = await Promise.all([
+        updatePrayerTime(row.id, payload),
+        hijriTrimmed
+          ? saveHijriToDb(year, row.month, row.day, hijriTrimmed, gStr)
+          : Promise.resolve(null),
+      ]);
+
+      const updated = prayerResult[0] ?? { ...row, ...payload };
+      onSaved(updated as PrayerTime);
+
       if (hijriTrimmed) {
-        const gStr = gregTrimmed || (() => {
-          const gDay   = String(row.day).padStart(2, '0');
-          const gMonth = String(row.month).padStart(2, '0');
-          return `${gDay}/${gMonth}/${year}`;
-        })();
-        const saved = await saveHijriToDb(year, row.month, row.day, hijriTrimmed, gStr);
-        if (saved) {
-          onHijriSaved(row.day, saved);
-          console.log(`[hijri_calendar] Saved day ${row.day}:`, saved);
+        if (hijriResult) {
+          onHijriSaved(row.day, hijriResult);
+          toast.success(`Day ${row.day} saved — prayer times + Hijri date updated`);
         } else {
-          toast.error('Prayer times saved but Hijri date failed to save to hijri_calendar table.');
+          toast.warning(`Prayer times saved but Hijri date failed to write to hijri_calendar.`);
         }
+      } else {
+        toast.success(`Day ${row.day} updated successfully`);
       }
     } catch {
       toast.error('Failed to save changes. Please try again.');

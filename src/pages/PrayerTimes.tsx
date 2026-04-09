@@ -14,7 +14,7 @@ import { PrayerTime, HijriCalendarEntry } from '@/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
-  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon,
+  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download,
 } from 'lucide-react';
 import { isBST } from '@/lib/dateUtils';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -314,6 +314,7 @@ const PrayerTimes = () => {
   const [populatingHijri,    setPopulatingHijri]    = useState(false);
   const [populatingAllMonths, setPopulatingAllMonths] = useState(false);
   const [allMonthsProgress,   setAllMonthsProgress]   = useState('');
+  const [exportingCsv,        setExportingCsv]        = useState(false);
   const [jumpInput,       setJumpInput]       = useState('');
   const [highlightDay,    setHighlightDay]    = useState<number | null>(null);
   const [searchParams,    setSearchParams]    = useSearchParams();
@@ -353,6 +354,57 @@ const PrayerTimes = () => {
       saveOffsetToDb(next);
       return next;
     });
+  };
+
+  // ── Export Hijri CSV for selected year ─────────────────────────────────────
+  const handleExportHijriCsv = async () => {
+    setExportingCsv(true);
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('hijri_calendar')
+        .select('gregorian_year, gregorian_month, gregorian_day, gregorian_date, hijri_date')
+        .eq('gregorian_year', selectedYear)
+        .order('gregorian_month', { ascending: true })
+        .order('gregorian_day',   { ascending: true });
+
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) {
+        toast.error(`No Hijri calendar data found for ${selectedYear}. Use "Fill Month" or "Fill All ${selectedYear}" first.`);
+        return;
+      }
+
+      const header = ['gregorian_day', 'gregorian_month', 'gregorian_year', 'gregorian_date', 'hijri_date'];
+      const csvRows = [
+        header,
+        ...data.map((r) => [
+          String(r.gregorian_day),
+          String(r.gregorian_month),
+          String(r.gregorian_year),
+          r.gregorian_date ?? `${String(r.gregorian_day).padStart(2,'0')}/${String(r.gregorian_month).padStart(2,'0')}/${r.gregorian_year}`,
+          r.hijri_date ?? '',
+        ]),
+      ];
+
+      const csv = csvRows
+        .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `hijri-calendar-${selectedYear}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${data.length} Hijri entries for ${selectedYear}`);
+    } catch (e) {
+      toast.error(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setExportingCsv(false);
+    }
   };
 
   // ── Fill All 12 Months: Aladhan API → hijri_calendar table ───────────────
@@ -629,6 +681,18 @@ const PrayerTimes = () => {
                   ? <><Loader2 size={14} className="animate-spin" />{allMonthsProgress ? allMonthsProgress : 'Working…'}</>
                   : <><Moon size={14} />Fill All {selectedYear}</>
                 }
+              </Button>
+
+              {/* Export Hijri CSV */}
+              <Button
+                variant="outline" size="sm"
+                onClick={handleExportHijriCsv}
+                disabled={exportingCsv || populatingAllMonths || populatingHijri}
+                className="gap-2 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]"
+                title={`Download all hijri_calendar entries for ${selectedYear} as CSV`}
+              >
+                {exportingCsv ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                {exportingCsv ? 'Exporting…' : `Export ${selectedYear} CSV`}
               </Button>
 
               <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
