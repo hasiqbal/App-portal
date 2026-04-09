@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { Settings2, MapPin, Phone, Globe, Share2, Clock, Save, Loader2, RefreshCw, Lock, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -194,9 +194,13 @@ const Settings = () => {
     try {
       await Promise.all(
         Object.entries(pending).map(([key, value]) =>
-          supabase.from('masjid_settings').update({ value, updated_at: new Date().toISOString() }).eq('key', key)
+          supabaseAdmin.from('masjid_settings').update({ value, updated_at: new Date().toISOString() }).eq('key', key)
         )
       );
+      // Keep localStorage in sync for hijri_offset
+      if (pending['hijri_offset'] !== undefined) {
+        try { localStorage.setItem('hijri_offset', pending['hijri_offset']); } catch { /* noop */ }
+      }
       // Update local state
       setSettings((prev) => prev.map((s) => (pending[s.key] !== undefined ? { ...s, value: pending[s.key] } : s)));
       setPending({});
