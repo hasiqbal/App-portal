@@ -6,9 +6,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { createAdhkarGroup, updateAdhkarGroup } from '@/lib/api';
-import { supabase, supabaseAdmin } from '@/lib/supabase';
+import { supabase, onspaceCloud } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { Upload, X, Loader2, ImageIcon } from 'lucide-react';
+import { Upload, X, Loader2, ImageIcon, Image } from 'lucide-react';
 
 // ─── Helper: is the icon value a URL (image) or an emoji/text? ────────────────
 export function isIconUrl(icon: string | null | undefined): boolean {
@@ -16,7 +16,7 @@ export function isIconUrl(icon: string | null | undefined): boolean {
   return icon.startsWith('http') || icon.startsWith('/');
 }
 
-// ─── Shared icon renderer (used here + in Adhkar.tsx group header) ────────────
+// ─── Shared icon renderer ─────────────────────────────────────────────────────
 export function GroupIconDisplay({
   icon, bg, size = 32, className = '',
 }: {
@@ -42,6 +42,26 @@ export function GroupIconDisplay({
   );
 }
 
+/** Upload an image to the OnSpace Cloud adhkar-images bucket. */
+async function uploadToOnspaceBucket(file: File, folder: string): Promise<string> {
+  const ext  = file.name.split('.').pop() ?? 'jpg';
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+  const { error: uploadError } = await onspaceCloud.storage
+    .from('adhkar-images')
+    .upload(path, file, { contentType: file.type, upsert: false });
+
+  if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
+
+  const { data: urlData } = onspaceCloud.storage
+    .from('adhkar-images')
+    .getPublicUrl(path);
+
+  if (!urlData?.publicUrl) throw new Error('Could not get public URL after upload');
+  console.log('[Upload ✓] Uploaded to OnSpace bucket:', urlData.publicUrl);
+  return urlData.publicUrl;
+}
+
 /** Sync group metadata to external backend via Edge Function (bypasses CORS). */
 async function syncGroupToExternal(
   groupName: string,
@@ -56,7 +76,6 @@ async function syncGroupToExternal(
     console.warn('[AdhkarGroupModal] Edge Function sync failed (non-critical):', error?.message ?? error);
     return null;
   }
-  console.log('[AdhkarGroupModal] External group synced via Edge Function:', groupName, data);
   return data;
 }
 
@@ -65,32 +84,69 @@ interface AdhkarGroupModalProps {
   group: AdhkarGroup | null;
   existingGroups?: AdhkarGroup[];
   onClose: () => void;
-  /** Called with the saved group + the old name/prayerTime so the parent can update cached entries */
   onSaved: (group: AdhkarGroup, oldName?: string, oldPrayerTime?: string) => void;
-  /** Called when merging into an existing group — parent handles entry re-assignment + cache update */
   onMergeInto?: (sourceGroupName: string, targetGroup: AdhkarGroup, sourceGroupId?: string) => Promise<void>;
 }
 
 const EMPTY = {
   name: '',
   prayer_time: 'after-fajr' as string,
-  icon: '⭐',
+  icon: '☪️',
   icon_color: '#ffffff',
   icon_bg_color: '#6366f1',
   badge_text: '',
   badge_color: '#6366f1',
   description: '',
   display_order: '0',
+  bg_image_url: '',
 };
 
 type FormState = typeof EMPTY;
 
 const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, onMergeInto }: AdhkarGroupModalProps) => {
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [form, setForm]   = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [nameDropOpen, setNameDropOpen] = useState(false);
-  const [nameSearch, setNameSearch] = useState('');
+  const [nameSearch, setNameSearch]   = useState('');
   const nameDropRef = useRef<HTMLDivElement>(null);
+
+  // Upload states
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  const [uploadingBg,   setUploadingBg]   = useState(false);
+  const [dragOverIcon,  setDragOverIcon]  = useState(false);
+  const [dragOverBg,    setDragOverBg]    = useState(false);
+  const iconFileRef = useRef<HTMLInputElement>(null);
+  const bgFileRef   = useRef<HTMLInputElement>(null);
+
+  const isEdit       = !!group?.id || !!group?.name;
+  const originalName = group?.name ?? '';
+  const originalPrayerTime = group?.prayer_time ?? '';
+  const mergeTargets = existingGroups.filter((g) => g.name !== originalName);
+
+  const initializedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!open) { initializedForRef.current = null; return; }
+    const key = group ? (group.id ?? group.name) : '__new__';
+    if (initializedForRef.current === key) return;
+    initializedForRef.current = key;
+    if (group) {
+      setForm({
+        name:          group.name,
+        prayer_time:   group.prayer_time ?? 'after-fajr',
+        icon:          group.icon ?? EMPTY.icon,
+        icon_color:    group.icon_color ?? EMPTY.icon_color,
+        icon_bg_color: group.icon_bg_color ?? EMPTY.icon_bg_color,
+        badge_text:    group.badge_text ?? '',
+        badge_color:   group.badge_color ?? EMPTY.badge_color,
+        description:   group.description ?? '',
+        display_order: String(group.display_order ?? 0),
+        bg_image_url:  (group as AdhkarGroup & { bg_image_url?: string | null }).bg_image_url ?? '',
+      });
+    } else {
+      setForm(EMPTY);
+    }
+  }, [group, open]);
 
   // Close name dropdown on outside click
   useEffect(() => {
@@ -104,69 +160,82 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     return () => document.removeEventListener('mousedown', handler);
   }, [nameDropOpen]);
 
-
-  const isEdit = !!group?.id || !!group?.name;
-  const originalName = group?.name ?? '';
-  const originalPrayerTime = group?.prayer_time ?? '';
-  const mergeTargets = existingGroups.filter((g) => g.name !== originalName);
-
-  // When launched from App View with only a name (no real id), treat as create
-
-  // Use a ref to track the last group id/name we initialized for, so reference
-  // changes in the cache don't re-trigger a form reset mid-edit.
-  const initializedForRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!open) {
-      // Reset tracker when modal closes so next open always re-initializes
-      initializedForRef.current = null;
-      return;
-    }
-    const key = group ? (group.id ?? group.name) : '__new__';
-    if (initializedForRef.current === key) return; // already initialized — don't overwrite
-    initializedForRef.current = key;
-    if (group) {
-      setForm({
-        name: group.name,
-        prayer_time: group.prayer_time ?? 'after-fajr',
-        icon: group.icon ?? EMPTY.icon,
-        icon_color: group.icon_color ?? EMPTY.icon_color,
-        icon_bg_color: group.icon_bg_color ?? EMPTY.icon_bg_color,
-        badge_text: group.badge_text ?? '',
-        badge_color: group.badge_color ?? EMPTY.badge_color,
-        description: group.description ?? '',
-        display_order: String(group.display_order ?? 0),
-      });
-    } else {
-      setForm(EMPTY);
-    }
-  }, [group, open]);
-
   const set = useCallback(<K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((p) => ({ ...p, [key]: val })), []);
 
+  // ── Image upload handler ───────────────────────────────────────────────────
+  const uploadImage = async (
+    file: File,
+    folder: string,
+    setLoading: (v: boolean) => void,
+    onSuccess: (url: string) => void,
+  ) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file (JPG, PNG, WebP, GIF)');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image must be smaller than 10 MB');
+      return;
+    }
+    setLoading(true);
+    try {
+      const url = await uploadToOnspaceBucket(file, folder);
+      onSuccess(url);
+      toast.success('Image uploaded — save the group to apply.');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
+      console.error('[Upload ✗]', msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleIconFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadImage(file, 'group-icons', setUploadingIcon, (url) => set('icon', url));
+    e.target.value = '';
+  };
+
+  const handleBgFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadImage(file, 'group-backgrounds', setUploadingBg, (url) => set('bg_image_url', url));
+    e.target.value = '';
+  };
+
+  const handleIconDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOverIcon(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) uploadImage(file, 'group-icons', setUploadingIcon, (url) => set('icon', url));
+  };
+
+  const handleBgDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOverBg(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) uploadImage(file, 'group-backgrounds', setUploadingBg, (url) => set('bg_image_url', url));
+  };
+
+  // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error('Group name is required.'); return; }
     setSaving(true);
     const newName = form.name.trim();
     const payload = {
-      name: newName,
-      prayer_time: form.prayer_time || null,
-      icon: form.icon,
-      icon_color: form.icon_color,
+      name:          newName,
+      prayer_time:   form.prayer_time || null,
+      icon:          form.icon,
+      icon_color:    form.icon_color,
       icon_bg_color: form.icon_bg_color,
-      badge_text: form.badge_text?.trim() || null,
-      badge_color: form.badge_color,
-      description: form.description?.trim() || null,
+      badge_text:    form.badge_text?.trim() || null,
+      badge_color:   form.badge_color,
+      description:   form.description?.trim() || null,
       display_order: Number(form.display_order) || 0,
+      bg_image_url:  form.bg_image_url?.trim() || null,
     };
     try {
       const hasRealId = !!group?.id && !group.id.startsWith('__');
-
-      // ── Merge detection ──────────────────────────────────────────────────
-      // If renaming to a name that already exists as a DIFFERENT group, merge
-      // instead of hitting the unique constraint.
-      const isRename = isEdit && newName !== originalName;
+      const isRename  = isEdit && newName !== originalName;
       const targetExisting = isRename
         ? existingGroups.find((g) => g.name === newName && g.id !== group?.id)
         : null;
@@ -176,39 +245,34 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
         setSaving(false);
         return;
       }
-      // ────────────────────────────────────────────────────────────────────
 
       const saved = hasRealId
         ? await updateAdhkarGroup(group!.id, payload)
         : await createAdhkarGroup(payload);
 
-      // Sync to external backend via Edge Function (bypasses CORS; handles cascade rename + group metadata)
       const nameChanged = isEdit && payload.name !== originalName;
       const timeChanged = isEdit && payload.prayer_time !== originalPrayerTime;
 
       const externalPayload: Record<string, unknown> = {
-        description: payload.description ?? null,
-        icon: payload.icon,
-        icon_color: payload.icon_color,
+        description:   payload.description ?? null,
+        icon:          payload.icon,
+        icon_color:    payload.icon_color,
         icon_bg_color: payload.icon_bg_color,
-        badge_text: payload.badge_text ?? null,
-        badge_color: payload.badge_color,
+        badge_text:    payload.badge_text ?? null,
+        badge_color:   payload.badge_color,
         display_order: payload.display_order ?? 0,
-        prayer_time: payload.prayer_time ?? null,
+        prayer_time:   payload.prayer_time ?? null,
+        bg_image_url:  payload.bg_image_url ?? null,
       };
 
-      // Fire-and-forget: pass oldGroupName so the edge function can cascade rename adhkar entries
-      syncGroupToExternal(payload.name!, externalPayload, nameChanged ? originalName : undefined, timeChanged ? payload.prayer_time ?? undefined : undefined)
-        .then((result) => {
-          const cascaded = (result as Record<string, unknown>)?.cascadedEntries;
-          if (typeof cascaded === 'number' && cascaded > 0) {
-            console.log(`[AdhkarGroupModal] Cascaded ${cascaded} adhkar entries on external backend.`);
-          }
-        })
-        .catch((err) => console.warn('[AdhkarGroupModal] External sync (non-critical):', err?.message ?? err));
+      syncGroupToExternal(
+        payload.name!,
+        externalPayload,
+        nameChanged ? originalName : undefined,
+        timeChanged ? payload.prayer_time ?? undefined : undefined,
+      ).catch((err) => console.warn('[AdhkarGroupModal] External sync (non-critical):', err?.message ?? err));
 
       if (isEdit) {
-        // Always pass originalPrayerTime so the parent can detect and cascade changes
         toast.success(timeChanged
           ? `Group updated · entries will move to ${PRAYER_TIME_LABELS[payload.prayer_time ?? ''] ?? payload.prayer_time ?? 'new section'}.`
           : 'Group updated.');
@@ -225,63 +289,15 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     }
   };
 
-  // ── Image upload to adhkar-images bucket ────────────────────────────────
-  const [uploadingIcon, setUploadingIcon] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const uploadIconImage = async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please select an image file (JPG, PNG, WebP, GIF)');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('Image must be smaller than 10 MB');
-      return;
-    }
-    setUploadingIcon(true);
-    const ext = file.name.split('.').pop() ?? 'jpg';
-    const path = `group-icons/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    try {
-      // Upload using fetch+blob for reliability
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('adhkar-images')
-        .upload(path, file, { contentType: file.type, upsert: false });
-      if (uploadError) throw new Error(uploadError.message);
-      const { data: urlData } = supabaseAdmin.storage
-        .from('adhkar-images')
-        .getPublicUrl(path);
-      if (!urlData?.publicUrl) throw new Error('Could not get public URL');
-      set('icon', urlData.publicUrl);
-      toast.success('Icon uploaded — save the group to apply.');
-    } catch (e) {
-      toast.error(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setUploadingIcon(false);
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) uploadIconImage(file);
-    e.target.value = '';
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) uploadIconImage(file);
-  };
-
-  // Live preview
+  // Live preview values
   const preview = {
-    icon: form.icon,
-    iconBg: form.icon_bg_color,
-    badge: form.badge_text,
+    icon:    form.icon,
+    iconBg:  form.icon_bg_color,
+    badge:   form.badge_text,
     badgeBg: form.badge_color,
-    name: form.name || 'Group Name',
-    desc: form.description || 'Group description appears here.',
+    name:    form.name || 'Group Name',
+    desc:    form.description || 'Group description appears here.',
+    bgImg:   form.bg_image_url,
   };
 
   return (
@@ -290,31 +306,53 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
         <DialogHeader>
           <DialogTitle className="text-base font-bold text-[hsl(150_30%_12%)] flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
-              <span className="text-sm">{form.icon}</span>
+              <span className="text-sm">{isIconUrl(form.icon) ? '🖼' : form.icon}</span>
             </div>
             {isEdit ? 'Edit Group' : 'New Group'}
           </DialogTitle>
         </DialogHeader>
 
-        {/* Live preview card */}
+        {/* ── Live preview card ── */}
         <div
-          className="rounded-xl p-4 border border-border flex items-start gap-4"
-          style={{ background: '#1a2233' }}
+          className="rounded-xl p-4 border border-border flex items-start gap-4 overflow-hidden relative"
+          style={{
+            background: preview.bgImg ? 'transparent' : '#1a2233',
+            minHeight: 88,
+          }}
         >
-          <GroupIconDisplay icon={preview.icon || '⭐'} bg={preview.iconBg} size={48} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-white font-bold text-base">{preview.name}</span>
-              {preview.badge && (
-                <span
-                  className="px-2 py-0.5 rounded-full text-xs font-semibold text-white"
-                  style={{ background: preview.badgeBg }}
-                >
-                  {preview.badge}
+          {/* Background image overlay */}
+          {preview.bgImg && (
+            <>
+              <img
+                src={preview.bgImg}
+                alt="background"
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ filter: 'brightness(0.45)' }}
+              />
+              <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.35)' }} />
+            </>
+          )}
+          {!preview.bgImg && (
+            <div className="absolute inset-0 rounded-xl" style={{ background: '#1a2233' }} />
+          )}
+          <div className="relative z-10 flex items-start gap-4 w-full">
+            <GroupIconDisplay icon={preview.icon || '☪️'} bg={preview.iconBg} size={48} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-white font-bold text-base">{preview.name}</span>
+                {preview.badge && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ background: preview.badgeBg }}>
+                    {preview.badge}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm mt-0.5" style={{ color: '#94a3b8' }}>{preview.desc}</p>
+              {preview.bgImg && (
+                <span className="text-[10px] font-semibold text-white/60 flex items-center gap-1 mt-1">
+                  <Image size={10} /> Background image active
                 </span>
               )}
             </div>
-            <p className="text-sm mt-0.5" style={{ color: '#94a3b8' }}>{preview.desc}</p>
           </div>
         </div>
 
@@ -322,8 +360,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           {/* Name + Prayer Time */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name *</Label>
-              {/* Custom combobox — shows ALL groups unfiltered */}
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name *</Label>
               <div className="relative" ref={nameDropRef}>
                 <div className="flex gap-1">
                   <Input
@@ -338,9 +375,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
                     onClick={() => { setNameSearch(''); setNameDropOpen((v) => !v); }}
                     className="px-2 rounded-md border border-input bg-background hover:bg-secondary transition-colors text-muted-foreground text-xs"
                     title="Browse existing groups"
-                  >
-                    ▾
-                  </button>
+                  >▾</button>
                 </div>
                 {nameDropOpen && mergeTargets.length > 0 && (
                   <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
@@ -358,13 +393,10 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
                     {mergeTargets
                       .filter((g) => !nameSearch || g.name.toLowerCase().includes(nameSearch.toLowerCase()))
                       .map((g) => (
-                        <button
-                          key={g.id ?? g.name}
-                          type="button"
+                        <button key={g.id ?? g.name} type="button"
                           className="w-full text-left px-3 py-2 text-sm hover:bg-secondary/60 flex items-center gap-2 transition-colors"
-                          onClick={() => { set('name', g.name); setNameDropOpen(false); setNameSearch(''); }}
-                        >
-                          <span className="text-base">{g.icon ?? '📋'}</span>
+                          onClick={() => { set('name', g.name); setNameDropOpen(false); setNameSearch(''); }}>
+                          <span className="text-base">{isIconUrl(g.icon) ? '🖼' : (g.icon ?? '📋')}</span>
                           <span className="font-medium text-foreground">{g.name}</span>
                           {g.prayer_time && (
                             <span className="ml-auto text-[10px] text-muted-foreground shrink-0">{PRAYER_TIME_LABELS[g.prayer_time] ?? g.prayer_time}</span>
@@ -395,14 +427,14 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
                 ))}
               </select>
               <p className="text-[10px] text-muted-foreground leading-snug">
-                📌 A group can appear under <strong>multiple</strong> prayer time sections — individual entries control which section they appear in. This is just the default for new entries.
+                📌 This is just the default for new entries.
               </p>
             </div>
           </div>
 
           {/* Description */}
           <div className="space-y-1.5">
-          <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Description</Label>
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Description</Label>
             <Textarea
               value={form.description}
               onChange={(e) => set('description', e.target.value)}
@@ -411,22 +443,19 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
             />
           </div>
 
-          {/* Icon — upload photo or pick emoji */}
+          {/* ── Icon section ──────────────────────────────────────────────── */}
           <div className="space-y-2">
-            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Icon</Label>
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Icon</Label>
 
-            {/* Current icon preview + clear */}
+            {/* Current icon preview */}
             <div className="flex items-center gap-3">
-              <GroupIconDisplay icon={form.icon || '⭐'} bg={form.icon_bg_color} size={52} />
+              <GroupIconDisplay icon={form.icon || '☪️'} bg={form.icon_bg_color} size={52} />
               {isIconUrl(form.icon) && (
                 <div className="flex flex-col gap-1">
                   <span className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1"><ImageIcon size={11} /> Custom image</span>
-                  <button
-                    type="button"
-                    onClick={() => set('icon', '⭐')}
-                    className="flex items-center gap-1 text-[11px] text-destructive hover:underline"
-                  >
-                    <X size={11} /> Remove image · use emoji
+                  <button type="button" onClick={() => set('icon', '☪️')}
+                    className="flex items-center gap-1 text-[11px] text-destructive hover:underline">
+                    <X size={11} /> Remove · use emoji
                   </button>
                 </div>
               )}
@@ -434,42 +463,31 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
 
             {/* Upload zone */}
             <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-              onClick={() => !uploadingIcon && fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragOverIcon(true); }}
+              onDragLeave={() => setDragOverIcon(false)}
+              onDrop={handleIconDrop}
+              onClick={() => !uploadingIcon && iconFileRef.current?.click()}
               className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all py-4 px-3 ${
-                dragOver ? 'border-primary bg-primary/5' : 'border-[hsl(140_20%_82%)] hover:border-[hsl(142_50%_65%)] hover:bg-[hsl(142_50%_97%)]'
+                dragOverIcon ? 'border-primary bg-primary/5' : 'border-[hsl(140_20%_82%)] hover:border-[hsl(142_50%_65%)] hover:bg-[hsl(142_50%_97%)]'
               } ${uploadingIcon ? 'pointer-events-none opacity-70' : ''}`}
             >
-              {uploadingIcon ? (
-                <><Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" />
-                <span className="text-xs text-muted-foreground">Uploading…</span></>
-              ) : (
-                <><Upload size={16} className="text-[hsl(142_60%_35%)]" />
-                <span className="text-xs font-medium text-[hsl(150_30%_18%)]">Upload photo or logo</span>
-                <span className="text-[10px] text-muted-foreground">Drag & drop or click · JPG, PNG, WebP, GIF · max 10 MB</span></>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                className="sr-only"
-                onChange={handleFileChange}
-                tabIndex={-1}
-              />
+              {uploadingIcon
+                ? <><Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" /><span className="text-xs text-muted-foreground">Uploading icon…</span></>
+                : <><Upload size={16} className="text-[hsl(142_60%_35%)]" />
+                   <span className="text-xs font-medium text-[hsl(150_30%_18%)]">Upload photo or logo as icon</span>
+                   <span className="text-[10px] text-muted-foreground">Drag & drop or click · JPG, PNG, WebP, GIF · max 10 MB</span></>
+              }
+              <input ref={iconFileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+                className="sr-only" onChange={handleIconFileChange} tabIndex={-1} />
             </div>
 
-            {/* Emoji picker (shown only when not using a URL icon) */}
+            {/* Islamic emoji picker — shown only when not using a URL icon */}
             {!isIconUrl(form.icon) && (
               <>
-                <p className="text-[10px] text-muted-foreground font-medium">Or pick an emoji:</p>
+                <p className="text-[10px] text-muted-foreground font-medium">Or pick an Islamic icon:</p>
                 <div className="flex flex-wrap gap-2">
                   {GROUP_ICON_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => set('icon', opt.value)}
+                    <button key={opt.value} type="button" onClick={() => set('icon', opt.value)}
                       title={opt.label}
                       className={`w-10 h-10 rounded-lg text-xl flex items-center justify-center transition-all border-2 ${
                         form.icon === opt.value ? 'border-primary scale-110 shadow-md' : 'border-transparent hover:border-border'
@@ -484,16 +502,54 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
             )}
           </div>
 
+          {/* ── Background Image section ───────────────────────────────────── */}
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">
+              Card Background Image
+              <span className="ml-2 text-[10px] font-normal text-muted-foreground">(optional — shown behind the group card in the app)</span>
+            </Label>
+
+            {/* Current background preview */}
+            {form.bg_image_url && (
+              <div className="relative w-full h-20 rounded-xl overflow-hidden border border-border">
+                <img src={form.bg_image_url} alt="background preview" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 flex items-end p-2 justify-between" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%)' }}>
+                  <span className="text-[10px] font-bold text-white">Background preview</span>
+                  <button type="button" onClick={() => set('bg_image_url', '')}
+                    className="flex items-center gap-1 text-[11px] text-white/80 hover:text-white bg-black/40 rounded px-1.5 py-0.5">
+                    <X size={10} /> Remove
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Upload zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOverBg(true); }}
+              onDragLeave={() => setDragOverBg(false)}
+              onDrop={handleBgDrop}
+              onClick={() => !uploadingBg && bgFileRef.current?.click()}
+              className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all py-4 px-3 ${
+                dragOverBg ? 'border-primary bg-primary/5' : 'border-[hsl(140_20%_82%)] hover:border-[hsl(142_50%_65%)] hover:bg-[hsl(142_50%_97%)]'
+              } ${uploadingBg ? 'pointer-events-none opacity-70' : ''}`}
+            >
+              {uploadingBg
+                ? <><Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" /><span className="text-xs text-muted-foreground">Uploading background…</span></>
+                : <><Image size={16} className="text-[hsl(142_60%_35%)]" />
+                   <span className="text-xs font-medium text-[hsl(150_30%_18%)]">{form.bg_image_url ? 'Replace background image' : 'Upload background image'}</span>
+                   <span className="text-[10px] text-muted-foreground">Islamic pattern, geometric art, masjid photo · JPG, PNG, WebP · max 10 MB</span></>
+              }
+              <input ref={bgFileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+                className="sr-only" onChange={handleBgFileChange} tabIndex={-1} />
+            </div>
+          </div>
+
           {/* Icon background color */}
           <div className="space-y-2">
-          <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Icon Background Color</Label>
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Icon Background Color</Label>
             <div className="flex items-center gap-3 flex-wrap">
               {GROUP_COLOR_PRESETS.map((p) => (
-                <button
-                  key={p.bg}
-                  type="button"
-                  onClick={() => set('icon_bg_color', p.bg)}
-                  title={p.label}
+                <button key={p.bg} type="button" onClick={() => set('icon_bg_color', p.bg)} title={p.label}
                   className={`w-8 h-8 rounded-full transition-all border-2 ${
                     form.icon_bg_color === p.bg ? 'border-foreground scale-110 shadow-md' : 'border-transparent hover:scale-105'
                   }`}
@@ -502,12 +558,9 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               ))}
               <div className="flex items-center gap-2 ml-2">
                 <Label className="text-xs text-muted-foreground">Custom</Label>
-                <input
-                  type="color"
-                  value={form.icon_bg_color}
+                <input type="color" value={form.icon_bg_color}
                   onChange={(e) => set('icon_bg_color', e.target.value)}
-                  className="w-8 h-8 rounded cursor-pointer border border-input"
-                />
+                  className="w-8 h-8 rounded cursor-pointer border border-input" />
               </div>
             </div>
           </div>
@@ -516,33 +569,21 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Badge Text</Label>
-              <Input
-                value={form.badge_text}
-                onChange={(e) => set('badge_text', e.target.value)}
-                placeholder="e.g. Morning Sunnah"
-              />
+              <Input value={form.badge_text} onChange={(e) => set('badge_text', e.target.value)} placeholder="e.g. Morning Sunnah" />
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Badge Color</Label>
               <div className="flex items-center gap-2 flex-wrap">
                 {GROUP_COLOR_PRESETS.slice(0, 6).map((p) => (
-                  <button
-                    key={p.bg}
-                    type="button"
-                    onClick={() => set('badge_color', p.bg)}
-                    title={p.label}
+                  <button key={p.bg} type="button" onClick={() => set('badge_color', p.bg)} title={p.label}
                     className={`w-7 h-7 rounded-full transition-all border-2 ${
                       form.badge_color === p.bg ? 'border-foreground scale-110' : 'border-transparent hover:scale-105'
                     }`}
-                    style={{ background: p.bg }}
-                  />
+                    style={{ background: p.bg }} />
                 ))}
-                <input
-                  type="color"
-                  value={form.badge_color}
+                <input type="color" value={form.badge_color}
                   onChange={(e) => set('badge_color', e.target.value)}
-                  className="w-7 h-7 rounded cursor-pointer border border-input"
-                />
+                  className="w-7 h-7 rounded cursor-pointer border border-input" />
               </div>
             </div>
           </div>
@@ -550,24 +591,16 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           {/* Display order */}
           <div className="space-y-1.5 w-32">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Display Order</Label>
-            <Input
-              type="number"
-              min={0}
-              value={form.display_order}
-              onChange={(e) => set('display_order', e.target.value)}
-              placeholder="0"
-            />
+            <Input type="number" min={0} value={form.display_order}
+              onChange={(e) => set('display_order', e.target.value)} placeholder="0" />
           </div>
         </div>
 
         <DialogFooter className="pt-2 gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving} className="border-[hsl(140_20%_88%)]">Cancel</Button>
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
-          >
-            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Group'}
+          <Button onClick={handleSave} disabled={saving || uploadingIcon || uploadingBg}
+            style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+            {saving ? 'Saving…' : uploadingIcon || uploadingBg ? 'Upload in progress…' : isEdit ? 'Save Changes' : 'Create Group'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -234,7 +234,7 @@ const SortableGroupSection = ({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
-      className={`rounded-xl border border-border shadow-sm ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
+      className={`rounded-xl border border-border shadow-sm overflow-hidden ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
     >
       {/* Close rename dropdown on outside click */}
       {renameDropOpen && (
@@ -242,9 +242,23 @@ const SortableGroupSection = ({
       )}
 
       {/* ── Group Header ── */}
-      <div className="flex flex-col select-none" style={{ background: 'hsl(var(--card))' }}>
+      <div className="flex flex-col select-none relative" style={{
+        background: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? 'transparent' : 'hsl(var(--card))',
+      }}>
+        {/* Background image */}
+        {(groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url && (
+          <>
+            <img
+              src={(groupMeta as AdhkarGroup & { bg_image_url?: string | null })!.bg_image_url!}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ filter: 'brightness(0.35)', zIndex: 0 }}
+            />
+            <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.3)', zIndex: 0 }} />
+          </>
+        )}
       {/* Top row: drag + collapse + icon + name + actions */}
-      <div className="flex items-center gap-2 px-3 py-2.5">
+      <div className="flex items-center gap-2 px-3 py-2.5 relative z-10">
 
         {/* Drag handle */}
         <button
@@ -339,7 +353,8 @@ const SortableGroupSection = ({
               </form>
             ) : (
               <span
-                className="font-semibold text-sm text-foreground leading-snug cursor-text hover:bg-secondary/40 hover:text-primary px-1 -mx-1 rounded transition-colors"
+                className="font-semibold text-sm leading-snug cursor-text hover:opacity-90 px-1 -mx-1 rounded transition-colors"
+                style={{ color: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? '#fff' : 'hsl(var(--foreground))' }}
                 title="Click to rename group"
                 onClick={(e) => { e.stopPropagation(); setRenameValue(groupName); setRenaming(true); setCollapsed(false); }}
               >
@@ -350,7 +365,7 @@ const SortableGroupSection = ({
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-white" style={{ background: badgeColor }}>{badgeText}</span>
             )}
             {!renaming && (
-              <span className="text-xs text-muted-foreground">{items.length} {items.length === 1 ? 'dhikr' : 'adhkar'}</span>
+              <span className="text-xs" style={{ color: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? 'rgba(255,255,255,0.7)' : 'hsl(var(--muted-foreground))' }}>{items.length} {items.length === 1 ? 'dhikr' : 'adhkar'}</span>
             )}
           </div>
 
@@ -390,7 +405,8 @@ const SortableGroupSection = ({
               </div>
             ) : (
               <p
-                className="text-xs text-muted-foreground mt-0.5 max-w-xl cursor-text hover:text-foreground transition-colors leading-snug"
+                className="text-xs mt-0.5 max-w-xl cursor-text transition-colors leading-snug"
+                style={{ color: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? 'rgba(255,255,255,0.65)' : 'hsl(var(--muted-foreground))' }}
                 title="Click to edit description"
                 onClick={(e) => { e.stopPropagation(); setDescValue(description ?? ''); setDescEditing(true); setCollapsed(false); }}
               >
@@ -401,7 +417,7 @@ const SortableGroupSection = ({
         </div>
 
         {/* ── Right-side controls ── */}
-        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1 shrink-0 relative z-10" onClick={(e) => e.stopPropagation()}>
 
           {/* Edit buttons — hidden on mobile, shown on sm+ */}
           {!isUngrouped && (
@@ -443,7 +459,7 @@ const SortableGroupSection = ({
 
       {/* Second row (mobile): prayer-time dropdown + action buttons */}
       {!isUngrouped && (
-        <div className="flex items-center gap-2 px-3 pb-2.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-3 pb-2.5 flex-wrap relative z-10" onClick={(e) => e.stopPropagation()}>
           <select
             value={currentPrayerTime}
             onChange={(e) => onReassignPrayerTime(groupName, e.target.value, groupMeta, sectionPrayerTime)}

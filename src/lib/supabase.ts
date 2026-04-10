@@ -18,6 +18,17 @@ export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 });
 
 /**
+ * OnSpace Cloud Supabase client — used for STORAGE operations only.
+ * The adhkar-images bucket lives in OnSpace Cloud, not the external Supabase.
+ * Uses VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY auto-configured by OnSpace.
+ */
+export const onspaceCloud = createClient(
+  import.meta.env.VITE_SUPABASE_URL as string,
+  import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+  { auth: { persistSession: false } },
+);
+
+/**
  * Invoke an edge function on the EXTERNAL Supabase instance (lhaqqqatdztuijgdfdcf).
  * This is needed because supabase.functions.invoke() routes to OnSpace Cloud,
  * not to the external Supabase project where our edge functions actually live.

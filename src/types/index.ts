@@ -135,29 +135,44 @@ export interface AdhkarGroup {
   badge_color: string;
   description: string | null;
   display_order: number;
+  bg_image_url: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export type AdhkarGroupPayload = Omit<AdhkarGroup, 'id' | 'created_at' | 'updated_at'>;
 
+// Also allow bg_image_url in group payloads (newly added column)
+export type AdhkarGroupPayloadExtended = AdhkarGroupPayload & { bg_image_url?: string | null };
+
 export const GROUP_ICON_OPTIONS = [
-  { value: '⭐', label: 'Star' },
-  { value: '📖', label: 'Book' },
-  { value: '💎', label: 'Diamond' },
-  { value: '✨', label: 'Sparkles' },
-  { value: '🤲', label: 'Hands' },
-  { value: '🌙', label: 'Moon' },
-  { value: '☀️', label: 'Sun' },
-  { value: '❤️', label: 'Heart' },
-  { value: '🕌', label: 'Mosque' },
-  { value: '📿', label: 'Prayer Beads' },
-  { value: '🌟', label: 'Glowing Star' },
-  { value: '🎯', label: 'Target' },
-  { value: '💫', label: 'Dizzy Star' },
-  { value: '🌿', label: 'Herb' },
-  { value: '🔔', label: 'Bell' },
-  { value: '📜', label: 'Scroll' },
+  // Islamic symbols
+  { value: '☪️',  label: 'Star & Crescent' },
+  { value: '🕌',  label: 'Mosque' },
+  { value: '📿',  label: 'Prayer Beads (Tasbih)' },
+  { value: '🤲',  label: 'Hands in Dua' },
+  { value: '🌙',  label: 'Crescent Moon' },
+  { value: '🕋',  label: 'Kaaba' },
+  { value: '📖',  label: 'Quran / Book' },
+  { value: '📜',  label: 'Scroll' },
+  // Nature & Light
+  { value: '⭐',  label: 'Star' },
+  { value: '🌟',  label: 'Glowing Star' },
+  { value: '✨',  label: 'Sparkles' },
+  { value: '💫',  label: 'Dizzy Star' },
+  { value: '🌠',  label: 'Shooting Star' },
+  { value: '🔆',  label: 'Light / Nur' },
+  { value: '🌿',  label: 'Leaves / Herb' },
+  { value: '🌺',  label: 'Flower' },
+  { value: '🍃',  label: 'Leaves' },
+  { value: '🕊️',  label: 'Dove / Peace' },
+  // Virtues
+  { value: '❤️',  label: 'Heart' },
+  { value: '💎',  label: 'Diamond (Knowledge)' },
+  { value: '🪷',  label: 'Lotus' },
+  { value: '🛡️',  label: 'Shield / Protection' },
+  { value: '🔔',  label: 'Bell (Reminder)' },
+  { value: '🏛️',  label: 'Dome' },
 ];
 
 // ─── Announcements ──────────────────────────────────────────────────────────
