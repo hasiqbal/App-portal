@@ -138,6 +138,58 @@ const EMPTY = {
 
 type FormState = typeof EMPTY;
 
+// ─── Reusable image upload zone ───────────────────────────────────────────────
+// Uses a transparent overlay input instead of programmatic .click() — works
+// reliably inside Dialog components across all browsers.
+const UploadZone = ({
+  uploading, dragOver, onDragOver, onDragLeave, onDrop, onChange, icon: Icon, label, hint, disabled = false,
+}: {
+  uploading: boolean;
+  dragOver: boolean;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: () => void;
+  onDrop: (e: React.DragEvent) => void;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  icon: React.ElementType;
+  label: string;
+  hint: string;
+  disabled?: boolean;
+}) => (
+  <div
+    onDragOver={onDragOver}
+    onDragLeave={onDragLeave}
+    onDrop={onDrop}
+    className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed transition-all py-5 px-3 overflow-hidden ${
+      dragOver ? 'border-primary bg-primary/5' : 'border-[hsl(140_20%_82%)] hover:border-[hsl(142_50%_65%)] hover:bg-[hsl(142_50%_97%)]'
+    } ${uploading || disabled ? 'opacity-70 cursor-default' : 'cursor-pointer'}`}
+  >
+    {uploading ? (
+      <>
+        <Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" />
+        <span className="text-xs text-muted-foreground">Uploading…</span>
+      </>
+    ) : (
+      <>
+        <Icon size={18} className="text-[hsl(142_60%_35%)]" />
+        <span className="text-xs font-semibold text-[hsl(150_30%_18%)]">{label}</span>
+        <span className="text-[10px] text-muted-foreground text-center">{hint}</span>
+      </>
+    )}
+    {/* Full-area transparent file input — fires the native file picker on click.
+        This is more reliable than programmatic .click() inside Dialog portals. */}
+    {!uploading && !disabled && (
+      <input
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        onChange={onChange}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+    )}
+  </div>
+);
+
 const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, onMergeInto }: AdhkarGroupModalProps) => {
   const [form, setForm]     = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
@@ -151,8 +203,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
   const [uploadingBg,   setUploadingBg]   = useState(false);
   const [dragOverIcon,  setDragOverIcon]  = useState(false);
   const [dragOverBg,    setDragOverBg]    = useState(false);
-  const iconFileRef = useRef<HTMLInputElement>(null);
-  const bgFileRef   = useRef<HTMLInputElement>(null);
 
   const isEdit           = !!group?.id || !!group?.name;
   const originalName     = group?.name ?? '';
@@ -263,7 +313,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     const newName = form.name.trim();
     const bgUrl   = form.bg_image_url?.trim() || null;
 
-    // Build base payload (always included)
     const basePayload = {
       name:          newName,
       prayer_time:   form.prayer_time || null,
@@ -289,7 +338,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
         return;
       }
 
-      // ── Step 1: Try save with bg_image_url ───────────────────────────────
       let saved: AdhkarGroup;
       let bgSavedInMain = false;
 
@@ -302,7 +350,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
       } catch (firstErr) {
         const errMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
         if (errMsg.includes('bg_image_url') || (errMsg.includes('schema cache') && errMsg.includes('adhkar_groups'))) {
-          // Column missing on external Supabase — retry without bg_image_url
           console.warn('[AdhkarGroupModal] bg_image_url column missing, retrying without it:', errMsg);
           setBgColMissing(true);
           saved = hasRealId
@@ -313,7 +360,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
         }
       }
 
-      // ── Step 2: If bg_image_url was not saved yet, try patching it via supabaseAdmin ─
       if (!bgSavedInMain && bgUrl && saved.id && !bgColMissing) {
         const { error: bgErr } = await supabaseAdmin
           .from('adhkar_groups')
@@ -327,7 +373,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
         }
       }
 
-      // ── Step 3: Attach bgUrl to returned object for optimistic UI ────────
       if (bgSavedInMain && bgUrl) {
         saved = { ...saved, bg_image_url: bgUrl } as AdhkarGroup;
       }
@@ -335,7 +380,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
       const nameChanged = isEdit && newName !== originalName;
       const timeChanged = isEdit && (form.prayer_time || null) !== (originalPrayerTime || null);
 
-      // ── Step 4: Sync to external backend (non-blocking) ──────────────────
       const externalPayload: Record<string, unknown> = {
         description:   basePayload.description ?? null,
         icon:          basePayload.icon,
@@ -355,7 +399,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
         timeChanged ? (form.prayer_time || undefined) : undefined,
       ).catch((err) => console.warn('[AdhkarGroupModal] External sync (non-critical):', err?.message ?? err));
 
-      // ── Step 5: Show result ───────────────────────────────────────────────
       if (bgColMissing && bgUrl) {
         toast.warning('Group saved — run the SQL above to enable background images, then save again.');
       } else if (isEdit) {
@@ -375,7 +418,6 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     }
   };
 
-  // Live preview values
   const preview = {
     icon:    form.icon,
     iconBg:  form.icon_bg_color,
@@ -398,31 +440,20 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           </DialogTitle>
         </DialogHeader>
 
-        {/* ── SQL setup banner (bg_image_url column missing) ── */}
         {bgColMissing && <BgImageSetupBanner onDismiss={() => setBgColMissing(false)} />}
 
         {/* ── Live preview card ── */}
         <div
           className="rounded-xl p-4 border border-border flex items-start gap-4 overflow-hidden relative"
-          style={{
-            background: preview.bgImg ? 'transparent' : '#1a2233',
-            minHeight: 88,
-          }}
+          style={{ background: preview.bgImg ? 'transparent' : '#1a2233', minHeight: 88 }}
         >
           {preview.bgImg && (
             <>
-              <img
-                src={preview.bgImg}
-                alt="background"
-                className="absolute inset-0 w-full h-full object-cover"
-                style={{ filter: 'brightness(0.45)' }}
-              />
+              <img src={preview.bgImg} alt="background" className="absolute inset-0 w-full h-full object-cover" style={{ filter: 'brightness(0.45)' }} />
               <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.35)' }} />
             </>
           )}
-          {!preview.bgImg && (
-            <div className="absolute inset-0 rounded-xl" style={{ background: '#1a2233' }} />
-          )}
+          {!preview.bgImg && <div className="absolute inset-0 rounded-xl" style={{ background: '#1a2233' }} />}
           <div className="relative z-10 flex items-start gap-4 w-full">
             <GroupIconDisplay icon={preview.icon || '☪️'} bg={preview.iconBg} size={48} />
             <div className="min-w-0 flex-1">
@@ -514,9 +545,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
                   <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
                 ))}
               </select>
-              <p className="text-[10px] text-muted-foreground leading-snug">
-                📌 This is just the default for new entries.
-              </p>
+              <p className="text-[10px] text-muted-foreground leading-snug">📌 Default for new entries.</p>
             </div>
           </div>
 
@@ -531,7 +560,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
             />
           </div>
 
-          {/* ── Icon section ───────────────────────────────────────────────── */}
+          {/* ── Icon section ── */}
           <div className="space-y-2">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Icon</Label>
 
@@ -548,24 +577,17 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               )}
             </div>
 
-            <div
+            <UploadZone
+              uploading={uploadingIcon}
+              dragOver={dragOverIcon}
               onDragOver={(e) => { e.preventDefault(); setDragOverIcon(true); }}
               onDragLeave={() => setDragOverIcon(false)}
               onDrop={handleIconDrop}
-              onClick={() => !uploadingIcon && iconFileRef.current?.click()}
-              className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all py-4 px-3 ${
-                dragOverIcon ? 'border-primary bg-primary/5' : 'border-[hsl(140_20%_82%)] hover:border-[hsl(142_50%_65%)] hover:bg-[hsl(142_50%_97%)]'
-              } ${uploadingIcon ? 'pointer-events-none opacity-70' : ''}`}
-            >
-              {uploadingIcon
-                ? <><Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" /><span className="text-xs text-muted-foreground">Uploading icon…</span></>
-                : <><Upload size={16} className="text-[hsl(142_60%_35%)]" />
-                   <span className="text-xs font-medium text-[hsl(150_30%_18%)]">Upload photo or logo as icon</span>
-                   <span className="text-[10px] text-muted-foreground">Drag & drop or click · JPG, PNG, WebP, GIF · max 10 MB</span></>
-              }
-              <input ref={iconFileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
-                className="sr-only" onChange={handleIconFileChange} tabIndex={-1} />
-            </div>
+              onChange={handleIconFileChange}
+              icon={Upload}
+              label="Upload photo or logo as icon"
+              hint="Click or drag & drop · JPG, PNG, WebP, GIF · max 10 MB"
+            />
 
             {!isIconUrl(form.icon) && (
               <>
@@ -587,11 +609,11 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
             )}
           </div>
 
-          {/* ── Background Image section ───────────────────────────────────── */}
+          {/* ── Background Image section ── */}
           <div className="space-y-2">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">
               Card Background Image
-              <span className="ml-2 text-[10px] font-normal text-muted-foreground">(optional — shown behind the group card)</span>
+              <span className="ml-2 text-[10px] font-normal text-muted-foreground">(optional)</span>
             </Label>
 
             {form.bg_image_url && (
@@ -607,24 +629,17 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               </div>
             )}
 
-            <div
+            <UploadZone
+              uploading={uploadingBg}
+              dragOver={dragOverBg}
               onDragOver={(e) => { e.preventDefault(); setDragOverBg(true); }}
               onDragLeave={() => setDragOverBg(false)}
               onDrop={handleBgDrop}
-              onClick={() => !uploadingBg && bgFileRef.current?.click()}
-              className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all py-4 px-3 ${
-                dragOverBg ? 'border-primary bg-primary/5' : 'border-[hsl(140_20%_82%)] hover:border-[hsl(142_50%_65%)] hover:bg-[hsl(142_50%_97%)]'
-              } ${uploadingBg ? 'pointer-events-none opacity-70' : ''}`}
-            >
-              {uploadingBg
-                ? <><Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" /><span className="text-xs text-muted-foreground">Uploading background…</span></>
-                : <><Image size={16} className="text-[hsl(142_60%_35%)]" />
-                   <span className="text-xs font-medium text-[hsl(150_30%_18%)]">{form.bg_image_url ? 'Replace background image' : 'Upload background image'}</span>
-                   <span className="text-[10px] text-muted-foreground">Islamic pattern, geometric art, masjid photo · JPG, PNG, WebP · max 10 MB</span></>
-              }
-              <input ref={bgFileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
-                className="sr-only" onChange={handleBgFileChange} tabIndex={-1} />
-            </div>
+              onChange={handleBgFileChange}
+              icon={Image}
+              label={form.bg_image_url ? 'Replace background image' : 'Upload background image'}
+              hint="Islamic pattern, geometric art, masjid photo · JPG, PNG, WebP · max 10 MB"
+            />
           </div>
 
           {/* Icon background color */}
@@ -683,7 +698,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           <Button variant="outline" onClick={onClose} disabled={saving} className="border-[hsl(140_20%_88%)]">Cancel</Button>
           <Button onClick={handleSave} disabled={saving || uploadingIcon || uploadingBg}
             style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
-            {saving ? 'Saving…' : uploadingIcon || uploadingBg ? 'Upload in progress…' : isEdit ? 'Save Changes' : 'Create Group'}
+            {saving ? 'Saving…' : uploadingIcon || uploadingBg ? 'Uploading…' : isEdit ? 'Save Changes' : 'Create Group'}
           </Button>
         </DialogFooter>
       </DialogContent>

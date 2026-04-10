@@ -234,7 +234,7 @@ const SortableGroupSection = ({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
-      className={`rounded-xl border border-border shadow-sm overflow-hidden ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
+      className={`rounded-xl border border-border shadow-sm ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
     >
       {/* Close rename dropdown on outside click */}
       {renameDropOpen && (
@@ -242,7 +242,7 @@ const SortableGroupSection = ({
       )}
 
       {/* ── Group Header ── */}
-      <div className="flex flex-col select-none relative" style={{
+      <div className="flex flex-col select-none relative rounded-t-xl overflow-hidden" style={{
         background: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? 'transparent' : 'hsl(var(--card))',
       }}>
         {/* Background image */}
@@ -258,7 +258,7 @@ const SortableGroupSection = ({
           </>
         )}
       {/* Top row: drag + collapse + icon + name + actions */}
-      <div className="flex items-center gap-2 px-3 py-2.5 relative z-10">
+      <div className="flex items-center gap-1.5 px-2.5 py-2.5 relative z-10">
 
         {/* Drag handle */}
         <button
@@ -419,102 +419,63 @@ const SortableGroupSection = ({
         {/* ── Right-side controls ── */}
         <div className="flex items-center gap-1 shrink-0 relative z-10" onClick={(e) => e.stopPropagation()}>
 
-          {/* Edit buttons — hidden on mobile, shown on sm+ */}
+          {/* Edit / Delete — always visible with 44px tap targets */}
           {!isUngrouped && (
-            <div className="hidden sm:flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
               <button
                 onClick={() => onEditGroup(groupName, groupMeta)}
-                className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors"
-                title="Edit icon, colours & badge"
+                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-accent/10 transition-colors shrink-0"
+                title="Edit group style"
               >
-                <span className="text-[11px] font-bold" style={{ color: 'hsl(var(--accent))' }}>⚙</span>
-              </button>
-              <button
-                onClick={() => onDuplicateGroup(groupName, items, groupMeta)}
-                className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
-                title="Duplicate group"
-              >
-                <Copy size={12} className="text-blue-500" />
+                <Pencil size={13} style={{ color: 'hsl(var(--accent))' }} />
               </button>
               <button
                 onClick={() => onDeleteGroup(groupName, groupMeta)}
-                className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors"
+                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-destructive/10 transition-colors shrink-0"
                 title="Delete group"
               >
-                <Trash2 size={12} className="text-destructive" />
+                <Trash2 size={13} className="text-destructive" />
               </button>
-              <div className="w-px h-4 bg-border/70 mx-0.5" />
             </div>
           )}
 
           {/* Add entry */}
           <button
             onClick={() => onAddToGroup(groupName, items[0]?.prayer_time ?? 'after-fajr')}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-primary border border-primary/30 hover:bg-primary/5 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-primary border border-primary/40 hover:bg-primary/5 transition-colors shrink-0"
           >
-            <Plus size={12} /> Add
+            <Plus size={13} /> Add
           </button>
         </div>
       </div>
 
-      {/* Second row (mobile): prayer-time dropdown + action buttons */}
+      {/* Second row: prayer-time selector + duplicate */}
       {!isUngrouped && (
-        <div className="flex items-center gap-2 px-3 pb-2.5 flex-wrap relative z-10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-2.5 pb-2.5 relative z-10" onClick={(e) => e.stopPropagation()}>
           <select
             value={currentPrayerTime}
             onChange={(e) => onReassignPrayerTime(groupName, e.target.value, groupMeta, sectionPrayerTime)}
-            className="h-7 rounded-md border border-input bg-background px-2 text-[11px] font-medium text-foreground ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer flex-1 min-w-0 max-w-[180px]"
+            className="h-8 rounded-md border border-input bg-background px-2 text-[11px] font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer flex-1 min-w-0 max-w-[200px]"
             title="Move group to a different prayer time"
           >
             {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
             ))}
           </select>
-          {/* Mobile-only ⋮ More dropdown */}
-          <div className="relative flex sm:hidden" onClick={(e) => e.stopPropagation()}>
-            {moreMenuOpen && (
-              <div className="fixed inset-0 z-30" onClick={() => setMoreMenuOpen(false)} />
-            )}
-            <button
-              onClick={() => setMoreMenuOpen((v) => !v)}
-              className="flex items-center justify-center w-8 h-7 rounded-lg border border-border text-muted-foreground hover:bg-secondary/60 transition-colors text-base font-bold leading-none"
-              title="More actions"
-            >
-              ⋮
-            </button>
-            {moreMenuOpen && (
-              <div className="absolute right-0 bottom-full mb-1.5 z-40 bg-popover border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
-                <button
-                  onClick={() => { onEditGroup(groupName, groupMeta); setMoreMenuOpen(false); }}
-                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-foreground hover:bg-secondary/60 transition-colors text-left"
-                >
-                  <span className="text-sm" style={{ color: 'hsl(var(--accent))' }}>⚙</span>
-                  <span className="font-medium">Edit Style</span>
-                </button>
-                <button
-                  onClick={() => { onDuplicateGroup(groupName, items, groupMeta); setMoreMenuOpen(false); }}
-                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-foreground hover:bg-secondary/60 transition-colors text-left border-t border-border/50"
-                >
-                  <Copy size={13} className="text-blue-500 shrink-0" />
-                  <span className="font-medium">Duplicate Group</span>
-                </button>
-                <button
-                  onClick={() => { onDeleteGroup(groupName, groupMeta); setMoreMenuOpen(false); }}
-                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-destructive hover:bg-destructive/10 transition-colors text-left border-t border-border/50"
-                >
-                  <Trash2 size={13} className="shrink-0" />
-                  <span className="font-medium">Delete Group</span>
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={() => onDuplicateGroup(groupName, items, groupMeta)}
+            className="flex items-center gap-1 px-2 h-8 rounded-md border border-blue-200 text-blue-700 text-[11px] font-medium hover:bg-blue-50 transition-colors shrink-0"
+            title="Duplicate group"
+          >
+            <Copy size={11} /> Copy
+          </button>
         </div>
       )}
       </div>
 
       {/* ── Entries list ── */}
       {!collapsed && !isDragOverlay && !isDragging && (
-        <div className="bg-background overflow-hidden rounded-b-xl">
+        <div className="bg-background rounded-b-xl border-t border-border/30 overflow-hidden">
           <DndContext
             sensors={sensors} collisionDetection={closestCenter}
             onDragStart={(e) => setEntryDragActiveId(e.active.id as string)}
