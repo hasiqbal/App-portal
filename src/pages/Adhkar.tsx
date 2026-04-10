@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import Sidebar from '@/components/layout/Sidebar';
 import DhikrModal from '@/components/features/DhikrModal';
 import DhikrDetailPanel from '@/components/features/DhikrDetailPanel';
-import AdhkarGroupModal from '@/components/features/AdhkarGroupModal';
+import AdhkarGroupModal, { GroupIconDisplay } from '@/components/features/AdhkarGroupModal';
 import {
   fetchAdhkar, deleteDhikr, fetchAdhkarGroups, createAdhkarGroup, createDhikr, updateDhikr, updateAdhkarGroup,
 } from '@/lib/api';
@@ -262,9 +262,7 @@ const SortableGroupSection = ({
 
         {/* Group icon */}
         {!isUngrouped && (
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0" style={{ background: iconBg }}>
-            {icon}
-          </div>
+          <GroupIconDisplay icon={icon} bg={iconBg} size={32} />
         )}
 
         {/* Group name + badge + description */}
@@ -1587,9 +1585,7 @@ const Adhkar = () => {
               <div className="flex flex-wrap gap-2">
                 {orphanGroups.map((g) => (
                   <div key={g.id ?? g.name} className="flex items-center gap-1.5 bg-white border border-amber-200 rounded-lg px-2.5 py-1.5 shadow-sm">
-                    <div className="w-6 h-6 rounded-md flex items-center justify-center text-sm shrink-0" style={{ background: g.icon_bg_color ?? '#6366f1' }}>
-                      {g.icon ?? '📋'}
-                    </div>
+                    <GroupIconDisplay icon={g.icon ?? '📋'} bg={g.icon_bg_color ?? '#6366f1'} size={24} />
                     <span className="text-xs font-medium text-foreground">{g.name}</span>
                     {g.prayer_time && (
                       <span className="text-[10px] text-muted-foreground">· {PRAYER_TIME_LABELS[g.prayer_time] ?? g.prayer_time}</span>
@@ -1870,7 +1866,9 @@ const Adhkar = () => {
                       <tr key={row.name} className={`border-b border-border/40 transition-colors ${isDirty ? 'bg-amber-50/60' : idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
                         <td className="px-4 py-2.5 align-top">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-md flex items-center justify-center text-base shrink-0" style={{ background: row.iconBg }}>{row.icon}</div>
+                            <div className="w-7 h-7 rounded-md shrink-0 overflow-hidden flex items-center justify-center" style={{ background: row.iconBg }}>
+                              <GroupIconDisplay icon={row.icon} bg={row.iconBg} size={28} />
+                            </div>
                             <div className="min-w-0">
                               <p className="font-semibold text-xs text-foreground leading-snug truncate max-w-[140px]" title={row.name}>{row.name}</p>
                               <p className="text-[10px] text-muted-foreground">{row.entryCount} entr{row.entryCount !== 1 ? 'ies' : 'y'}</p>

@@ -6,8 +6,41 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
 import { createAdhkarGroup, updateAdhkarGroup } from '@/lib/api';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { Upload, X, Loader2, ImageIcon } from 'lucide-react';
+
+// ─── Helper: is the icon value a URL (image) or an emoji/text? ────────────────
+export function isIconUrl(icon: string | null | undefined): boolean {
+  if (!icon) return false;
+  return icon.startsWith('http') || icon.startsWith('/');
+}
+
+// ─── Shared icon renderer (used here + in Adhkar.tsx group header) ────────────
+export function GroupIconDisplay({
+  icon, bg, size = 32, className = '',
+}: {
+  icon: string; bg: string; size?: number; className?: string;
+}) {
+  const style: React.CSSProperties = {
+    width: size, height: size, background: bg,
+    borderRadius: Math.round(size * 0.25),
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0, overflow: 'hidden',
+  };
+  if (isIconUrl(icon)) {
+    return (
+      <div style={style} className={className}>
+        <img src={icon} alt="group icon" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      </div>
+    );
+  }
+  return (
+    <div style={{ ...style, fontSize: size * 0.55 }} className={className}>
+      {icon}
+    </div>
+  );
+}
 
 /** Sync group metadata to external backend via Edge Function (bypasses CORS). */
 async function syncGroupToExternal(
@@ -192,6 +225,55 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     }
   };
 
+  // ── Image upload to adhkar-images bucket ────────────────────────────────
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadIconImage = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file (JPG, PNG, WebP, GIF)');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image must be smaller than 10 MB');
+      return;
+    }
+    setUploadingIcon(true);
+    const ext = file.name.split('.').pop() ?? 'jpg';
+    const path = `group-icons/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    try {
+      // Upload using fetch+blob for reliability
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('adhkar-images')
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) throw new Error(uploadError.message);
+      const { data: urlData } = supabaseAdmin.storage
+        .from('adhkar-images')
+        .getPublicUrl(path);
+      if (!urlData?.publicUrl) throw new Error('Could not get public URL');
+      set('icon', urlData.publicUrl);
+      toast.success('Icon uploaded — save the group to apply.');
+    } catch (e) {
+      toast.error(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setUploadingIcon(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadIconImage(file);
+    e.target.value = '';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) uploadIconImage(file);
+  };
+
   // Live preview
   const preview = {
     icon: form.icon,
@@ -219,12 +301,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           className="rounded-xl p-4 border border-border flex items-start gap-4"
           style={{ background: '#1a2233' }}
         >
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
-            style={{ background: preview.iconBg }}
-          >
-            {preview.icon}
-          </div>
+          <GroupIconDisplay icon={preview.icon || '⭐'} bg={preview.iconBg} size={48} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-white font-bold text-base">{preview.name}</span>
@@ -334,25 +411,77 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
             />
           </div>
 
-          {/* Icon picker */}
+          {/* Icon — upload photo or pick emoji */}
           <div className="space-y-2">
-          <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Icon</Label>
-            <div className="flex flex-wrap gap-2">
-              {GROUP_ICON_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => set('icon', opt.value)}
-                  title={opt.label}
-                  className={`w-10 h-10 rounded-lg text-xl flex items-center justify-center transition-all border-2 ${
-                    form.icon === opt.value ? 'border-primary scale-110 shadow-md' : 'border-transparent hover:border-border'
-                  }`}
-                  style={{ background: form.icon === opt.value ? form.icon_bg_color : 'hsl(var(--muted))' }}
-                >
-                  {opt.value}
-                </button>
-              ))}
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Icon</Label>
+
+            {/* Current icon preview + clear */}
+            <div className="flex items-center gap-3">
+              <GroupIconDisplay icon={form.icon || '⭐'} bg={form.icon_bg_color} size={52} />
+              {isIconUrl(form.icon) && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1"><ImageIcon size={11} /> Custom image</span>
+                  <button
+                    type="button"
+                    onClick={() => set('icon', '⭐')}
+                    className="flex items-center gap-1 text-[11px] text-destructive hover:underline"
+                  >
+                    <X size={11} /> Remove image · use emoji
+                  </button>
+                </div>
+              )}
             </div>
+
+            {/* Upload zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => !uploadingIcon && fileInputRef.current?.click()}
+              className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all py-4 px-3 ${
+                dragOver ? 'border-primary bg-primary/5' : 'border-[hsl(140_20%_82%)] hover:border-[hsl(142_50%_65%)] hover:bg-[hsl(142_50%_97%)]'
+              } ${uploadingIcon ? 'pointer-events-none opacity-70' : ''}`}
+            >
+              {uploadingIcon ? (
+                <><Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" />
+                <span className="text-xs text-muted-foreground">Uploading…</span></>
+              ) : (
+                <><Upload size={16} className="text-[hsl(142_60%_35%)]" />
+                <span className="text-xs font-medium text-[hsl(150_30%_18%)]">Upload photo or logo</span>
+                <span className="text-[10px] text-muted-foreground">Drag & drop or click · JPG, PNG, WebP, GIF · max 10 MB</span></>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="sr-only"
+                onChange={handleFileChange}
+                tabIndex={-1}
+              />
+            </div>
+
+            {/* Emoji picker (shown only when not using a URL icon) */}
+            {!isIconUrl(form.icon) && (
+              <>
+                <p className="text-[10px] text-muted-foreground font-medium">Or pick an emoji:</p>
+                <div className="flex flex-wrap gap-2">
+                  {GROUP_ICON_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => set('icon', opt.value)}
+                      title={opt.label}
+                      className={`w-10 h-10 rounded-lg text-xl flex items-center justify-center transition-all border-2 ${
+                        form.icon === opt.value ? 'border-primary scale-110 shadow-md' : 'border-transparent hover:border-border'
+                      }`}
+                      style={{ background: form.icon === opt.value ? form.icon_bg_color : 'hsl(var(--muted))' }}
+                    >
+                      {opt.value}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Icon background color */}
