@@ -8,7 +8,7 @@
  *  viewer → read-only
  */
 
-import { useAuth, UserRole } from '@/hooks/useAuth';
+import { useAuth, UserRole } from '#/hooks/useAuth';
 
 export interface Permissions {
   role: UserRole | null;

@@ -3,22 +3,21 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, RefreshCw, Pencil, Trash2, Search, BookOpen, ChevronDown, ChevronRight,
   ToggleLeft, ToggleRight, GripVertical, ImageIcon, Copy, Loader2, ArrowRightLeft,
-  AlignLeft, CheckCheck, Filter, Sparkles,
+  AlignLeft, CheckCheck, Filter, Sparkles, MoreHorizontal, Archive,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import Sidebar from '@/components/layout/Sidebar';
-import DhikrModal from '@/components/features/DhikrModal';
-import DhikrDetailPanel from '@/components/features/DhikrDetailPanel';
-import AdhkarGroupModal, { GroupIconDisplay } from '@/components/features/AdhkarGroupModal';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Badge } from '#/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Label } from '#/components/ui/label';
+import Sidebar from '#/components/layout/Sidebar';
+import DhikrModal from '#/components/features/DhikrModal';
+import AdhkarGroupModal, { GroupIconDisplay } from '#/components/features/AdhkarGroupModal';
 import {
   fetchAdhkar, deleteDhikr, fetchAdhkarGroups, createAdhkarGroup, createDhikr, updateDhikr, updateAdhkarGroup,
-} from '@/lib/api';
-import { supabase, invokeExternalFunction } from '@/lib/supabase';
-import { Dhikr, AdhkarGroup, PRAYER_TIME_CATEGORIES, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
+} from '#/lib/api';
+import { supabase, invokeExternalFunction } from '#/lib/supabase';
+import { Dhikr, AdhkarGroup, PRAYER_TIME_CATEGORIES, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '#/types';
 import { toast } from 'sonner';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -51,39 +50,90 @@ const CATEGORY_COLORS: Record<string, { pill: string; dot: string }> = {
   'general':       { pill: 'bg-gray-100 text-gray-700 border-gray-200',         dot: '#6b7280' },
 };
 
+const highlightMatch = (text: string | null | undefined, query: string) => {
+  const source = text ?? '';
+  const needle = query.trim();
+  if (!needle) return source;
+
+  const haystack = source.toLowerCase();
+  const lookFor = needle.toLowerCase();
+  const nodes: Array<string | JSX.Element> = [];
+  let cursor = 0;
+
+  while (cursor < source.length) {
+    const idx = haystack.indexOf(lookFor, cursor);
+    if (idx === -1) {
+      nodes.push(source.slice(cursor));
+      break;
+    }
+    if (idx > cursor) nodes.push(source.slice(cursor, idx));
+    nodes.push(
+      <mark key={`${idx}-${lookFor}`} className="bg-amber-200/80 text-current rounded px-0.5">
+        {source.slice(idx, idx + lookFor.length)}
+      </mark>
+    );
+    cursor = idx + lookFor.length;
+  }
+
+  return nodes;
+};
+
 // ─── Sortable Entry Row ───────────────────────────────────────────────────────
 
 const SortableEntryRow = ({
-  row, idx, onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry, deleting, toggling, isDragOverlay,
+  row, idx, searchTerm, selected, onSelectRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry, deleting, toggling, isDragOverlay,
 }: {
   row: Dhikr; idx: number;
-  onClickRow: (d: Dhikr) => void; onEditEntry: (d: Dhikr) => void;
+  searchTerm: string;
+  selected: boolean;
+  onSelectRow: (id: string, checked: boolean) => void;
+  onEditEntry: (d: Dhikr) => void;
   onDeleteEntry: (d: Dhikr) => void; onToggleActive: (d: Dhikr) => void;
   onMoveEntry: (d: Dhikr) => void; onDuplicateEntry: (d: Dhikr) => void;
   deleting: string | null; toggling: string | null; isDragOverlay?: boolean;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: row.id });
   const [expanded, setExpanded] = useState(false);
+  const [rowMenuOpen, setRowMenuOpen] = useState(false);
+  const rowMenuRef = useRef<HTMLDivElement>(null);
+  const isQuranGroupEntry = /quran/i.test(row.group_name ?? '');
+
+  useEffect(() => {
+    if (!rowMenuOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (rowMenuRef.current && !rowMenuRef.current.contains(event.target as Node)) {
+        setRowMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [rowMenuOpen]);
 
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
-      className={`border-t border-border/60 ${isDragOverlay ? 'bg-card shadow-lg rounded-lg' : ''}`}
+      className={`${isDragOverlay ? 'bg-white shadow-lg rounded-lg border border-border/70 mx-2 my-1' : 'bg-[#FAFAFA] rounded-md border border-slate-200 mx-2 my-1'} ${isDragging ? 'ring-2 ring-[hsl(142_55%_55%/0.35)] shadow-md' : ''}`}
     >
-      <div className="px-3 py-2.5 flex items-center gap-2 hover:bg-secondary/10 transition-colors select-none">
+      <div className="px-3 py-2.5 flex items-center gap-2 hover:bg-gray-100 transition-colors select-none rounded-md">
+        {!isDragOverlay && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) => onSelectRow(row.id, e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            title="Select row for bulk actions"
+          />
+        )}
         {/* Drag handle */}
         <button
           {...attributes}
-          className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground transition-colors p-0.5"
+          className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground transition-colors p-0.5"
           title="Drag to reorder" tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => { e.stopPropagation(); listeners?.onPointerDown?.(e as never); }}
-          onPointerMove={listeners?.onPointerMove}
-          onPointerUp={listeners?.onPointerUp}
-          onKeyDown={listeners?.onKeyDown}
         >
-          <GripVertical size={13} />
+          <GripVertical size={15} />
         </button>
 
         {/* Expand toggle */}
@@ -98,61 +148,94 @@ const SortableEntryRow = ({
 
         {/* Title + badges */}
         <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap cursor-pointer" onClick={() => setExpanded((e) => !e)}>
-          <span className="font-medium text-sm text-foreground leading-snug">{row.title}</span>
+          <span className="font-medium text-sm text-foreground leading-snug">{highlightMatch(row.title, searchTerm)}</span>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[hsl(145_55%_93%)] text-[hsl(145_60%_26%)] border border-[hsl(145_40%_80%)]">
+            Repeat {row.count}x
+          </span>
           {row.arabic_title && (
-            <span className="text-sm text-muted-foreground leading-snug" dir="rtl" style={{ fontFamily: 'serif' }}>{row.arabic_title}</span>
+            <span className="text-sm text-muted-foreground leading-snug" dir="rtl" style={{ fontFamily: 'serif' }}>{highlightMatch(row.arabic_title, searchTerm)}</span>
           )}
-          {!row.arabic && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">⏳ placeholder</span>
+          {!row.arabic && !isQuranGroupEntry && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">Needs Content</span>
           )}
           {row.file_url && (
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 flex items-center gap-0.5">
               <ImageIcon size={9} /> media
             </span>
           )}
-        </div>
-
-        {/* Count + status */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="px-2 py-0.5 rounded-md text-xs font-bold tabular-nums" style={{ background: 'hsl(var(--accent) / 0.12)', color: 'hsl(var(--accent))' }}>
-            ×{row.count}
-          </span>
-          <Badge variant={row.is_active ? 'default' : 'secondary'} className="text-[10px] px-1.5">
-            {row.is_active ? 'Active' : 'Off'}
-          </Badge>
+          <span className="text-[10px] text-slate-500">Used in: {PRAYER_TIME_LABELS[row.prayer_time] ?? row.prayer_time} (App)</span>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => onToggleActive(row)} disabled={toggling === row.id} className="p-1.5 rounded hover:bg-secondary/60 transition-colors" title={row.is_active ? 'Deactivate' : 'Activate'}>
+        <div className="flex items-center gap-1 shrink-0 relative" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => onToggleActive(row)}
+            disabled={toggling === row.id}
+            className={`h-8 px-2 rounded-md border text-[11px] font-medium transition-colors inline-flex items-center gap-1.5 ${row.is_active ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-border/70 bg-white text-muted-foreground hover:bg-secondary/60'}`}
+            title={row.is_active ? 'Set entry inactive' : 'Set entry active'}
+            aria-label={row.is_active ? 'Set entry inactive' : 'Set entry active'}
+          >
             {row.is_active ? <ToggleRight size={16} className="text-emerald-500" /> : <ToggleLeft size={16} className="text-muted-foreground" />}
+            <span>{row.is_active ? 'Active' : 'Inactive'}</span>
           </button>
-          {/* Move + Duplicate hidden on small screens to save space */}
-          <button onClick={() => onMoveEntry(row)} className="hidden sm:block p-1.5 rounded hover:bg-purple-50 transition-colors" title="Move to group / prayer time">
-            <ArrowRightLeft size={13} className="text-purple-500" />
+
+          <button
+            onClick={() => onEditEntry(row)}
+            className="h-8 px-2.5 rounded-md border border-[hsl(142_45%_55%)] bg-[hsl(142_45%_95%)] text-[hsl(142_60%_24%)] hover:bg-[hsl(142_45%_90%)] transition-colors inline-flex items-center gap-1.5 text-[11px] font-semibold"
+            title="Edit entry"
+            aria-label="Edit entry"
+          >
+            <Pencil size={14} className="text-[hsl(142_70%_30%)]" />
+            <span>Edit</span>
           </button>
-          <button onClick={() => onDuplicateEntry(row)} className="hidden sm:block p-1.5 rounded hover:bg-blue-50 transition-colors" title="Duplicate entry">
-            <Copy size={13} className="text-blue-500" />
-          </button>
-          <button onClick={() => onEditEntry(row)} className="p-1.5 rounded hover:bg-accent/10 transition-colors" title="Edit">
-            <Pencil size={13} style={{ color: 'hsl(var(--accent))' }} />
-          </button>
-          <button onClick={() => onDeleteEntry(row)} disabled={deleting === row.id} className="p-1.5 rounded hover:bg-destructive/10 transition-colors" title="Delete">
-            <Trash2 size={13} className="text-destructive" />
-          </button>
+
+          <div className="relative" ref={rowMenuRef}>
+            <button
+              onClick={() => setRowMenuOpen((open) => !open)}
+              className="h-8 px-2 rounded-md border border-border/70 bg-white hover:bg-secondary/60 transition-colors inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
+              title="More actions"
+              aria-label="More entry actions"
+            >
+              <MoreHorizontal size={14} className="text-muted-foreground" />
+              <span>More</span>
+            </button>
+            {rowMenuOpen && (
+              <div className="absolute right-0 bottom-full mb-1 w-48 rounded-lg border border-border bg-popover shadow-xl z-50 overflow-hidden">
+                <button
+                  onClick={() => { onMoveEntry(row); setRowMenuOpen(false); }}
+                  className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
+                >
+                  <ArrowRightLeft size={12} className="text-muted-foreground" /> Move Entry
+                </button>
+                <button
+                  onClick={() => { onDuplicateEntry(row); setRowMenuOpen(false); }}
+                  className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
+                >
+                  <Copy size={12} className="text-muted-foreground" /> Duplicate Entry
+                </button>
+                <button
+                  onClick={() => { onDeleteEntry(row); setRowMenuOpen(false); }}
+                  disabled={deleting === row.id}
+                  className="w-full px-3 py-2 text-left text-xs hover:bg-destructive/10 flex items-center gap-2 text-destructive disabled:opacity-50"
+                >
+                  <Trash2 size={12} /> Delete Entry
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Expanded content */}
       {expanded && !isDragOverlay && (
-        <div className="px-10 pb-4 space-y-2.5 cursor-pointer" onClick={() => onClickRow(row)}>
-          <p className="text-xl leading-loose text-right" dir="rtl" style={{ fontFamily: 'serif' }}>{row.arabic}</p>
+        <div className="px-8 pb-3 space-y-2">
+          <p className="text-[1.55rem] leading-[2.25] text-right max-w-[92%] ml-auto" dir="rtl" style={{ fontFamily: 'serif' }}>{row.arabic}</p>
           {row.transliteration && <p className="text-sm text-muted-foreground italic leading-relaxed">{row.transliteration}</p>}
-          {row.translation && <p className="text-sm text-foreground/80 leading-relaxed">{row.translation}</p>}
+          {row.translation && <p className="text-sm text-foreground/80 leading-relaxed">{highlightMatch(row.translation, searchTerm)}</p>}
           {(row as Dhikr & { urdu_translation?: string | null }).urdu_translation && (
             <p className="text-base text-right leading-loose" dir="rtl"
               style={{ fontFamily: 'serif', lineHeight: '2.2', color: 'hsl(var(--foreground) / 0.8)' }}>
-              {(row as Dhikr & { urdu_translation?: string | null }).urdu_translation}
+              {highlightMatch((row as Dhikr & { urdu_translation?: string | null }).urdu_translation ?? '', searchTerm)}
             </p>
           )}
           {row.reference && <p className="text-xs text-muted-foreground">📚 {row.reference}</p>}
@@ -166,16 +249,25 @@ const SortableEntryRow = ({
 
 const SortableGroupSection = ({
   groupName, groupMeta, items, allGroups = [],
+  searchTerm,
+  collapseMode,
   sectionPrayerTime,
-  onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry,
+  selectedIds,
+  onSelectRow,
+  onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry,
   onEditGroup, onRenameGroup, onDescriptionSave,
   onAddToGroup, onDeleteGroup, onDuplicateGroup,
+  onArchiveGroup,
   onReassignPrayerTime,
   onEntriesReordered, deleting, toggling, isDragOverlay,
 }: {
   groupName: string; groupMeta: AdhkarGroup | undefined; items: Dhikr[];
   allGroups?: AdhkarGroup[];
-  onClickRow: (d: Dhikr) => void; onEditEntry: (d: Dhikr) => void;
+  searchTerm: string;
+  collapseMode?: 'expand' | 'collapse' | null;
+  selectedIds: string[];
+  onSelectRow: (id: string, checked: boolean) => void;
+  onEditEntry: (d: Dhikr) => void;
   onDeleteEntry: (d: Dhikr) => void; onToggleActive: (d: Dhikr) => void;
   onMoveEntry: (d: Dhikr) => void; onDuplicateEntry: (d: Dhikr) => void;
   onEditGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
@@ -184,6 +276,7 @@ const SortableGroupSection = ({
   onAddToGroup: (groupName: string, prayerTime: string) => void;
   onDeleteGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onDuplicateGroup: (groupName: string, items: Dhikr[], meta: AdhkarGroup | undefined) => void;
+  onArchiveGroup: (groupName: string, fromPrayerTime: string) => void;
   onReassignPrayerTime: (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined, fromPrayerTime: string) => void;
   sectionPrayerTime: string;
   onEntriesReordered: (reorderedItems: Dhikr[]) => void;
@@ -201,6 +294,8 @@ const SortableGroupSection = ({
   const [descValue, setDescValue] = useState('');
   const [descSaving, setDescSaving] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [showMoveOptions, setShowMoveOptions] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const icon = groupMeta?.icon ?? '📋';
@@ -208,10 +303,47 @@ const SortableGroupSection = ({
   const badgeText = groupMeta?.badge_text;
   const badgeColor = groupMeta?.badge_color ?? '#6366f1';
   const description = groupMeta?.description ?? items[0]?.description ?? null;
+  const isQuranGroup = /quran/i.test(groupName);
+  const displayDescription = description || (isQuranGroup ? 'Content for this group is pulled from the app.' : null);
   const isUngrouped = groupName === '(Ungrouped)';
   // Use the actual section prayer time, NOT group metadata — group can span multiple sections
   const currentPrayerTime = sectionPrayerTime;
   const entryDragActiveItem = entryDragActiveId ? items.find((d) => d.id === entryDragActiveId) : null;
+  const selectedInGroup = items.filter((d) => selectedIds.includes(d.id)).length;
+  const allGroupSelected = items.length > 0 && selectedInGroup === items.length;
+
+  const handleToggleGroupSelection = () => {
+    const nextChecked = !allGroupSelected;
+    items.forEach((d) => onSelectRow(d.id, nextChecked));
+  };
+
+  useEffect(() => {
+    if (collapseMode === 'expand') setCollapsed(false);
+    if (collapseMode === 'collapse') setCollapsed(true);
+  }, [collapseMode]);
+
+  useEffect(() => {
+    if (!renameDropOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (renameDropRef.current && !renameDropRef.current.contains(event.target as Node)) {
+        setRenameDropOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [renameDropOpen]);
+
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setMoreMenuOpen(false);
+        setShowMoveOptions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [moreMenuOpen]);
 
   const handleEntryDragEnd = async (event: DragEndEvent) => {
     setEntryDragActiveId(null);
@@ -234,15 +366,10 @@ const SortableGroupSection = ({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
-      className={`rounded-xl border border-border shadow-sm ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
+      className={`relative rounded-md border border-[hsl(214_22%_88%)] bg-white shadow-[0_1px_4px_rgba(15,23,42,0.08)] ${renaming ? 'z-20' : 'z-0'} ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
     >
-      {/* Close rename dropdown on outside click */}
-      {renameDropOpen && (
-        <div className="fixed inset-0 z-30" onClick={() => setRenameDropOpen(false)} />
-      )}
-
       {/* ── Group Header ── */}
-      <div className="flex flex-col select-none relative rounded-t-xl overflow-hidden" style={{
+      <div className="flex flex-col select-none relative rounded-t-md overflow-visible" style={{
         background: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? 'transparent' : 'hsl(var(--card))',
       }}>
         {/* Background image */}
@@ -293,19 +420,22 @@ const SortableGroupSection = ({
                 }}
                 className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex gap-1.5 relative z-40" ref={renameDropRef}>
+                <div className="flex gap-1.5 relative z-30" ref={renameDropRef}>
                   <div className="relative">
                     <Input
                       value={renameValue}
-                      onChange={(e) => { setRenameValue(e.target.value); setRenameSearch(e.target.value); }}
-                      onFocus={() => setRenameDropOpen(true)}
+                      onChange={(e) => { setRenameValue(e.target.value); }}
+                      onFocus={() => { setRenameDropOpen(true); setRenameSearch(''); }}
                       className="h-7 text-sm w-44 font-semibold"
                       autoFocus
                       onKeyDown={(e) => { if (e.key === 'Escape') { setRenaming(false); setRenameDropOpen(false); } }}
                     />
                     {/* Custom dropdown — shows ALL groups unfiltered */}
                     {renameDropOpen && allGroups.filter((g) => g.name !== groupName).length > 0 && (
-                      <div className="absolute z-50 top-full left-0 mt-1 w-64 bg-popover border border-border rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                      <div
+                        className="absolute z-30 top-full left-0 mt-1 w-64 bg-popover border border-border rounded-lg shadow-xl max-h-56 overflow-y-scroll"
+                        style={{ scrollbarGutter: 'stable', overscrollBehavior: 'contain' }}
+                      >
                         <div className="px-2 py-1 border-b border-border bg-muted/40 sticky top-0">
                           <input
                             type="text"
@@ -356,9 +486,9 @@ const SortableGroupSection = ({
                 className="font-semibold text-sm leading-snug cursor-text hover:opacity-90 px-1 -mx-1 rounded transition-colors"
                 style={{ color: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? '#fff' : 'hsl(var(--foreground))' }}
                 title="Click to rename group"
-                onClick={(e) => { e.stopPropagation(); setRenameValue(groupName); setRenaming(true); setCollapsed(false); }}
+                onClick={(e) => { e.stopPropagation(); setRenameValue(groupName); setRenameSearch(''); setRenaming(true); setCollapsed(false); }}
               >
-                {groupName}
+                {highlightMatch(groupName, searchTerm)}
               </span>
             )}
             {!renaming && badgeText && (
@@ -369,10 +499,101 @@ const SortableGroupSection = ({
             )}
           </div>
 
-          {/* Inline description */}
-          {!renaming && (
-            descEditing ? (
-              <div className="mt-1.5 flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+        </div>
+
+        {/* ── Right-side controls ── */}
+        <div className="flex items-center gap-1.5 shrink-0 relative z-10" onClick={(e) => e.stopPropagation()}>
+
+          {/* Secondary + overflow actions */}
+          {!isUngrouped && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => onEditGroup(groupName, groupMeta)}
+                className="h-8 px-2.5 rounded-md border border-border/80 bg-white text-foreground hover:bg-secondary/70 transition-colors inline-flex items-center gap-1.5 text-[11px] font-semibold shrink-0"
+                title="Edit group settings"
+                aria-label="Edit group settings"
+              >
+                <Pencil size={14} className="text-muted-foreground" />
+                <span>Edit Group</span>
+              </button>
+
+              <div className="relative" ref={moreMenuRef}>
+                <button
+                  onClick={() => { setMoreMenuOpen((v) => !v); setShowMoveOptions(false); }}
+                  className="h-8 px-2 rounded-md border border-border/80 bg-white hover:bg-secondary/70 transition-colors inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
+                  title="More group actions"
+                  aria-label="More group actions"
+                >
+                  <MoreHorizontal size={14} />
+                  <span>More</span>
+                </button>
+                {moreMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-border bg-popover shadow-xl z-30 overflow-hidden">
+                    <button
+                      onClick={() => { onDuplicateGroup(groupName, items, groupMeta); setMoreMenuOpen(false); }}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
+                    >
+                      <Copy size={12} className="text-muted-foreground" /> Duplicate Group
+                    </button>
+                    <button
+                      onClick={() => setShowMoveOptions((v) => !v)}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
+                    >
+                      <ArrowRightLeft size={12} className="text-muted-foreground" /> Move Group
+                    </button>
+                    {showMoveOptions && (
+                      <div className="px-2 pb-2 space-y-1 bg-muted/30 border-t border-border/70">
+                        {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
+                          <button
+                            key={cat}
+                            onClick={() => {
+                              onReassignPrayerTime(groupName, cat, groupMeta, sectionPrayerTime);
+                              setMoreMenuOpen(false);
+                              setShowMoveOptions(false);
+                            }}
+                            className={`w-full text-left px-2 py-1.5 rounded text-[11px] hover:bg-background ${cat === currentPrayerTime ? 'font-semibold text-primary' : 'text-foreground/80'}`}
+                          >
+                            {PRAYER_TIME_LABELS[cat] ?? cat}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { onArchiveGroup(groupName, sectionPrayerTime); setMoreMenuOpen(false); }}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
+                    >
+                      <Archive size={12} className="text-muted-foreground" /> Archive Group
+                    </button>
+                    <button
+                      onClick={() => { onDeleteGroup(groupName, groupMeta); setMoreMenuOpen(false); }}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-destructive/10 text-destructive flex items-center gap-2"
+                    >
+                      <Trash2 size={12} /> Delete Group
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Add entry */}
+          <button
+            onClick={() => onAddToGroup(groupName, items[0]?.prayer_time ?? 'after-fajr')}
+            className="h-8 px-3 rounded-lg text-[12px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 inline-flex items-center gap-1.5"
+            title="Add entry to this group"
+            aria-label="Add entry to this group"
+          >
+            <Plus size={13} /> Add Entry
+          </button>
+        </div>
+      </div>
+
+      {/* Second row: prayer-time tag */}
+      {!isUngrouped && !renaming && (
+        <div className="flex items-start justify-between gap-3 px-2.5 pb-2.5 relative z-10" onClick={(e) => e.stopPropagation()}>
+          <div className="flex-1 min-w-0">
+            {descEditing ? (
+              <div className="mt-0.5 flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
                 <textarea
                   value={descValue}
                   onChange={(e) => setDescValue(e.target.value)}
@@ -410,72 +631,30 @@ const SortableGroupSection = ({
                 title="Click to edit description"
                 onClick={(e) => { e.stopPropagation(); setDescValue(description ?? ''); setDescEditing(true); setCollapsed(false); }}
               >
-                {description ? description : <span className="italic opacity-40">+ add description…</span>}
+                {displayDescription ? displayDescription : <span className="italic opacity-50">Add group description</span>}
               </p>
-            )
-          )}
-        </div>
-
-        {/* ── Right-side controls ── */}
-        <div className="flex items-center gap-1 shrink-0 relative z-10" onClick={(e) => e.stopPropagation()}>
-
-          {/* Edit / Delete — always visible with 44px tap targets */}
-          {!isUngrouped && (
-            <div className="flex items-center gap-0.5">
-              <button
-                onClick={() => onEditGroup(groupName, groupMeta)}
-                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-accent/10 transition-colors shrink-0"
-                title="Edit group style"
-              >
-                <Pencil size={13} style={{ color: 'hsl(var(--accent))' }} />
-              </button>
-              <button
-                onClick={() => onDeleteGroup(groupName, groupMeta)}
-                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-destructive/10 transition-colors shrink-0"
-                title="Delete group"
-              >
-                <Trash2 size={13} className="text-destructive" />
-              </button>
-            </div>
-          )}
-
-          {/* Add entry */}
-          <button
-            onClick={() => onAddToGroup(groupName, items[0]?.prayer_time ?? 'after-fajr')}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-primary border border-primary/40 hover:bg-primary/5 transition-colors shrink-0"
-          >
-            <Plus size={13} /> Add
-          </button>
-        </div>
-      </div>
-
-      {/* Second row: prayer-time selector + duplicate */}
-      {!isUngrouped && (
-        <div className="flex items-center gap-2 px-2.5 pb-2.5 relative z-10" onClick={(e) => e.stopPropagation()}>
-          <select
-            value={currentPrayerTime}
-            onChange={(e) => onReassignPrayerTime(groupName, e.target.value, groupMeta, sectionPrayerTime)}
-            className="h-8 rounded-md border border-input bg-background px-2 text-[11px] font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer flex-1 min-w-0 max-w-[200px]"
-            title="Move group to a different prayer time"
-          >
-            {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => onDuplicateGroup(groupName, items, groupMeta)}
-            className="flex items-center gap-1 px-2 h-8 rounded-md border border-blue-200 text-blue-700 text-[11px] font-medium hover:bg-blue-50 transition-colors shrink-0"
-            title="Duplicate group"
-          >
-            <Copy size={11} /> Copy
-          </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleToggleGroupSelection}
+              className="h-7 px-2 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-[11px] font-medium text-slate-700"
+              title={allGroupSelected ? 'Unselect all entries in this group' : 'Select all entries in this group'}
+            >
+              {allGroupSelected ? 'Unselect Group' : 'Select Group'}
+            </button>
+            <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold border border-[hsl(142_30%_78%)] bg-[hsl(142_45%_94%)] text-[hsl(142_58%_26%)]">
+              {PRAYER_TIME_LABELS[currentPrayerTime] ?? currentPrayerTime}
+            </span>
+          </div>
         </div>
       )}
       </div>
 
       {/* ── Entries list ── */}
       {!collapsed && !isDragOverlay && !isDragging && (
-        <div className="bg-background rounded-b-xl border-t border-border/30 overflow-hidden">
+        <div className="bg-white rounded-xl border border-[hsl(140_18%_82%)] shadow-[0_1px_3px_rgba(15,23,42,0.05)] mx-2 mb-2 overflow-visible">
           <DndContext
             sensors={sensors} collisionDetection={closestCenter}
             onDragStart={(e) => setEntryDragActiveId(e.active.id as string)}
@@ -485,7 +664,10 @@ const SortableGroupSection = ({
               {items.map((row, idx) => (
                 <SortableEntryRow
                   key={row.id} row={row} idx={idx}
-                  onClickRow={onClickRow} onEditEntry={onEditEntry}
+                  searchTerm={searchTerm}
+                  selected={selectedIds.includes(row.id)}
+                  onSelectRow={onSelectRow}
+                  onEditEntry={onEditEntry}
                   onDeleteEntry={onDeleteEntry} onToggleActive={onToggleActive}
                   onMoveEntry={onMoveEntry} onDuplicateEntry={onDuplicateEntry}
                   deleting={deleting} toggling={toggling}
@@ -496,7 +678,10 @@ const SortableGroupSection = ({
               {entryDragActiveItem && (
                 <SortableEntryRow
                   row={entryDragActiveItem} idx={0}
-                  onClickRow={() => {}} onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
+                  searchTerm={searchTerm}
+                  selected={false}
+                  onSelectRow={() => {}}
+                  onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
                   onMoveEntry={() => {}} onDuplicateEntry={() => {}}
                   deleting={null} toggling={null} isDragOverlay
                 />
@@ -519,7 +704,11 @@ const SortableGroupSection = ({
 interface PrayerTimeSectionProps {
   cat: string; catItems: Dhikr[]; groupMap: Record<string, AdhkarGroup>;
   allGroups: AdhkarGroup[];
-  onClickRow: (d: Dhikr) => void; onEditEntry: (d: Dhikr) => void;
+  searchTerm: string;
+  collapseMode?: 'expand' | 'collapse' | null;
+  selectedIds: string[];
+  onSelectRow: (id: string, checked: boolean) => void;
+  onEditEntry: (d: Dhikr) => void;
   onDeleteEntry: (d: Dhikr) => void; onToggleActive: (d: Dhikr) => void;
   onMoveEntry: (d: Dhikr) => void; onDuplicateEntry: (d: Dhikr) => void;
   onEditGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
@@ -528,6 +717,7 @@ interface PrayerTimeSectionProps {
   onAddToGroup: (groupName: string, prayerTime: string) => void;
   onDeleteGroup: (groupName: string, meta: AdhkarGroup | undefined) => void;
   onDuplicateGroup: (groupName: string, items: Dhikr[], meta: AdhkarGroup | undefined) => void;
+  onArchiveGroup: (groupName: string, fromPrayerTime: string) => void;
   onReassignPrayerTime: (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined, fromPrayerTime: string) => void;
   onGroupsReordered: (cat: string, newOrder: string[]) => void;
   onEntriesReordered: (groupName: string, reorderedItems: Dhikr[]) => void;
@@ -535,10 +725,10 @@ interface PrayerTimeSectionProps {
 }
 
 const PrayerTimeSection = ({
-  cat, catItems, groupMap, allGroups,
-  onClickRow, onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry,
+  cat, catItems, groupMap, allGroups, searchTerm, collapseMode, selectedIds, onSelectRow,
+  onEditEntry, onDeleteEntry, onToggleActive, onMoveEntry, onDuplicateEntry,
   onEditGroup, onRenameGroup, onDescriptionSave,
-  onAddToGroup, onDeleteGroup, onDuplicateGroup,
+  onAddToGroup, onDeleteGroup, onDuplicateGroup, onArchiveGroup,
   onReassignPrayerTime,
   onGroupsReordered, onEntriesReordered, deleting, toggling,
 }: PrayerTimeSectionProps) => {
@@ -618,18 +808,23 @@ const PrayerTimeSection = ({
           onDragEnd={handleGroupDragEnd}
         >
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-            <div className="space-y-2.5">
+            <div className="space-y-4">
               {sortedGroupNames.map((groupName) => (
                 <SortableGroupSection
                   key={`${cat}-${groupName}`} groupName={groupName} groupMeta={groupMap[groupName]}
                   items={grouped[groupName] ?? []} allGroups={allGroups}
+                  searchTerm={searchTerm}
+                  collapseMode={collapseMode}
                   sectionPrayerTime={cat}
-                  onClickRow={onClickRow} onEditEntry={onEditEntry}
+                  selectedIds={selectedIds}
+                  onSelectRow={onSelectRow}
+                  onEditEntry={onEditEntry}
                   onDeleteEntry={onDeleteEntry} onToggleActive={onToggleActive}
                   onMoveEntry={onMoveEntry} onDuplicateEntry={onDuplicateEntry}
                   onEditGroup={onEditGroup} onRenameGroup={onRenameGroup}
                   onDescriptionSave={onDescriptionSave} onAddToGroup={onAddToGroup}
                   onDeleteGroup={onDeleteGroup} onDuplicateGroup={onDuplicateGroup}
+                  onArchiveGroup={onArchiveGroup}
                   onReassignPrayerTime={onReassignPrayerTime}
                   onEntriesReordered={(reorderedItems) => onEntriesReordered(groupName, reorderedItems)}
                   deleting={deleting} toggling={toggling}
@@ -642,11 +837,16 @@ const PrayerTimeSection = ({
               <SortableGroupSection
                 groupName={activeGroupName} groupMeta={groupMap[activeGroupName]}
                 items={grouped[activeGroupName]} allGroups={[]}
+                searchTerm={searchTerm}
+                collapseMode={null}
                 sectionPrayerTime={cat}
-                onClickRow={() => {}} onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
+                selectedIds={[]}
+                onSelectRow={() => {}}
+                onEditEntry={() => {}} onDeleteEntry={() => {}} onToggleActive={() => {}}
                 onMoveEntry={() => {}} onDuplicateEntry={() => {}}
                 onEditGroup={() => {}} onRenameGroup={() => {}} onDescriptionSave={() => {}}
                 onAddToGroup={() => {}} onDeleteGroup={() => {}} onDuplicateGroup={() => {}}
+                onArchiveGroup={() => {}}
                 onReassignPrayerTime={() => {}}
                 onEntriesReordered={() => {}} deleting={null} toggling={null} isDragOverlay
               />
@@ -663,10 +863,11 @@ const PrayerTimeSection = ({
 const Adhkar = () => {
   const [filterCategory, setFilterCategory] = useState<string>('All');
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [collapseMode, setCollapseMode] = useState<'expand' | 'collapse' | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editRow, setEditRow] = useState<Dhikr | null>(null);
   const [presetGroup, setPresetGroup] = useState<{ name: string; prayerTime: string } | null>(null);
-  const [detailRow, setDetailRow] = useState<Dhikr | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Dhikr[]>([]);
   const [editHistory, setEditHistory] = useState<Dhikr[]>([]);
@@ -674,6 +875,11 @@ const Adhkar = () => {
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editGroup, setEditGroup] = useState<AdhkarGroup | null>(null);
   const [testCreating, setTestCreating] = useState(false);
+  const [selectedDhikrIds, setSelectedDhikrIds] = useState<string[]>([]);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [bulkMoveGroup, setBulkMoveGroup] = useState('');
+  const [bulkMovePrayerTime, setBulkMovePrayerTime] = useState('after-fajr');
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   // Move-to-group state
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -746,7 +952,7 @@ const Adhkar = () => {
           );
         }
       });
-  }, [adhkar.length]);
+  }, [adhkar, queryClient]);
 
   const groupMap = useMemo(() => {
     const map: Record<string, AdhkarGroup> = {};
@@ -754,8 +960,14 @@ const Adhkar = () => {
     return map;
   }, [groupsList]);
 
+  const moveGroupOptions = useMemo(() => {
+    const names = groupsList.map((g) => g.name).filter((name): name is string => !!name && name.trim().length > 0);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [groupsList]);
+
   const filtered = adhkar.filter((d) => {
     const matchCat = filterCategory === 'All' || d.prayer_time === filterCategory;
+    const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? !!d.is_active : !d.is_active);
     const q = search.toLowerCase();
     const matchSearch =
       !q ||
@@ -765,15 +977,21 @@ const Adhkar = () => {
       (d.transliteration ?? '').toLowerCase().includes(q) ||
       (d.translation ?? '').toLowerCase().includes(q) ||
       (d.group_name ?? '').toLowerCase().includes(q);
-    return matchCat && matchSearch;
+    return matchCat && matchStatus && matchSearch;
   });
 
-  const CORE_CATEGORIES = [...ADHKAR_PRAYER_TIME_CATEGORIES];
-  const presentCategories = PRAYER_TIME_CATEGORIES.filter(
-    (cat) => CORE_CATEGORIES.includes(cat) || adhkar.some((d) => d.prayer_time === cat)
+  const selectedRows = useMemo(
+    () => adhkar.filter((d) => selectedDhikrIds.includes(d.id)),
+    [adhkar, selectedDhikrIds]
   );
+
+  const coreCategories = new Set<string>(ADHKAR_PRAYER_TIME_CATEGORIES);
+  const presentCategories = PRAYER_TIME_CATEGORIES.filter(
+    (cat) => coreCategories.has(cat) || adhkar.some((d) => d.prayer_time === cat)
+  );
+  const knownCategories = new Set<string>(PRAYER_TIME_CATEGORIES);
   const unknownCategories = [...new Set(adhkar.map((d) => d.prayer_time))].filter(
-    (cat) => !PRAYER_TIME_CATEGORIES.includes(cat as typeof PRAYER_TIME_CATEGORIES[number])
+    (cat) => !knownCategories.has(cat)
   );
   const allCategories = [...presentCategories, ...unknownCategories];
 
@@ -783,10 +1001,82 @@ const Adhkar = () => {
     setModalOpen(true);
   };
 
-  const handleOpenDetail = (row: Dhikr) => setDetailRow(row);
+  const handleSelectRow = (id: string, checked: boolean) => {
+    setSelectedDhikrIds((prev) => (checked ? Array.from(new Set([...prev, id])) : prev.filter((x) => x !== id)));
+  };
+
+  const handleSelectAllVisible = (checked: boolean) => {
+    const visibleIds = filtered.map((d) => d.id);
+    setSelectedDhikrIds((prev) => {
+      if (checked) return Array.from(new Set([...prev, ...visibleIds]));
+      return prev.filter((id) => !visibleIds.includes(id));
+    });
+  };
+
+  const handleBulkActivate = async () => {
+    const targets = selectedRows.filter((d) => !d.is_active);
+    if (targets.length === 0) return;
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.map((d) => (selectedDhikrIds.includes(d.id) ? { ...d, is_active: true } : d)));
+    try {
+      await Promise.all(targets.map((d) => updateDhikr(d.id, { is_active: true })));
+      toast.success(`Activated ${targets.length} entr${targets.length === 1 ? 'y' : 'ies'}.`);
+    } catch {
+      queryClient.invalidateQueries({ queryKey: ['adhkar'] });
+      toast.error('Bulk activate failed. Data refreshed.');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRows.length === 0) return;
+    const confirmed = window.confirm(`Delete ${selectedRows.length} selected entr${selectedRows.length === 1 ? 'y' : 'ies'}? This cannot be undone.`);
+    if (!confirmed) return;
+    const selectedSet = new Set(selectedDhikrIds);
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => !selectedSet.has(d.id)));
+    setUndoStack((prev) => [...prev.slice(-20), ...selectedRows.slice(-10)]);
+    setSelectedDhikrIds([]);
+    const results = await Promise.allSettled(selectedRows.map((d) => deleteDhikr(d.id)));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed > 0) {
+      queryClient.invalidateQueries({ queryKey: ['adhkar'] });
+      toast.error(`${failed} delete operation${failed === 1 ? '' : 's'} failed. Data refreshed.`);
+    } else {
+      toast.success(`Deleted ${selectedRows.length} entr${selectedRows.length === 1 ? 'y' : 'ies'}.`);
+    }
+  };
+
+  const handleBulkMove = async () => {
+    if (selectedRows.length === 0) return;
+    setBulkSaving(true);
+    const patch = { group_name: bulkMoveGroup.trim() || null, prayer_time: bulkMovePrayerTime };
+    const selectedSet = new Set(selectedDhikrIds);
+    const previousRows = selectedRows.map((r) => ({ ...r }));
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.map((d) => (selectedSet.has(d.id) ? { ...d, ...patch } : d)));
+    try {
+      await Promise.all(selectedRows.map((d) => updateDhikr(d.id, patch)));
+      toast.success(`Moved ${selectedRows.length} entr${selectedRows.length === 1 ? 'y' : 'ies'} to ${PRAYER_TIME_LABELS[bulkMovePrayerTime] ?? bulkMovePrayerTime}.`);
+      setBulkMoveOpen(false);
+      setSelectedDhikrIds([]);
+    } catch {
+      queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.map((d) => previousRows.find((p) => p.id === d.id) ?? d));
+      toast.error('Bulk move failed. Changes reverted.');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const handleUndoLast = () => {
+    if (editHistory.length > 0) {
+      handleUndoEdit();
+      return;
+    }
+    if (undoStack.length > 0) {
+      handleUndo();
+      return;
+    }
+    toast('Nothing to undo.');
+  };
 
   const handleEdit = (row: Dhikr) => {
-    setDetailRow(null);
     setEditRow(row);
     setPresetGroup(null);
     setModalOpen(true);
@@ -796,7 +1086,6 @@ const Adhkar = () => {
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => [...old, dhikr]);
     setModalOpen(false);
     setEditRow(null);
-    setDetailRow(null);
     setPresetGroup(null);
   };
 
@@ -923,7 +1212,6 @@ const Adhkar = () => {
   };
 
   const handleDelete = async (row: Dhikr) => {
-    setDetailRow(null);
     setDeleting(row.id);
     queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.id !== row.id));
     setUndoStack((prev) => [...prev.slice(-29), row]);
@@ -968,7 +1256,7 @@ const Adhkar = () => {
         return (a.display_order ?? 9999) - (b.display_order ?? 9999);
       });
     });
-    import('@/lib/api').then(({ createDhikr }) =>
+    import('#/lib/api').then(({ createDhikr }) =>
       createDhikr(payload).then((real) => {
         queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.map((d) => (d.id === tempId ? real : d)));
         toast.success(`"${row.title}" restored.`);
@@ -1105,8 +1393,9 @@ const Adhkar = () => {
       const payload = {
         title: 'Test Dhikr Entry', arabic_title: 'اختبار', arabic: 'سُبْحَانَ اللَّهِ',
         transliteration: 'SubḥānaAllāh', translation: 'Glory be to Allah',
-        reference: 'Test reference', count: '3', prayer_time: 'after-fajr',
-        group_name: 'Test Group', group_order: 999, display_order: 1, is_active: true, sections: null,
+        urdu_translation: null, reference: 'Test reference', count: '3', prayer_time: 'after-fajr',
+        group_name: 'Test Group', group_order: 999, display_order: 1, sections: null,
+        is_active: true, file_url: null, description: null,
       };
       queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => [...old, { id: tempId, ...payload, created_at: now, updated_at: now }]);
       const real = await createDhikr(payload);
@@ -1205,6 +1494,44 @@ const Adhkar = () => {
   // ─── Quick prayer-time reassignment from group header dropdown ────────────
   // Only moves entries that are in the SPECIFIC section (fromPrayerTime) —
   // so "Quran (After Fajr)" and "Quran (After Isha)" are treated independently.
+  const handleArchiveGroup = async (groupName: string, fromPrayerTime: string) => {
+    const currentEntries = queryClient.getQueryData<Dhikr[]>(['adhkar']) ?? [];
+    const affected = currentEntries.filter(
+      (d) => d.group_name === groupName && d.prayer_time === fromPrayerTime
+    );
+    const toArchive = affected.filter((d) => d.is_active);
+    if (toArchive.length === 0) {
+      toast.info('Group is already archived in this prayer time.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Archive group "${groupName}" in ${PRAYER_TIME_LABELS[fromPrayerTime] ?? fromPrayerTime}?\n\n${toArchive.length} entr${toArchive.length === 1 ? 'y' : 'ies'} will be set inactive.`
+    );
+    if (!confirmed) return;
+
+    queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+      old.map((d) =>
+        d.group_name === groupName && d.prayer_time === fromPrayerTime
+          ? { ...d, is_active: false }
+          : d
+      )
+    );
+
+    try {
+      await Promise.all(toArchive.map((d) => updateDhikr(d.id, { is_active: false })));
+      toast.success(`Archived ${toArchive.length} entr${toArchive.length === 1 ? 'y' : 'ies'} in "${groupName}".`);
+    } catch (err) {
+      queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) =>
+        old.map((d) => {
+          const original = affected.find((a) => a.id === d.id);
+          return original ? { ...d, is_active: original.is_active } : d;
+        })
+      );
+      toast.error(`Failed to archive group: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
   const handleReassignPrayerTime = async (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined, fromPrayerTime: string) => {
     if (newPrayerTime === fromPrayerTime) return;
 
@@ -1291,7 +1618,7 @@ const Adhkar = () => {
         )
       );
       if (sourceGroupId) {
-        const { deleteAdhkarGroup } = await import('@/lib/api');
+        const { deleteAdhkarGroup } = await import('#/lib/api');
         await deleteAdhkarGroup(sourceGroupId).catch((e) => console.warn('[Adhkar] delete source group:', e));
       }
       toast.success(
@@ -1462,13 +1789,13 @@ const Adhkar = () => {
     if (!confirm(`Delete empty group "${g.name}"?\n\nThis group has no entries. It will be permanently removed.`)) return;
     queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((x) => x.id !== g.id));
     if (g.id) {
-      import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(g.id)).catch(() => {});
+      import('#/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(g.id)).catch(() => {});
     }
     toast.success(`Group "${g.name}" deleted.`);
   };
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-[#F7F9F8]">
       <Sidebar />
 
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
@@ -1487,6 +1814,12 @@ const Adhkar = () => {
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={handleUndoLast} className="gap-2 border-slate-300 text-slate-700 hover:bg-slate-100">
+                ↩ Undo Last
+              </Button>
+              <span className="text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+                Auto-save ON
+              </span>
               <Button variant="outline" size="sm" onClick={handleBulkOpen} className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50">
                 <AlignLeft size={14} /> Bulk Descriptions
                 {missingDescCount > 0 && (
@@ -1515,9 +1848,9 @@ const Adhkar = () => {
               <Button variant="outline" size="sm" onClick={() => { refetch(); refetchGroups(); }} disabled={isFetching} className="gap-1.5">
                 <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
               </Button>
-              <Button size="sm" onClick={() => handleOpenAdd()} className="gap-2"
-                style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
-                <Plus size={14} /> Add Dhikr
+              <Button variant="outline" size="sm" onClick={() => handleOpenAdd()} className="gap-2 border-[hsl(140_20%_80%)] text-[hsl(150_30%_22%)] hover:bg-[hsl(140_25%_96%)]"
+                title="Global add. For contextual add, use + Add inside each group.">
+                <Plus size={14} /> Global Add
               </Button>
             </div>
           </div>
@@ -1526,9 +1859,41 @@ const Adhkar = () => {
         <div className="px-4 sm:px-8 py-5">
           {/* Filters */}
           <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 mb-5">
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                checked={filtered.length > 0 && filtered.every((d) => selectedDhikrIds.includes(d.id))}
+                onChange={(e) => handleSelectAllVisible(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              Select visible
+            </div>
             <div className="relative flex-1 min-w-[200px] max-w-xs">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search adhkar…" className="pl-9 h-9 text-sm" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Arabic, translation, group, or ID" className="pl-9 h-9 text-sm" />
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${statusFilter === 'all' ? 'border-transparent text-white' : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}
+                style={statusFilter === 'all' ? { background: 'hsl(var(--primary))' } : {}}
+              >
+                All Status
+              </button>
+              <button
+                onClick={() => setStatusFilter('active')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${statusFilter === 'active' ? 'border-transparent text-white' : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}
+                style={statusFilter === 'active' ? { background: 'hsl(142 65% 35%)' } : {}}
+              >
+                Active Only
+              </button>
+              <button
+                onClick={() => setStatusFilter('inactive')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${statusFilter === 'inactive' ? 'border-transparent text-white' : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}
+                style={statusFilter === 'inactive' ? { background: 'hsl(24 90% 48%)' } : {}}
+              >
+                Inactive Only
+              </button>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <button
@@ -1549,6 +1914,28 @@ const Adhkar = () => {
                   </button>
                 );
               })}
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              {selectedDhikrIds.length > 0 && (
+                <div className="flex items-center gap-2 p-1 rounded-md border border-slate-300 bg-white">
+                  <span className="text-xs font-semibold text-slate-700 px-1">{selectedDhikrIds.length} selected</span>
+                  <Button size="sm" className="h-8" onClick={handleBulkActivate}>Activate</Button>
+                  <Button size="sm" variant="outline" className="h-8" onClick={() => {
+                    const seed = selectedRows[0];
+                    setBulkMoveGroup(seed?.group_name ?? '');
+                    setBulkMovePrayerTime(seed?.prayer_time ?? 'after-fajr');
+                    setBulkMoveOpen(true);
+                  }}>Move Group</Button>
+                  <Button size="sm" variant="outline" className="h-8 border-red-300 text-red-700 hover:bg-red-50" onClick={handleBulkDelete}>Delete</Button>
+                  <Button size="sm" variant="ghost" className="h-8" onClick={() => setSelectedDhikrIds([])}>Clear</Button>
+                </div>
+              )}
+              <Button variant="outline" size="sm" className="h-9" onClick={() => setCollapseMode('expand')}>
+                Expand All
+              </Button>
+              <Button variant="outline" size="sm" className="h-9" onClick={() => setCollapseMode('collapse')}>
+                Collapse All
+              </Button>
             </div>
           </div>
 
@@ -1594,7 +1981,11 @@ const Adhkar = () => {
                 return (
                   <PrayerTimeSection
                     key={cat} cat={cat} catItems={catItems} groupMap={groupMap} allGroups={groupsList}
-                    onClickRow={handleOpenDetail} onEditEntry={handleEdit}
+                    searchTerm={search}
+                    collapseMode={collapseMode}
+                    selectedIds={selectedDhikrIds}
+                    onSelectRow={handleSelectRow}
+                    onEditEntry={handleEdit}
                     onDeleteEntry={handleDelete} onToggleActive={handleToggleActive}
                     onMoveEntry={handleOpenMove} onDuplicateEntry={handleDuplicateEntry}
                     onEditGroup={(name, meta) => {
@@ -1610,6 +2001,7 @@ const Adhkar = () => {
                     onRenameGroup={handleRenameGroup}
                     onDescriptionSave={handleDescriptionSave}
                     onReassignPrayerTime={handleReassignPrayerTime as (groupName: string, newPrayerTime: string, meta: AdhkarGroup | undefined, fromPrayerTime: string) => void}
+                    onArchiveGroup={handleArchiveGroup}
                     onDeleteGroup={async (name, meta) => {
                       const groupEntries = adhkar.filter((d) => d.group_name === name);
                       const entryCount = groupEntries.length;
@@ -1617,9 +2009,9 @@ const Adhkar = () => {
                       queryClient.setQueryData<Dhikr[]>(['adhkar'], (old = []) => old.filter((d) => d.group_name !== name));
                       if (meta?.id) {
                         queryClient.setQueryData<AdhkarGroup[]>(['adhkar-groups'], (old = []) => old.filter((g) => g.id !== meta.id));
-                        import('@/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
+                        import('#/lib/api').then(({ deleteAdhkarGroup }) => deleteAdhkarGroup(meta.id)).catch(() => {});
                       }
-                      const { deleteDhikr: del } = await import('@/lib/api');
+                      const { deleteDhikr: del } = await import('#/lib/api');
                       const results = await Promise.allSettled(groupEntries.map((d) => del(d.id)));
                       const failed = results.filter((r) => r.status === 'rejected').length;
                       if (failed > 0) toast.error(`Group deleted but ${failed} entr${failed === 1 ? 'y' : 'ies'} failed to delete from backend.`);
@@ -1642,10 +2034,9 @@ const Adhkar = () => {
         open={modalOpen} row={editRow} presetGroup={presetGroup}
         onClose={() => { setModalOpen(false); setEditRow(null); setPresetGroup(null); }}
         onSaved={handleSaved} onFinalized={handleFinalized} onRevert={handleRevert}
+        onGroupCreated={(group) => handleGroupSaved(group)}
         onUpdated={handleUpdated}
       />
-
-      <DhikrDetailPanel dhikr={detailRow} onClose={() => setDetailRow(null)} onEdit={handleEdit} onDelete={handleDelete} />
 
       <AdhkarGroupModal
         open={groupModalOpen} group={editGroup}
@@ -1685,15 +2076,26 @@ const Adhkar = () => {
             </div>
             <div className="space-y-1.5">
               <Label>Target Group <span className="text-muted-foreground font-normal text-xs">(leave empty for Ungrouped)</span></Label>
-              <Input
-                value={moveNewGroup}
-                onChange={(e) => setMoveNewGroup(e.target.value)}
-                placeholder="Group name or leave empty"
-                list="adhkar-move-group-list"
-              />
-              <datalist id="adhkar-move-group-list">
-                {groupsList.map((g) => <option key={g.id} value={g.name} />)}
-              </datalist>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="sm:col-span-2">
+                  <Input
+                    value={moveNewGroup}
+                    onChange={(e) => setMoveNewGroup(e.target.value)}
+                    placeholder="Type a group name or leave empty"
+                  />
+                </div>
+                <select
+                  value=""
+                  onChange={(e) => { if (e.target.value) setMoveNewGroup(e.target.value); }}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  title="Choose an existing group"
+                >
+                  <option value="">Choose group...</option>
+                  {moveGroupOptions.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
               <p className="text-[10px] text-muted-foreground">
                 Tip: keeping the same group name moves <em>just this entry</em> — the group will appear under both prayer times.
               </p>
@@ -1750,6 +2152,37 @@ const Adhkar = () => {
             >
               {moveSaving ? 'Moving…' : 'Move Entry'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkMoveOpen} onOpenChange={(v) => { if (!bulkSaving) setBulkMoveOpen(v); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulk Move Selected Dhikr</DialogTitle>
+            <p className="text-xs text-muted-foreground pt-1">Move {selectedDhikrIds.length} selected entr{selectedDhikrIds.length === 1 ? 'y' : 'ies'} together.</p>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Target Prayer Time</Label>
+              <select
+                value={bulkMovePrayerTime}
+                onChange={(e) => setBulkMovePrayerTime(e.target.value)}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Target Group</Label>
+              <Input value={bulkMoveGroup} onChange={(e) => setBulkMoveGroup(e.target.value)} placeholder="Group name or leave empty" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkMoveOpen(false)} disabled={bulkSaving}>Cancel</Button>
+            <Button onClick={handleBulkMove} disabled={bulkSaving || selectedDhikrIds.length === 0}>{bulkSaving ? 'Moving…' : 'Move Selected'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

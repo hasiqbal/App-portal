@@ -13,8 +13,8 @@ import {
   createAdhkarGroup,
   updateAdhkarGroup,
   deleteAdhkarGroup,
-} from '@/lib/api';
-import type { Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload } from '@/types';
+} from '#/lib/api';
+import type { Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload } from '#/types';
 
 // ─── Adhkar (individual dhikr entries) ───────────────────────────────────────
 

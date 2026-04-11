@@ -10,8 +10,8 @@ import {
   bulkUpdatePrayerTimes,
   bulkUpdatePrayerTimesFromCsv,
   bulkUpdatePrayerTimesFromYearCsv,
-} from '@/lib/api';
-import type { PrayerTime, PrayerTimeUpdate } from '@/types';
+} from '#/lib/api';
+import type { PrayerTime, PrayerTimeUpdate } from '#/types';
 
 export const prayerTimesService = {
   /** Fetch all prayer times for a given month (1-12). Omit month to fetch all. */

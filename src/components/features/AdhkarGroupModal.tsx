@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '@/types';
-import { createAdhkarGroup, updateAdhkarGroup } from '@/lib/api';
-import { supabase, supabaseAdmin, onspaceCloud } from '@/lib/supabase';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
+import { Textarea } from '#/components/ui/textarea';
+import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '#/types';
+import { createAdhkarGroup, updateAdhkarGroup } from '#/lib/api';
+import { supabase, supabaseAdmin, onspaceCloud } from '#/lib/supabase';
 import { toast } from 'sonner';
 import { Upload, X, Loader2, ImageIcon, Image, Database } from 'lucide-react';
 

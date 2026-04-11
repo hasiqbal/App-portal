@@ -1,6 +1,6 @@
 
-import { PrayerTime, PrayerTimeUpdate, Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, Announcement, AnnouncementPayload, SunnahReminder, SunnahReminderPayload, SunnahGroup, SunnahGroupPayload } from '@/types';
-import { supabase, supabaseAdmin } from '@/lib/supabase';
+import { PrayerTime, PrayerTimeUpdate, Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, Announcement, AnnouncementPayload, SunnahReminder, SunnahReminderPayload, SunnahGroup, SunnahGroupPayload } from '#/types';
+import { supabase, supabaseAdmin, invokeExternalFunction } from '#/lib/supabase';
 
 // All data now lives in the single external Supabase project (lhaqqqatdztuijgdfdcf).
 // The supabase client in src/lib/supabase.ts already points there.
@@ -48,7 +48,7 @@ export async function bulkUpdatePrayerTimes(ids: string[], data: PrayerTimeUpdat
 export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
   let query = supabase
     .from('adhkar')
-    .select('id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,is_active,description,file_url,created_at,updated_at')
+    .select('id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,sections,is_active,tafsir,description,file_url,created_at,updated_at')
     .order('prayer_time', { ascending: true })
     .order('group_order', { ascending: true })
     .order('display_order', { ascending: true })
@@ -60,7 +60,15 @@ export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
 
   const { data, error } = await query;
   if (error) throw new Error(`Failed to fetch adhkar: ${error.message}`);
-  return data as Dhikr[];
+  return (data ?? []).map((row) => ({
+    ...row,
+    count: String(row.count ?? ''),
+    sections: row.sections ?? null,
+    file_url: row.file_url ?? null,
+    tafsir: row.tafsir ?? row.description ?? null,
+    description: row.description ?? null,
+    urdu_translation: row.urdu_translation ?? null,
+  })) as Dhikr[];
 }
 
 export async function createDhikr(data: Partial<DhikrPayload>): Promise<Dhikr> {
@@ -84,6 +92,28 @@ export async function updateDhikr(id: string, data: Partial<DhikrPayload>): Prom
   return rows as Dhikr;
 }
 
+export async function saveDhikrViaEdge(
+  mode: 'create' | 'update',
+  data: Partial<DhikrPayload>,
+  id?: string,
+): Promise<Dhikr> {
+  const { data: result, error } = await invokeExternalFunction<{ data?: Dhikr; error?: string }>('save-adhkar-rich', {
+    mode,
+    id,
+    data,
+  });
+
+  if (error) {
+    throw new Error(`Failed to save dhikr via edge function: ${error}`);
+  }
+
+  if (!result?.data) {
+    throw new Error(result?.error || 'Edge function returned an empty response.');
+  }
+
+  return result.data;
+}
+
 export async function deleteDhikr(id: string): Promise<void> {
   const { error } = await supabase
     .from('adhkar')
@@ -104,25 +134,67 @@ export async function fetchAdhkarGroups(): Promise<AdhkarGroup[]> {
   return data as AdhkarGroup[];
 }
 
+function extractMissingSchemaColumn(message: string): string | null {
+  const quotedMatch = message.match(/Could not find the '([^']+)' column/i);
+  if (quotedMatch) return quotedMatch[1];
+
+  const schemaCacheMatch = message.match(/column\s+['"]?([a-zA-Z0-9_]+)['"]?\s+.*schema cache/i);
+  if (schemaCacheMatch) return schemaCacheMatch[1];
+
+  return null;
+}
+
+async function createAdhkarGroupWithFallback(payload: Record<string, unknown>): Promise<AdhkarGroup> {
+  let currentPayload = { ...payload };
+
+  while (true) {
+    const { data: rows, error } = await supabase
+      .from('adhkar_groups')
+      .insert(currentPayload)
+      .select()
+      .single();
+
+    if (!error) return rows as AdhkarGroup;
+
+    const missingColumn = extractMissingSchemaColumn(error.message);
+    if (!missingColumn || !(missingColumn in currentPayload)) {
+      throw new Error(`Failed to create group: ${error.message}`);
+    }
+
+    const { [missingColumn]: _removed, ...rest } = currentPayload;
+    currentPayload = rest;
+  }
+}
+
+async function updateAdhkarGroupWithFallback(id: string, payload: Record<string, unknown>): Promise<AdhkarGroup> {
+  let currentPayload = { ...payload };
+
+  while (true) {
+    const { data: rows, error } = await supabase
+      .from('adhkar_groups')
+      .update(currentPayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (!error) return rows as AdhkarGroup;
+
+    const missingColumn = extractMissingSchemaColumn(error.message);
+    if (!missingColumn || !(missingColumn in currentPayload)) {
+      throw new Error(`Failed to update group: ${error.message}`);
+    }
+
+    const { [missingColumn]: _removed, ...rest } = currentPayload;
+    currentPayload = rest;
+  }
+}
+
 export async function createAdhkarGroup(data: Partial<AdhkarGroupPayload>): Promise<AdhkarGroup> {
-  const { data: rows, error } = await supabase
-    .from('adhkar_groups')
-    .insert(data)
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to create group: ${error.message}`);
-  return rows as AdhkarGroup;
+  return createAdhkarGroupWithFallback(data as Record<string, unknown>);
 }
 
 export async function updateAdhkarGroup(id: string, data: Partial<AdhkarGroupPayload>): Promise<AdhkarGroup> {
-  const { data: rows, error } = await supabase
-    .from('adhkar_groups')
-    .update(data)
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to update group: ${error.message}`);
-  return rows as AdhkarGroup;
+  return updateAdhkarGroupWithFallback(id, data as Record<string, unknown>);
 }
 
 export async function deleteAdhkarGroup(id: string): Promise<void> {

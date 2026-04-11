@@ -1,10 +1,10 @@
 
 import { useState, useRef } from 'react';
 import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { PrayerTime, PrayerTimeUpdate } from '@/types';
-import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv, fetchPrayerTimes } from '@/lib/api';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Button } from '#/components/ui/button';
+import { PrayerTime, PrayerTimeUpdate } from '#/types';
+import { bulkUpdatePrayerTimesFromCsv, bulkUpdatePrayerTimesFromYearCsv, fetchPrayerTimes } from '#/lib/api';
 import { toast } from 'sonner';
 import { Upload, AlertCircle, CheckCircle2, Loader2, Download, AlertTriangle, ArrowLeft, ClipboardPaste, FileUp, ArrowRight, Info } from 'lucide-react';
 
@@ -513,7 +513,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
     if (!existing) return acc + Object.keys(r.fields).length;
     return acc + previewCols.filter((col) => {
       const newVal = (r.fields as Record<string, string | null>)[col];
-      const oldVal = (existing as Record<string, string | null | undefined>)[col];
+      const oldVal = (existing as unknown as Record<string, string | null | undefined>)[col];
       return newVal !== (oldVal ?? null);
     }).length;
   }, 0);
@@ -781,7 +781,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
                         const existing = existingData.get(r.month)?.get(r.day);
                         const hasAnyChange = previewCols.some((col) => {
                           const newVal = (r.fields as Record<string, string | null>)[col];
-                          const oldVal = existing ? (existing as Record<string, string | null | undefined>)[col] : undefined;
+                          const oldVal = existing ? (existing as unknown as Record<string, string | null | undefined>)[col] : undefined;
                           return newVal !== (oldVal ?? null);
                         });
                         return (
@@ -794,7 +794,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
                             <td className="px-2 py-1 font-mono font-bold">{r.day}</td>
                             {previewCols.map((col) => {
                               const newVal = (r.fields as Record<string, string | null>)[col] ?? null;
-                              const oldVal = existing ? ((existing as Record<string, string | null | undefined>)[col] ?? null) : null;
+                              const oldVal = existing ? ((existing as unknown as Record<string, string | null | undefined>)[col] ?? null) : null;
                               return (
                                 <td key={col} className="px-2 py-1 whitespace-nowrap">
                                   {existingData.size > 0
@@ -848,7 +848,7 @@ const CsvImportModal = ({ open, onClose, month, monthName, year, onImported, pre
           )}
 
           {stage === 'parsed' && validRows.length > 0 && (
-            <Button onClick={handleImport} disabled={stage === 'saving'} className="w-full sm:w-auto gap-2" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+            <Button onClick={handleImport} className="w-full sm:w-auto gap-2" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
               Import {validRows.length} Row{validRows.length !== 1 ? 's' : ''}
               {effectiveScope && ` (${monthsAffected.length} months)`}
             </Button>

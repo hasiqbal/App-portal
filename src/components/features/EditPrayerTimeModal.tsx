@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { PrayerTime, PrayerTimeUpdate, HijriCalendarEntry } from '@/types';
-import { updatePrayerTime } from '@/lib/api';
-import { supabaseAdmin } from '@/lib/supabase';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
+import { PrayerTime, PrayerTimeUpdate, HijriCalendarEntry } from '#/types';
+import { updatePrayerTime } from '#/lib/api';
+import { supabaseAdmin } from '#/lib/supabase';
 import { toast } from 'sonner';
 import { Minus, Plus, Clock, Moon } from 'lucide-react';
 

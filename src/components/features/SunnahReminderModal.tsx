@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { SunnahReminder, SUNNAH_CATEGORIES, SUNNAH_CATEGORY_LABELS } from '@/types';
-import { createSunnahReminder, updateSunnahReminder } from '@/lib/api';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
+import { Textarea } from '#/components/ui/textarea';
+import { Switch } from '#/components/ui/switch';
+import { SunnahReminder, SUNNAH_CATEGORIES, SUNNAH_CATEGORY_LABELS } from '#/types';
+import { createSunnahReminder, updateSunnahReminder } from '#/lib/api';
 import { toast } from 'sonner';
 import { Loader2, ImagePlus, Trash2, ExternalLink, Copy, Languages } from 'lucide-react';
-import { useUrduTranslation } from '@/hooks/useUrduTranslation';
-import { supabase } from '@/lib/supabase';
+import { useUrduTranslation } from '#/hooks/useUrduTranslation';
+import { supabase } from '#/lib/supabase';
 
 const SUPABASE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTkxMTksImV4cCI6MjA5MTE3NTExOX0.Z3MV96PflYqwoexwsoi7ma4yAO3og1juWWu9YWviLbU';
@@ -366,7 +366,14 @@ const SunnahReminderModal = ({
             </Button>
           )}
           <Button
-            onClick={() => { isEdit ? handleSaveChanges() : handleSaveAsCopy(); onClose(); }}
+            onClick={() => {
+              if (isEdit) {
+                handleSaveChanges();
+              } else {
+                handleSaveAsCopy();
+              }
+              onClose();
+            }}
             style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
           >
             {isEdit ? 'Save Changes' : 'Add Reminder'}

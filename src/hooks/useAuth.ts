@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
 import { toast } from 'sonner';
-import { supabase, supabaseAdmin } from '@/lib/supabase';
+import { supabase, supabaseAdmin } from '#/lib/supabase';
 
 // ─── External Supabase — activity log destination ────────────────────────────
 const ONSPACE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';

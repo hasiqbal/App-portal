@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import Sidebar from '@/components/layout/Sidebar';
-import { fetchPrayerTimes, fetchAdhkar, fetchAnnouncements, fetchAdhkarGroups } from '@/lib/api';
+import Sidebar from '#/components/layout/Sidebar';
+import { fetchPrayerTimes, fetchAdhkar, fetchAnnouncements, fetchAdhkarGroups } from '#/lib/api';
 import {
   CalendarDays, BookOpen, Bell, Clock, ChevronRight,
   Star, BellRing, Timer, Sunrise, Sunset, Moon,
 } from 'lucide-react';
-import masjidPhoto from '@/assets/masjid-photo.png';
-import { supabaseAdmin } from '@/lib/supabase';
-import masjidLogo from '@/assets/masjid-logo.png';
+import masjidPhoto from '#/assets/masjid-photo.png';
+import { supabaseAdmin } from '#/lib/supabase';
+import masjidLogo from '#/assets/masjid-logo.png';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -223,7 +223,7 @@ const TodayPrayerCards = ({
               style={isCurrent ? {
                 background: row.color + '0f',
                 borderColor: row.color + '55',
-                ringColor: row.color + '30',
+                boxShadow: `0 0 0 2px ${row.color}30`,
               } : {}}
             >
               {isCurrent && (

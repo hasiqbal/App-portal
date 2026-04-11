@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import Sidebar from '@/components/layout/Sidebar';
-import { supabase, supabaseAdmin } from '@/lib/supabase';
+import Sidebar from '#/components/layout/Sidebar';
+import { supabase, supabaseAdmin } from '#/lib/supabase';
 import { toast } from 'sonner';
 import { Settings2, MapPin, Phone, Globe, Share2, Clock, Save, Loader2, RefreshCw, Lock, Eye, EyeOff } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

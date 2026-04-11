@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { ClipboardPaste, Download, RefreshCw, CheckCircle2, AlertCircle, Table2, ArrowRight, Info, ExternalLink, FileSpreadsheet } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import Sidebar from '@/components/layout/Sidebar';
+import { Button } from '#/components/ui/button';
+import Sidebar from '#/components/layout/Sidebar';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 

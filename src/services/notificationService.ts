@@ -4,7 +4,7 @@
  * Flow: UI → Hook (React Query) → Service → Supabase
  */
 
-import { supabase } from '@/lib/supabase';
+import { supabase } from '#/lib/supabase';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

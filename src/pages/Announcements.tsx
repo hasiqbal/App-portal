@@ -1,9 +1,9 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement } from '@/lib/api';
-import { Announcement, AnnouncementPayload } from '@/types';
-import Sidebar from '@/components/layout/Sidebar';
+import { fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement } from '#/lib/api';
+import { Announcement, AnnouncementPayload } from '#/types';
+import Sidebar from '#/components/layout/Sidebar';
 import { toast } from 'sonner';
 import {
   Plus, Pencil, Trash2, Loader2, AlertCircle, RefreshCw,
@@ -11,10 +11,10 @@ import {
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   List, ListOrdered, Type, Palette, ImagePlus, X, Smartphone, Eye,
 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   DragEndEvent, DragOverlay, DragStartEvent,
@@ -29,7 +29,7 @@ import TipTapUnderline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '#/lib/supabase';
 import { Extension } from '@tiptap/core';
 
 const FONT_SIZES = ['12px','14px','16px','18px','20px','24px','28px','32px','40px'];
@@ -43,8 +43,8 @@ const FontSize = Extension.create({
   },
   addCommands() {
     return {
-      setFontSize: (fontSize: string) => ({ chain }: { chain: () => unknown }) => {
-        return (chain() as ReturnType<typeof chain> & { setMark: (m: string, a: Record<string, unknown>) => unknown }).setMark('textStyle', { fontSize });
+      setFontSize: (fontSize: string) => ({ chain }: { chain: () => { setMark: (m: string, a: Record<string, unknown>) => { run: () => boolean } } }) => {
+        return chain().setMark('textStyle', { fontSize }).run();
       },
     };
   },

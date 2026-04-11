@@ -1,7 +1,7 @@
 import { X, Pencil, Trash2, BookOpen, Hash, Clock, Users, AlignLeft, Link2, ImageIcon } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Dhikr, PRAYER_TIME_LABELS } from '@/types';
+import { Badge } from '#/components/ui/badge';
+import { Button } from '#/components/ui/button';
+import { Dhikr, PRAYER_TIME_LABELS } from '#/types';
 
 interface DhikrDetailPanelProps {
   dhikr: Dhikr | null;

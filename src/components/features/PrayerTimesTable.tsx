@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { PrayerTime, HijriCalendarEntry } from '@/types';
+import { PrayerTime, HijriCalendarEntry } from '#/types';
 import { Pencil, ChevronDown, ChevronRight, Star } from 'lucide-react';
-import { getDayInfo } from '@/lib/dateUtils';
-import { EidPrayer, EidType } from '@/components/features/EidTimesModal';
+import { getDayInfo } from '#/lib/dateUtils';
+import { EidPrayer, EidType } from '#/components/features/EidTimesModal';
 
 interface PrayerTimesTableProps {
   data: PrayerTime[];

@@ -1,25 +1,25 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import Sidebar from '@/components/layout/Sidebar';
-import PrayerTimesTable from '@/components/features/PrayerTimesTable';
-import EditPrayerTimeModal from '@/components/features/EditPrayerTimeModal';
-import CsvImportModal from '@/components/features/CsvImportModal';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { fetchPrayerTimes, bulkUpdatePrayerTimes } from '@/lib/api';
-import { PrayerTime, HijriCalendarEntry } from '@/types';
+import Sidebar from '#/components/layout/Sidebar';
+import PrayerTimesTable from '#/components/features/PrayerTimesTable';
+import EditPrayerTimeModal from '#/components/features/EditPrayerTimeModal';
+import CsvImportModal from '#/components/features/CsvImportModal';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
+import { Button } from '#/components/ui/button';
+import { fetchPrayerTimes, bulkUpdatePrayerTimes } from '#/lib/api';
+import { PrayerTime, HijriCalendarEntry } from '#/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
   ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download, Database, CheckCircle2, XCircle, Zap, Star,
 } from 'lucide-react';
-import { isBST } from '@/lib/dateUtils';
-import { supabaseAdmin } from '@/lib/supabase';
-import { SolarTimesCard } from '@/pages/Dashboard';
-import EidTimesModal, { fetchEidPrayers, EidPrayer } from '@/components/features/EidTimesModal';
+import { isBST } from '#/lib/dateUtils';
+import { supabaseAdmin } from '#/lib/supabase';
+import { SolarTimesCard } from '#/pages/Dashboard';
+import EidTimesModal, { fetchEidPrayers, EidPrayer } from '#/components/features/EidTimesModal';
 
 // ─── External Supabase config (same as supabase.ts) ───────────────────────────
 const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';

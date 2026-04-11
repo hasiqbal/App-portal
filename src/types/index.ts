@@ -52,6 +52,7 @@ export interface Dhikr {
   sections: unknown | null;
   is_active: boolean;
   file_url: string | null;
+  tafsir: string | null;
   description: string | null;
   created_at: string;
   updated_at: string;

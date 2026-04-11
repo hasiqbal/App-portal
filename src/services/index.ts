@@ -3,7 +3,7 @@
  * Import services from here instead of individual files.
  *
  * Usage:
- *   import { prayerTimesService, adhkaarService } from '@/services';
+ *   import { prayerTimesService, adhkaarService } from '#/services';
  */
 
 export { prayerTimesService } from './prayerTimesService';

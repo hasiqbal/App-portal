@@ -1,27 +1,27 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, RefreshCw, Pencil, Trash2, Search, Star, ChevronDown, ChevronRight,
   ToggleLeft, ToggleRight, GripVertical, ImageIcon, AlignLeft, Hash, Link2,
   ArrowRightLeft, Copy, Loader2, CheckCheck, Filter, Sparkles,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import Sidebar from '@/components/layout/Sidebar';
-import SunnahReminderModal from '@/components/features/SunnahReminderModal';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
+import { Badge } from '#/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import Sidebar from '#/components/layout/Sidebar';
+import SunnahReminderModal from '#/components/features/SunnahReminderModal';
 import {
   fetchSunnahReminders, deleteSunnahReminder, updateSunnahReminder,
   fetchSunnahGroups, createSunnahGroup, updateSunnahGroup, deleteSunnahGroup,
   createSunnahReminder,
-} from '@/lib/api';
-import { supabase } from '@/lib/supabase';
+} from '#/lib/api';
+import { supabase } from '#/lib/supabase';
 import {
   SunnahReminder, SunnahGroup,
   SUNNAH_CATEGORIES, SUNNAH_CATEGORY_LABELS, SUNNAH_CATEGORY_COLORS,
-} from '@/types';
+} from '#/types';
 import { toast } from 'sonner';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -243,7 +243,7 @@ const SortableEntryRow = ({ row, idx, onClickRow, onEdit, onDelete, onToggle, on
         <button {...attributes} className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground p-0.5" tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => { e.stopPropagation(); listeners?.onPointerDown?.(e as never); }}
-          onPointerMove={listeners?.onPointerMove} onPointerUp={listeners?.onPointerUp} onKeyDown={listeners?.onKeyDown}>
+        >
           <GripVertical size={13} />
         </button>
         <button className="text-muted-foreground shrink-0" onClick={() => setExpanded((e) => !e)}>
@@ -288,8 +288,9 @@ const SortableEntryRow = ({ row, idx, onClickRow, onEdit, onDelete, onToggle, on
   );
 };
 
-const SortableGroupCard = ({ groupName, groupMeta, items, onClickRow, onEdit, onDelete, onToggle, onMove, onEditGroup, onAddToGroup, onDeleteGroup, onEntriesReordered, deleting, toggling, isDragOverlay }: {
+const SortableGroupCard = ({ groupName, groupMeta, items, allGroups, onClickRow, onEdit, onDelete, onToggle, onMove, onEditGroup, onAddToGroup, onDeleteGroup, onEntriesReordered, deleting, toggling, isDragOverlay }: {
   groupName: string; groupMeta: SunnahGroup | undefined; items: SunnahReminder[];
+  allGroups: SunnahGroup[];
   onClickRow: (r: SunnahReminder) => void; onEdit: (r: SunnahReminder) => void;
   onDelete: (r: SunnahReminder) => void; onToggle: (r: SunnahReminder) => void; onMove: (r: SunnahReminder) => void;
   onEditGroup: (name: string, meta: SunnahGroup | undefined) => void; onAddToGroup: (name: string, cat: string) => void;
@@ -301,12 +302,26 @@ const SortableGroupCard = ({ groupName, groupMeta, items, onClickRow, onEdit, on
   const [entryDragActiveId, setEntryDragActiveId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [renameDropOpen, setRenameDropOpen] = useState(false);
+  const [renameSearch, setRenameSearch] = useState('');
+  const renameDropRef = useRef<HTMLDivElement>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const icon = groupMeta?.icon ?? '📋';
   const iconBg = groupMeta?.icon_bg_color ?? '#0f766e';
   const isUngrouped = groupName === '(Ungrouped)';
   const entryDragItem = entryDragActiveId ? items.find((d) => d.id === entryDragActiveId) : null;
   const sortedItems = useMemo(() => [...items].sort((a, b) => (a.display_order ?? 9999) - (b.display_order ?? 9999)), [items]);
+
+  useEffect(() => {
+    if (!renameDropOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (renameDropRef.current && !renameDropRef.current.contains(event.target as Node)) {
+        setRenameDropOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [renameDropOpen]);
 
   const handleEntryDragEnd = async (event: DragEndEvent) => {
     setEntryDragActiveId(null);
@@ -323,7 +338,7 @@ const SortableGroupCard = ({ groupName, groupMeta, items, onClickRow, onEdit, on
 
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
-      className={`rounded-xl border border-border overflow-hidden shadow-sm ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}>
+      className={`relative rounded-xl border border-border overflow-visible shadow-sm ${renaming ? 'z-[90]' : 'z-0'} ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}>
       <div className="flex items-center gap-3 px-4 py-3 select-none" style={{ background: 'hsl(var(--card))' }}>
         <button {...attributes} {...listeners} className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground p-0.5" tabIndex={-1} onClick={(e) => e.stopPropagation()}><GripVertical size={14} /></button>
         <button className="text-muted-foreground shrink-0" onClick={() => setCollapsed((c) => !c)}>{collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>
@@ -331,10 +346,71 @@ const SortableGroupCard = ({ groupName, groupMeta, items, onClickRow, onEdit, on
         <div className="flex-1 min-w-0" onClick={() => !renaming && setCollapsed((c) => !c)}>
           <div className="flex items-center gap-2 flex-wrap">
             {renaming ? (
-              <form onSubmit={(e) => { e.preventDefault(); onEditGroup(groupName, { ...groupMeta, name: renameValue.trim() || groupName } as SunnahGroup); setRenaming(false); }} className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-                <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} className="h-7 text-sm w-48 font-semibold" autoFocus onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(false); }} />
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onEditGroup(groupName, { ...groupMeta, name: renameValue.trim() || groupName } as SunnahGroup);
+                  setRenaming(false);
+                  setRenameDropOpen(false);
+                }}
+                className="flex gap-1.5 relative z-[70]"
+                onClick={(e) => e.stopPropagation()}
+                ref={renameDropRef}
+              >
+                <div className="relative">
+                  <Input
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    className="h-7 text-sm w-48 font-semibold"
+                    autoFocus
+                    onFocus={() => { setRenameDropOpen(true); setRenameSearch(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Escape') { setRenaming(false); setRenameDropOpen(false); } }}
+                  />
+                  {renameDropOpen && allGroups.filter((g) => g.name !== groupName).length > 0 && (
+                    <div
+                      className="absolute z-[80] top-full left-0 mt-1 w-64 bg-popover border border-border rounded-lg shadow-xl max-h-56 overflow-y-scroll"
+                      style={{ scrollbarGutter: 'stable', overscrollBehavior: 'contain' }}
+                    >
+                      <div className="px-2 py-1 border-b border-border bg-muted/40 sticky top-0">
+                        <input
+                          type="text"
+                          value={renameSearch}
+                          onChange={(e) => setRenameSearch(e.target.value)}
+                          placeholder="Search groups..."
+                          className="w-full text-xs px-2 py-1 rounded border border-input bg-background focus:outline-none"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                      {allGroups
+                        .filter((g) => g.name !== groupName && (!renameSearch || g.name.toLowerCase().includes(renameSearch.toLowerCase())))
+                        .map((g) => (
+                          <button
+                            key={g.id ?? g.name}
+                            type="button"
+                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary/60 flex items-center gap-2 transition-colors"
+                            onClick={() => { setRenameValue(g.name); setRenameDropOpen(false); }}
+                          >
+                            <span>{g.icon ?? '📋'}</span>
+                            <span className="font-medium flex-1 truncate">{g.name}</span>
+                            {g.category && <span className="text-[10px] text-muted-foreground shrink-0">{SUNNAH_CATEGORY_LABELS[g.category] ?? g.category}</span>}
+                          </button>
+                        ))}
+                      {allGroups.filter((g) => g.name !== groupName && (!renameSearch || g.name.toLowerCase().includes(renameSearch.toLowerCase()))).length === 0 && (
+                        <p className="px-3 py-2 text-xs text-muted-foreground text-center">No groups match</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setRenameSearch(''); setRenameDropOpen((v) => !v); }}
+                  className="px-1.5 h-7 rounded text-xs border border-input bg-background hover:bg-secondary text-muted-foreground"
+                  title="Browse all groups"
+                >
+                  ▾
+                </button>
                 <button type="submit" className="px-2 h-7 rounded text-xs bg-primary text-primary-foreground font-medium">Save</button>
-                <button type="button" onClick={() => setRenaming(false)} className="px-2 h-7 rounded text-xs border border-input text-muted-foreground">✕</button>
+                <button type="button" onClick={() => { setRenaming(false); setRenameDropOpen(false); }} className="px-2 h-7 rounded text-xs border border-input text-muted-foreground">✕</button>
               </form>
             ) : (
               <span className="font-semibold text-sm text-foreground cursor-pointer" onClick={() => setCollapsed((c) => !c)}>{groupName}</span>
@@ -347,7 +423,7 @@ const SortableGroupCard = ({ groupName, groupMeta, items, onClickRow, onEdit, on
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           {!isUngrouped && (
             <>
-              <button onClick={() => { setRenameValue(groupName); setRenaming(true); setCollapsed(false); }} className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors" title="Rename"><Pencil size={13} className="text-purple-500" /></button>
+              <button onClick={() => { setRenameValue(groupName); setRenameSearch(''); setRenaming(true); setCollapsed(false); }} className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors" title="Rename"><Pencil size={13} className="text-purple-500" /></button>
               <button onClick={() => onEditGroup(groupName, groupMeta)} className="p-1.5 rounded-lg hover:bg-accent/10 transition-colors" title="Edit style"><span className="text-[11px] font-bold" style={{ color: 'hsl(var(--accent))' }}>⚙</span></button>
               <button onClick={() => onDeleteGroup(groupName, groupMeta)} className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors" title="Delete"><Trash2 size={13} className="text-destructive" /></button>
             </>
@@ -372,8 +448,9 @@ const SortableGroupCard = ({ groupName, groupMeta, items, onClickRow, onEdit, on
   );
 };
 
-const CategorySection = ({ cat, catItems, groupMap, onClickRow, onEdit, onDelete, onToggle, onMove, onEditGroup, onAddToGroup, onDeleteGroup, onGroupsReordered, onEntriesReordered, deleting, toggling }: {
+const CategorySection = ({ cat, catItems, groupMap, allGroups, onClickRow, onEdit, onDelete, onToggle, onMove, onEditGroup, onAddToGroup, onDeleteGroup, onGroupsReordered, onEntriesReordered, deleting, toggling }: {
   cat: string; catItems: SunnahReminder[]; groupMap: Record<string, SunnahGroup>;
+  allGroups: SunnahGroup[];
   onClickRow: (r: SunnahReminder) => void; onEdit: (r: SunnahReminder) => void;
   onDelete: (r: SunnahReminder) => void; onToggle: (r: SunnahReminder) => void; onMove: (r: SunnahReminder) => void;
   onEditGroup: (name: string, meta: SunnahGroup | undefined) => void; onAddToGroup: (name: string, cat: string) => void;
@@ -417,7 +494,7 @@ const CategorySection = ({ cat, catItems, groupMap, onClickRow, onEdit, onDelete
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
             <div className="space-y-3">
               {sortedGroupNames.map((groupName) => (
-                <SortableGroupCard key={groupName} groupName={groupName} groupMeta={groupMap[groupName]} items={grouped[groupName] ?? []}
+                <SortableGroupCard key={groupName} groupName={groupName} groupMeta={groupMap[groupName]} items={grouped[groupName] ?? []} allGroups={allGroups}
                   onClickRow={onClickRow} onEdit={onEdit} onDelete={onDelete} onToggle={onToggle} onMove={onMove}
                   onEditGroup={onEditGroup} onAddToGroup={onAddToGroup} onDeleteGroup={onDeleteGroup}
                   onEntriesReordered={(items) => onEntriesReordered(groupName, items)} deleting={deleting} toggling={toggling} />
@@ -426,7 +503,7 @@ const CategorySection = ({ cat, catItems, groupMap, onClickRow, onEdit, onDelete
           </SortableContext>
           <DragOverlay>
             {activeGroupName && grouped[activeGroupName] && (
-              <SortableGroupCard groupName={activeGroupName} groupMeta={groupMap[activeGroupName]} items={grouped[activeGroupName]}
+              <SortableGroupCard groupName={activeGroupName} groupMeta={groupMap[activeGroupName]} items={grouped[activeGroupName]} allGroups={[]}
                 onClickRow={() => {}} onEdit={() => {}} onDelete={() => {}} onToggle={() => {}} onMove={() => {}}
                 onEditGroup={() => {}} onAddToGroup={() => {}} onDeleteGroup={() => {}}
                 onEntriesReordered={() => {}} deleting={null} toggling={null} isDragOverlay />
@@ -724,7 +801,7 @@ const SunnahReminders = () => {
                 const catItems = filtered.filter((r) => r.category === cat);
                 if (catItems.length === 0) return null;
                 return (
-                  <CategorySection key={cat} cat={cat} catItems={catItems} groupMap={groupMap}
+                  <CategorySection key={cat} cat={cat} catItems={catItems} groupMap={groupMap} allGroups={groups}
                     onClickRow={setDetailRow}
                     onEdit={(r) => { setDetailRow(null); setEditRow(r); setPresetGroup(null); setModalOpen(true); }}
                     onDelete={handleDelete} onToggle={handleToggle} onMove={handleOpenMove}

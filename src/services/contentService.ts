@@ -17,7 +17,7 @@ import {
   createSunnahGroup,
   updateSunnahGroup,
   deleteSunnahGroup,
-} from '@/lib/api';
+} from '#/lib/api';
 import type {
   Announcement,
   AnnouncementPayload,
@@ -25,7 +25,7 @@ import type {
   SunnahReminderPayload,
   SunnahGroup,
   SunnahGroupPayload,
-} from '@/types';
+} from '#/types';
 
 // ─── Announcements ────────────────────────────────────────────────────────────
 

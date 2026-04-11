@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { supabaseAdmin } from '@/lib/supabase';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
+import { supabaseAdmin } from '#/lib/supabase';
 import { toast } from 'sonner';
 import { Loader2, Moon, Star, CheckCircle2, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
 

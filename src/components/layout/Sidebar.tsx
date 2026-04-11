@@ -5,9 +5,9 @@ import {
   LogOut, Settings2, Users,
 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
-import { usePermissions } from '@/hooks/usePermissions';
-import masjidLogo from '@/assets/masjid-logo.png';
+import { useAuth } from '#/hooks/useAuth';
+import { usePermissions } from '#/hooks/usePermissions';
+import masjidLogo from '#/assets/masjid-logo.png';
 
 // ─── Navigation config ────────────────────────────────────────────────────────
 

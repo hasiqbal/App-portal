@@ -7,13 +7,13 @@ import {
   KeyRound, LogIn, LogOut, FileText, Edit3, ToggleLeft,
   ChevronDown, ChevronUp, Download, Clock, Filter,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import Sidebar from '@/components/layout/Sidebar';
-import { supabaseAdmin } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import Sidebar from '#/components/layout/Sidebar';
+import { supabaseAdmin } from '#/lib/supabase';
+import { useAuth } from '#/hooks/useAuth';
 import { toast } from 'sonner';
 
 // ─── External Supabase — read activity logs from here ────────────────────────

@@ -7,12 +7,12 @@ import {
   RotateCcw, Bookmark, BookmarkCheck, Calendar, Tag, LayoutGrid,
   Layers, ChevronRight, Code2, Copy,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import Sidebar from '@/components/layout/Sidebar';
-import { supabase } from '@/lib/supabase';
+import { Button } from '#/components/ui/button';
+import { Input } from '#/components/ui/input';
+import { Label } from '#/components/ui/label';
+import { Textarea } from '#/components/ui/textarea';
+import Sidebar from '#/components/layout/Sidebar';
+import { supabase } from '#/lib/supabase';
 import { toast } from 'sonner';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
