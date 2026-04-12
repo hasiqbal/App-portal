@@ -169,8 +169,9 @@ serve(async (req) => {
       return badRequest('title is required.');
     }
 
-    if (typeof normalized.arabic !== 'string' || normalized.arabic.trim().length === 0) {
-      return badRequest('arabic is required.');
+    // Arabic can be intentionally blank for entries that only carry metadata/translation.
+    if (typeof normalized.arabic !== 'string') {
+      normalized.arabic = '';
     }
 
     if (typeof normalized.prayer_time !== 'string' || !ALLOWED_PRAYER_TIMES.has(normalized.prayer_time)) {

@@ -14,6 +14,7 @@ interface EditPrayerTimeModalProps {
   row: PrayerTime | null;
   year: number;
   hijriEntry: HijriCalendarEntry | null;
+  deferSave?: boolean;
   onClose: () => void;
   onSaved: (updated: PrayerTime) => void;
   onHijriSaved: (day: number, entry: HijriCalendarEntry) => void;
@@ -160,7 +161,7 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
-const EditPrayerTimeModal = ({ row, year, hijriEntry, onClose, onSaved, onHijriSaved }: EditPrayerTimeModalProps) => {
+const EditPrayerTimeModal = ({ row, year, hijriEntry, deferSave = false, onClose, onSaved, onHijriSaved }: EditPrayerTimeModalProps) => {
   const [form, setForm] = useState<Record<string, string>>({});
   const [hijriDateStr,  setHijriDateStr]  = useState('');
   const [gregorianStr,  setGregorianStr]  = useState('');
@@ -220,6 +221,20 @@ const EditPrayerTimeModal = ({ row, year, hijriEntry, onClose, onSaved, onHijriS
         const gMonth = String(row.month).padStart(2, '0');
         return `${year}-${gMonth}-${gDay}`;
       })();
+
+      // Deferred mode: queue prayer-time edits on page-level save flow.
+      if (deferSave) {
+        const updated = { ...row, ...payload } as PrayerTime;
+        onSaved(updated);
+
+        if (hijriTrimmed) {
+          const hijriResult = await saveHijriToDb(year, row.month, row.day, hijriTrimmed, gStr);
+          if (hijriResult) onHijriSaved(row.day, hijriResult);
+        }
+
+        toast.success(`Day ${row.day} queued. Use "Save Changes" on the page to apply.`);
+        return;
+      }
 
       // Run prayer time save + hijri save in PARALLEL for speed
       const [prayerResult, hijriResult] = await Promise.all([
@@ -367,7 +382,7 @@ const EditPrayerTimeModal = ({ row, year, hijriEntry, onClose, onSaved, onHijriS
             disabled={saving}
             style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
           >
-            {saving ? 'Saving…' : 'Save Changes'}
+            {saving ? 'Saving…' : deferSave ? 'Queue Changes' : 'Save Changes'}
           </Button>
         </DialogFooter>
       </DialogContent>

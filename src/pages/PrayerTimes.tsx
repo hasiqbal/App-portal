@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import Sidebar from '#/components/layout/Sidebar';
@@ -9,17 +9,26 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Button } from '#/components/ui/button';
-import { fetchPrayerTimes, bulkUpdatePrayerTimes } from '#/lib/api';
-import { PrayerTime, HijriCalendarEntry } from '#/types';
+import { fetchPrayerTimes, bulkUpdatePrayerTimes, updatePrayerTime } from '#/lib/api';
+import { PrayerTime, HijriCalendarEntry, PrayerTimeUpdate } from '#/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
-  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download, Database, CheckCircle2, XCircle, Zap, Star,
+  ChevronLeft, ChevronRight, Minus, Plus, CalendarCheck, Upload, Search, CalendarDays, Moon, Download, Database, CheckCircle2, XCircle, Zap, Star, SlidersHorizontal, MoreHorizontal,
 } from 'lucide-react';
 import { isBST } from '#/lib/dateUtils';
 import { supabaseAdmin } from '#/lib/supabase';
 import { SolarTimesCard } from '#/pages/Dashboard';
 import EidTimesModal, { fetchEidPrayers, EidPrayer } from '#/components/features/EidTimesModal';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu';
 
 // ─── External Supabase config (same as supabase.ts) ───────────────────────────
 const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
@@ -171,7 +180,8 @@ async function fetchHijriFromApi(
 
 /**
  * Fetch ALL days in a month from Aladhan's gToHCalendar endpoint.
- * Uses `adjustment` param for offset — 1 API call per month instead of 1 per day.
+ * Applies offset in-app by shifting Gregorian day lookup, because API adjustment
+ * responses are inconsistent for some dates/endpoints.
  * Returns Map<day, { hijri, gregorian }>.
  */
 async function fetchHijriMonthFromApi(
@@ -179,25 +189,60 @@ async function fetchHijriMonthFromApi(
   month: number,
   offset = 0,
 ): Promise<Map<number, { hijri: string; gregorian: string }>> {
-  const url = `https://api.aladhan.com/v1/gToHCalendar/${month}/${year}${offset !== 0 ? `?adjustment=${offset}` : ''}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Aladhan API ${res.status}: ${res.statusText}`);
-  const json = await res.json();
-  if (!Array.isArray(json?.data)) throw new Error('Aladhan calendar API: unexpected response');
+  const fetchMonthRaw = async (y: number, m: number) => {
+    const url = `https://api.aladhan.com/v1/gToHCalendar/${m}/${y}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Aladhan API ${res.status}: ${res.statusText}`);
+    const json = await res.json();
+    if (!Array.isArray(json?.data)) throw new Error('Aladhan calendar API: unexpected response');
+    return json.data as Array<{ gregorian?: { day?: string; month?: { number?: number }; year?: string }; hijri?: { day?: string; month?: { en?: string }; year?: string } }>;
+  };
+
+  const currentDate = new Date(year, month - 1, 1);
+  const prevDate = new Date(year, month - 2, 1);
+  const nextDate = new Date(year, month, 1);
+
+  const [prevRaw, currentRaw, nextRaw] = await Promise.all([
+    fetchMonthRaw(prevDate.getFullYear(), prevDate.getMonth() + 1),
+    fetchMonthRaw(currentDate.getFullYear(), currentDate.getMonth() + 1),
+    fetchMonthRaw(nextDate.getFullYear(), nextDate.getMonth() + 1),
+  ]);
+
+  const byGregorian = new Map<string, { hijri: string }>();
+  const ingest = (rows: Array<{ gregorian?: { day?: string; month?: { number?: number }; year?: string }; hijri?: { day?: string; month?: { en?: string }; year?: string } }>) => {
+    rows.forEach((entry) => {
+      const gYear = parseInt(entry?.gregorian?.year ?? '0', 10);
+      const gMonth = entry?.gregorian?.month?.number ?? 0;
+      const gDay = parseInt(entry?.gregorian?.day ?? '0', 10);
+      const h = entry?.hijri;
+      if (!gYear || !gMonth || !gDay || !h?.day || !h?.year || !h?.month?.en) return;
+      const key = `${gYear}-${String(gMonth).padStart(2, '0')}-${String(gDay).padStart(2, '0')}`;
+      byGregorian.set(key, {
+        hijri: `${parseInt(h.day, 10)} ${h.month.en} ${h.year} AH`,
+      });
+    });
+  };
+
+  ingest(prevRaw);
+  ingest(currentRaw);
+  ingest(nextRaw);
 
   const map = new Map<number, { hijri: string; gregorian: string }>();
-  for (const entry of json.data) {
-    const gDay = parseInt(entry?.gregorian?.day ?? '0', 10);
-    const h    = entry?.hijri;
-    if (!gDay || !h) continue;
-    const origDay   = String(gDay).padStart(2, '0');
-    const origMonth = String(month).padStart(2, '0');
-    map.set(gDay, {
-      hijri:     `${parseInt(h.day, 10)} ${h.month?.en ?? ''} ${h.year} AH`,
-      gregorian: `${year}-${origMonth}-${origDay}`,
+  const lastDay = new Date(year, month, 0).getDate();
+  for (let day = 1; day <= lastDay; day++) {
+    const original = new Date(year, month - 1, day);
+    const shifted = new Date(year, month - 1, day + offset);
+    const shiftedKey = `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}-${String(shifted.getDate()).padStart(2, '0')}`;
+    const match = byGregorian.get(shiftedKey);
+    if (!match) continue;
+
+    map.set(day, {
+      hijri: match.hijri,
+      gregorian: `${original.getFullYear()}-${String(original.getMonth() + 1).padStart(2, '0')}-${String(original.getDate()).padStart(2, '0')}`,
     });
   }
-  console.log(`[Aladhan Calendar ✓] ${year}-${month} offset=${offset}: ${map.size} days`);
+
+  console.log(`[Aladhan Calendar ✓] ${year}-${month} offset=${offset}: ${map.size} days (app-shift)`);
   return map;
 }
 
@@ -262,13 +307,46 @@ async function upsertHijriCalendarEntries(
 
 async function saveOffsetToDb(n: number): Promise<{ ok: boolean }> {
   try {
-    const { error } = await supabaseAdmin
+    const nowIso = new Date().toISOString();
+    const payload = {
+      key: 'hijri_offset',
+      value: String(n),
+      label: 'Hijri Date Offset',
+      category: 'preferences',
+      updated_at: nowIso,
+    };
+
+    const { data: existingRows, error: existingErr } = await supabaseAdmin
       .from('masjid_settings')
-      .upsert(
-        { key: 'hijri_offset', value: String(n), label: 'Hijri Date Offset', category: 'preferences', updated_at: new Date().toISOString() },
-        { onConflict: 'key' },
-      );
-    if (error) { console.error('[HijriOffset] DB save failed:', error.message); return { ok: false }; }
+      .select('id')
+      .eq('key', 'hijri_offset')
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    if (existingErr) {
+      console.error('[HijriOffset] Existing row check failed:', existingErr.message);
+      return { ok: false };
+    }
+
+    if (existingRows && existingRows.length > 0) {
+      const { error: updateErr } = await supabaseAdmin
+        .from('masjid_settings')
+        .update(payload)
+        .eq('id', existingRows[0].id);
+      if (updateErr) {
+        console.error('[HijriOffset] DB update failed:', updateErr.message);
+        return { ok: false };
+      }
+    } else {
+      const { error: insertErr } = await supabaseAdmin
+        .from('masjid_settings')
+        .insert(payload);
+      if (insertErr) {
+        console.error('[HijriOffset] DB insert failed:', insertErr.message);
+        return { ok: false };
+      }
+    }
+
     console.log('[HijriOffset] Saved to DB:', n);
     return { ok: true };
   } catch (e) {
@@ -281,15 +359,43 @@ async function loadOffsetFromDb(): Promise<number> {
   try {
     const { data, error } = await supabaseAdmin
       .from('masjid_settings')
-      .select('value')
+      .select('value,updated_at')
       .eq('key', 'hijri_offset')
-      .maybeSingle();
-    if (!error && data?.value != null) {
-      const n = parseInt(data.value, 10);
-      if (!isNaN(n)) return n;
+      .order('updated_at', { ascending: false })
+      .limit(20);
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      for (const row of data) {
+        const n = parseInt(String(row?.value ?? ''), 10);
+        if (!isNaN(n)) return Math.max(-30, Math.min(30, n));
+      }
     }
   } catch { /* ignore */ }
   return 0;
+}
+
+const HIJRI_OFFSET_STORAGE_KEY = 'prayer-times:hijri-offset';
+
+function readOffsetFromStorage(): number | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(HIJRI_OFFSET_STORAGE_KEY);
+    if (raw == null) return null;
+    const n = parseInt(raw, 10);
+    if (isNaN(n)) return null;
+    return Math.max(-30, Math.min(30, n));
+  } catch {
+    return null;
+  }
+}
+
+function writeOffsetToStorage(n: number): void {
+  try {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(HIJRI_OFFSET_STORAGE_KEY, String(Math.max(-30, Math.min(30, n))));
+  } catch {
+    // Ignore storage errors (private mode, quota, etc.)
+  }
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -506,13 +612,14 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
 // ─── Prayer Times page ────────────────────────────────────────────────────────
 
 const PrayerTimes = () => {
+  const initialOffset = readOffsetFromStorage() ?? 0;
   const [selectedYear,    setSelectedYear]    = useState(CURRENT_YEAR);
   const [selectedMonth,   setSelectedMonth]   = useState(CURRENT_MONTH);
   const [editingRow,      setEditingRow]      = useState<PrayerTime | null>(null);
   const [jumuahModal,     setJumuahModal]     = useState(false);
   const [csvModal,        setCsvModal]        = useState(false);
   const [csvPreload,      setCsvPreload]      = useState<string | undefined>(undefined);
-  const [hijriOffset,     setHijriOffset]     = useState<number>(0);
+  const [hijriOffset,     setHijriOffset]     = useState<number>(initialOffset);
   const [populatingHijri,    setPopulatingHijri]    = useState(false);
   const [populatingAllMonths,   setPopulatingAllMonths]   = useState(false);
   const [populatingMissing,     setPopulatingMissing]     = useState(false);
@@ -521,8 +628,11 @@ const PrayerTimes = () => {
   // Hijri offset save status: 'idle' | 'saving' | 'saved' | 'error'
   const [offsetStatus,          setOffsetStatus]          = useState<'idle'|'saving'|'saved'|'error'>('idle');
   // Track the offset at which hijri_calendar was last filled — warn user when they change offset but haven't re-filled
-  const [loadedOffset,          setLoadedOffset]          = useState<number>(0);
+  const [loadedOffset,          setLoadedOffset]          = useState<number>(initialOffset);
   const [offsetDirty,           setOffsetDirty]           = useState(false);
+  const [offsetReady,           setOffsetReady]           = useState(false);
+  const [offsetChangedByUser,   setOffsetChangedByUser]   = useState(false);
+  const hijriOffsetRef = useRef<number>(initialOffset);
   const offsetDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const offsetStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [jumpInput,       setJumpInput]       = useState('');
@@ -536,7 +646,14 @@ const PrayerTimes = () => {
   const [previewHijri,    setPreviewHijri]    = useState<Map<number, string>>(new Map());
   const [previewLoading,  setPreviewLoading]  = useState(false);
   const [previewOffset,   setPreviewOffset]   = useState<number | null>(null);
+  const [todayHijriBase,  setTodayHijriBase]  = useState<string>('');
+  const [todayHijriLoading, setTodayHijriLoading] = useState(false);
   const [yearInput,       setYearInput]       = useState<string>('');
+  const [pendingPrayerChanges, setPendingPrayerChanges] = useState<Record<string, PrayerTimeUpdate>>({});
+  const [savingPendingPrayerChanges, setSavingPendingPrayerChanges] = useState(false);
+  const [showLegend,      setShowLegend]      = useState(true);
+  const [showSolarCard,   setShowSolarCard]   = useState(true);
+  const [showPreviewHint, setShowPreviewHint] = useState(true);
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Hijri calendar data: day → entry
@@ -556,11 +673,50 @@ const PrayerTimes = () => {
 
   // Load Hijri offset from DB on mount
   useEffect(() => {
-    loadOffsetFromDb().then((n) => {
-      setHijriOffset(n);
-      setLoadedOffset(n);
-    });
+    let active = true;
+    setOffsetReady(false);
+
+    loadOffsetFromDb()
+      .then((dbOffset) => {
+        if (!active) return;
+        const storedOffset = readOffsetFromStorage();
+        const effectiveOffset = storedOffset ?? dbOffset;
+
+        setHijriOffset(effectiveOffset);
+        hijriOffsetRef.current = effectiveOffset;
+        setLoadedOffset(effectiveOffset);
+        writeOffsetToStorage(effectiveOffset);
+
+        // If local value exists but DB is stale, update DB in the background.
+        if (storedOffset != null && storedOffset !== dbOffset) {
+          void saveOffsetToDb(storedOffset);
+        }
+      })
+      .finally(() => {
+        if (active) setOffsetReady(true);
+      });
+
+    return () => {
+      active = false;
+      if (offsetDebounceRef.current) {
+        clearTimeout(offsetDebounceRef.current);
+        offsetDebounceRef.current = null;
+        // Persist immediately when leaving the page so quick navigation never loses offset.
+        const latest = hijriOffsetRef.current;
+        writeOffsetToStorage(latest);
+        void saveOffsetToDb(latest);
+      }
+      if (offsetStatusTimerRef.current) {
+        clearTimeout(offsetStatusTimerRef.current);
+        offsetStatusTimerRef.current = null;
+      }
+    };
   }, []);
+
+  useEffect(() => {
+    hijriOffsetRef.current = hijriOffset;
+    writeOffsetToStorage(hijriOffset);
+  }, [hijriOffset]);
 
   // Check schema once on mount
   useEffect(() => {
@@ -589,8 +745,32 @@ const PrayerTimes = () => {
     fetchEidPrayers().then(setEidPrayers);
   }, []);
 
+  // Baseline reference: today's Hijri date with NO offset, so staff can compare quickly.
+  useEffect(() => {
+    let active = true;
+    const now = new Date();
+    setTodayHijriLoading(true);
+    fetchHijriFromApi(now.getFullYear(), now.getMonth() + 1, now.getDate(), 0)
+      .then(({ hijri }) => {
+        if (!active) return;
+        setTodayHijriBase(hijri);
+      })
+      .catch(() => {
+        if (!active) return;
+        setTodayHijriBase('Unavailable');
+      })
+      .finally(() => {
+        if (active) setTodayHijriLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // ── Auto-preview on offset or month/year change (1s debounce) ──────────────
   useEffect(() => {
+    if (!offsetReady) return;
+    if (!offsetChangedByUser) return;
     if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     previewDebounceRef.current = setTimeout(async () => {
       setPreviewLoading(true);
@@ -610,19 +790,20 @@ const PrayerTimes = () => {
     return () => {
       if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     };
-  }, [hijriOffset, selectedYear, selectedMonth]);
+  }, [hijriOffset, selectedYear, selectedMonth, offsetReady, offsetChangedByUser]);
 
   // ── Manual preview helper (kept for clearPreview) ──────────────────────────
   const handlePreviewHijri = async () => {
+    const effectiveOffset = hijriOffsetRef.current;
     setPreviewLoading(true);
     setPreviewHijri(new Map());
     try {
-      const monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, hijriOffset);
+      const monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, effectiveOffset);
       const preview = new Map<number, string>();
       monthMap.forEach(({ hijri }, day) => preview.set(day, hijri));
       setPreviewHijri(preview);
-      setPreviewOffset(hijriOffset);
-      toast.success(`Preview ready — ${preview.size} days with offset ${hijriOffset > 0 ? '+' : ''}${hijriOffset}. Click "Fill Month" to save to DB.`);
+      setPreviewOffset(effectiveOffset);
+      toast.success(`Preview ready — ${preview.size} days with offset ${effectiveOffset > 0 ? '+' : ''}${effectiveOffset}. Click "Fill Month" to save to DB.`);
     } catch (e) {
       toast.error(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -638,6 +819,9 @@ const PrayerTimes = () => {
   const changeOffset = (delta: number) => {
     setHijriOffset((prev) => {
       const next = Math.max(-30, Math.min(30, prev + delta));
+      if (next === prev) return prev;
+      setOffsetChangedByUser(true);
+      hijriOffsetRef.current = next;
       // Debounce DB save — wait 800ms after last click before saving
       if (offsetDebounceRef.current) clearTimeout(offsetDebounceRef.current);
       if (offsetStatusTimerRef.current) clearTimeout(offsetStatusTimerRef.current);
@@ -656,6 +840,8 @@ const PrayerTimes = () => {
   const handleResetOffset = () => {
     if (offsetDebounceRef.current) clearTimeout(offsetDebounceRef.current);
     if (offsetStatusTimerRef.current) clearTimeout(offsetStatusTimerRef.current);
+    hijriOffsetRef.current = 0;
+    setOffsetChangedByUser(true);
     setHijriOffset(0);
     setOffsetDirty(loadedOffset !== 0); // dirty only if loaded offset wasn't 0
     setOffsetStatus('saving');
@@ -719,6 +905,7 @@ const PrayerTimes = () => {
   // ── Fill Missing Only: Aladhan API → skips days already in hijri_calendar ─
   // Uses monthly calendar endpoint (12 calls/year) for speed
   const handleFillMissingOnly = async () => {
+    const effectiveOffset = hijriOffsetRef.current;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     setPopulatingMissing(true);
     const toastId = 'fill-missing-hijri';
@@ -782,7 +969,7 @@ const PrayerTimes = () => {
       setAllMonthsProgress(`${monthName} (${processedMonths + 1}/${byMonth.size} months)`);
       toast.loading(`Fetching ${monthName} — ${days.length} missing days…`, { id: toastId });
       try {
-        const monthMap = await fetchHijriMonthFromApi(selectedYear, month, hijriOffset);
+        const monthMap = await fetchHijriMonthFromApi(selectedYear, month, effectiveOffset);
         for (const day of days) {
           const result = monthMap.get(day);
           if (result) {
@@ -842,7 +1029,7 @@ const PrayerTimes = () => {
 
     const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
     setHijriCalendar(updated);
-    setLoadedOffset(hijriOffset);
+    setLoadedOffset(effectiveOffset);
     setOffsetDirty(false);
     setAllMonthsProgress('');
     setPopulatingMissing(false);
@@ -851,11 +1038,12 @@ const PrayerTimes = () => {
   // ── Fill All 12 Months: Aladhan API → hijri_calendar table ───────────────
   // Uses gToHCalendar (1 call/month = 12 calls total instead of 365)
   const handlePopulateAllMonths = async () => {
+    const effectiveOffset = hijriOffsetRef.current;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     setPopulatingAllMonths(true);
     const toastId = 'fill-all-hijri';
 
-    toast.loading(`Fetching all 12 months for ${selectedYear} (offset ${hijriOffset > 0 ? '+' : ''}${hijriOffset})…`, { id: toastId });
+    toast.loading(`Fetching all 12 months for ${selectedYear} (offset ${effectiveOffset > 0 ? '+' : ''}${effectiveOffset})…`, { id: toastId });
 
     const allEntries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
     const apiFailed: string[] = [];
@@ -866,7 +1054,7 @@ const PrayerTimes = () => {
       setAllMonthsProgress(`${monthName} (${month}/12)`);
       toast.loading(`Fetching ${monthName} ${selectedYear}… (${month}/12)`, { id: toastId });
       try {
-        const monthMap = await fetchHijriMonthFromApi(selectedYear, month, hijriOffset);
+        const monthMap = await fetchHijriMonthFromApi(selectedYear, month, effectiveOffset);
         for (let day = 1; day <= lastDay; day++) {
           const result = monthMap.get(day);
           if (result) {
@@ -913,7 +1101,7 @@ const PrayerTimes = () => {
 
     const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
     setHijriCalendar(updated);
-    setLoadedOffset(hijriOffset);
+    setLoadedOffset(effectiveOffset);
     setOffsetDirty(false);
     setAllMonthsProgress('');
     setPopulatingAllMonths(false);
@@ -921,6 +1109,7 @@ const PrayerTimes = () => {
 
   // ── Fill Dates: Aladhan API → hijri_calendar table (single month, batch call) ─
   const handlePopulateHijriDates = async () => {
+    const effectiveOffset = hijriOffsetRef.current;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
     setPopulatingHijri(true);
@@ -932,7 +1121,7 @@ const PrayerTimes = () => {
 
     let monthMap: Map<number, { hijri: string; gregorian: string }>;
     try {
-      monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, hijriOffset);
+      monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, effectiveOffset);
     } catch (e) {
       toast.error(`Aladhan API failed: ${e instanceof Error ? e.message : String(e)}`, { id: toastId, duration: 7000 });
       setPopulatingHijri(false);
@@ -975,7 +1164,7 @@ const PrayerTimes = () => {
       toast.success(`✓ ${saved} days saved to hijri_calendar for ${monthName}`, { id: toastId, duration: 4000 });
       const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
       setHijriCalendar(updated);
-      setLoadedOffset(hijriOffset);
+      setLoadedOffset(effectiveOffset);
       setOffsetDirty(false);
     }
     setPopulatingHijri(false);
@@ -987,12 +1176,100 @@ const PrayerTimes = () => {
     staleTime: 30_000,
   });
 
+  const editablePrayerKeys: (keyof PrayerTimeUpdate)[] = [
+    'fajr', 'fajr_jamat', 'sunrise', 'ishraq', 'zawaal',
+    'zuhr', 'zuhr_jamat', 'asr', 'asr_jamat',
+    'maghrib', 'maghrib_jamat', 'isha', 'isha_jamat',
+    'jumu_ah_1', 'jumu_ah_2',
+  ];
+
+  const visibleData = useMemo(() => {
+    if (!data) return data;
+    return data.map((row) => {
+      const pending = pendingPrayerChanges[row.id];
+      return pending ? ({ ...row, ...pending } as PrayerTime) : row;
+    });
+  }, [data, pendingPrayerChanges]);
+
   const handleSaved = useCallback((updated: PrayerTime) => {
-    queryClient.setQueryData<PrayerTime[]>(['prayer_times', selectedMonth], (old) =>
-      old ? old.map((r) => (r.id === updated.id ? updated : r)) : old,
-    );
+    const original = data?.find((r) => r.id === updated.id);
+    if (!original) {
+      setEditingRow(null);
+      return;
+    }
+
+    const diff: PrayerTimeUpdate = {};
+    editablePrayerKeys.forEach((key) => {
+      const nextVal = (updated[key as keyof PrayerTime] as string | null) ?? null;
+      const baseVal = (original[key as keyof PrayerTime] as string | null) ?? null;
+      if (nextVal !== baseVal) {
+        (diff as Record<string, string | null>)[key] = nextVal;
+      }
+    });
+
+    setPendingPrayerChanges((prev) => {
+      const next = { ...prev };
+      if (Object.keys(diff).length === 0) delete next[updated.id];
+      else next[updated.id] = diff;
+      return next;
+    });
+
+    setHighlightDay(updated.day);
+    setTimeout(() => setHighlightDay(null), 2500);
     setEditingRow(null);
-  }, [queryClient, selectedMonth]);
+  }, [data]);
+
+  const pendingPrayerRowsCount = Object.keys(pendingPrayerChanges).length;
+  const pendingPrayerCellCount = Object.values(pendingPrayerChanges)
+    .reduce((sum, item) => sum + Object.keys(item).length, 0);
+
+  const handleDiscardPendingPrayerChanges = () => {
+    setPendingPrayerChanges({});
+    toast.success('Discarded pending prayer time edits.');
+  };
+
+  const handleSavePendingPrayerChanges = async () => {
+    const entries = Object.entries(pendingPrayerChanges);
+    if (entries.length === 0) return;
+
+    setSavingPendingPrayerChanges(true);
+    const updatedRows: PrayerTime[] = [];
+    const failedIds: string[] = [];
+
+    for (const [id, payload] of entries) {
+      try {
+        const result = await updatePrayerTime(id, payload);
+        if (result[0]) updatedRows.push(result[0]);
+      } catch {
+        failedIds.push(id);
+      }
+    }
+
+    if (updatedRows.length > 0) {
+      queryClient.setQueryData<PrayerTime[]>(['prayer_times', selectedMonth], (old) => {
+        if (!old) return old;
+        const map = new Map(updatedRows.map((row) => [row.id, row]));
+        return old.map((row) => map.get(row.id) ?? row);
+      });
+    }
+
+    setPendingPrayerChanges((prev) => {
+      if (failedIds.length === 0) return {};
+      const keep: Record<string, PrayerTimeUpdate> = {};
+      failedIds.forEach((id) => {
+        if (prev[id]) keep[id] = prev[id];
+      });
+      return keep;
+    });
+
+    if (failedIds.length === 0) {
+      toast.success(`Saved ${updatedRows.length} day change(s).`);
+    } else {
+      toast.error(`Saved ${updatedRows.length}, but ${failedIds.length} failed. Please retry.`);
+    }
+
+    setSavingPendingPrayerChanges(false);
+  };
 
   const handleHijriSaved = useCallback((day: number, entry: HijriCalendarEntry) => {
     setHijriCalendar((prev) => new Map(prev).set(day, entry));
@@ -1024,6 +1301,33 @@ const PrayerTimes = () => {
 
   const monthHasBSTChange = (m: number) => m === 3 || m === 10;
   const isBstMonth = isBST(selectedYear, selectedMonth, 15);
+  const offsetLabel = `${hijriOffset >= 0 ? '+' : ''}${hijriOffset}`;
+  const previewDiffCount = data
+    ? data.filter((row) => {
+        const db = hijriCalendar.get(row.day)?.hijri_date;
+        const pre = previewHijri.get(row.day);
+        return !!pre && (!db || db !== pre);
+      }).length
+    : 0;
+  const hasPendingPreview = previewHijri.size > 0 && previewDiffCount > 0;
+
+  const goToPrevMonth = () => {
+    if (selectedMonth === 1) {
+      setSelectedMonth(12);
+      setSelectedYear((y) => y - 1);
+      return;
+    }
+    setSelectedMonth((m) => m - 1);
+  };
+
+  const goToNextMonth = () => {
+    if (selectedMonth === 12) {
+      setSelectedMonth(1);
+      setSelectedYear((y) => y + 1);
+      return;
+    }
+    setSelectedMonth((m) => m + 1);
+  };
 
   return (
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
@@ -1054,37 +1358,6 @@ const PrayerTimes = () => {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap sm:justify-end">
-              {/* Hijri offset */}
-              <div className="flex items-center gap-1 border border-[hsl(140_20%_88%)] rounded-lg px-2 py-1.5 bg-[hsl(140_30%_97%)]">
-                <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mr-1">Hijri</span>
-                <button onClick={() => changeOffset(-1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-white transition-colors"><Minus size={10} /></button>
-                <span className={`text-xs font-bold tabular-nums w-8 text-center ${hijriOffset === 0 ? 'text-muted-foreground' : hijriOffset > 0 ? 'text-emerald-600' : 'text-orange-500'}`}>
-                  {hijriOffset > 0 ? `+${hijriOffset}` : hijriOffset === 0 ? '±0' : hijriOffset}
-                </span>
-                <button onClick={() => changeOffset(1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-white transition-colors"><Plus size={10} /></button>
-                {hijriOffset !== 0 && (
-                  <button onClick={handleResetOffset} className="ml-1 text-[9px] text-muted-foreground hover:text-foreground">
-                    reset
-                  </button>
-                )}
-                {/* Save status indicator */}
-                {offsetStatus === 'saving' && (
-                  <span className="ml-1 flex items-center gap-0.5">
-                    <Loader2 size={9} className="animate-spin text-muted-foreground" />
-                  </span>
-                )}
-                {offsetStatus === 'saved' && (
-                  <span className="ml-1 flex items-center gap-0.5" title="Saved to database">
-                    <CheckCircle2 size={10} className="text-emerald-500" />
-                  </span>
-                )}
-                {offsetStatus === 'error' && (
-                  <span className="ml-1 flex items-center gap-0.5" title="DB save failed">
-                    <XCircle size={10} className="text-red-500" />
-                  </span>
-                )}
-              </div>
-
               {/* Jump to day */}
               <div className="flex items-center gap-1 border border-[hsl(140_20%_88%)] rounded-lg px-2 py-1.5 bg-[hsl(140_30%_97%)]">
                 <Search size={12} className="text-muted-foreground shrink-0" />
@@ -1098,22 +1371,143 @@ const PrayerTimes = () => {
                 <button onClick={handleJumpToDay} className="text-[10px] font-semibold text-[hsl(142_60%_35%)] hover:underline">Go</button>
               </div>
 
-              <Button variant="outline" size="sm" onClick={() => setCsvModal(true)} className="gap-2 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]">
-                <Upload size={14} /> Import CSV
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setJumuahModal(true)} className="gap-2 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]">
-                <CalendarCheck size={14} /> Set Jumu'ah
+              <div className="flex items-center gap-2 flex-wrap rounded-xl border border-[hsl(270_45%_82%)] bg-[hsl(270_40%_97%)] px-2.5 py-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-[#7c3aed]">Hijri Tools</span>
+
+                <div className="flex flex-col gap-0.5 rounded-lg px-2 py-1 bg-white border border-[hsl(270_35%_85%)]">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mr-1">Offset</span>
+                    <button onClick={() => changeOffset(-1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-[hsl(270_40%_96%)] transition-colors"><Minus size={10} /></button>
+                    <span className={`text-xs font-bold tabular-nums w-8 text-center ${hijriOffset === 0 ? 'text-muted-foreground' : hijriOffset > 0 ? 'text-emerald-600' : 'text-orange-500'}`}>
+                      {hijriOffset > 0 ? `+${hijriOffset}` : hijriOffset === 0 ? '±0' : hijriOffset}
+                    </span>
+                    <button onClick={() => changeOffset(1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-[hsl(270_40%_96%)] transition-colors"><Plus size={10} /></button>
+                    {hijriOffset !== 0 && (
+                      <button onClick={handleResetOffset} className="ml-1 text-[9px] text-muted-foreground hover:text-foreground">
+                        reset
+                      </button>
+                    )}
+                    {offsetStatus === 'saving' && (
+                      <span className="ml-1 flex items-center gap-0.5">
+                        <Loader2 size={9} className="animate-spin text-muted-foreground" />
+                      </span>
+                    )}
+                    {offsetStatus === 'saved' && (
+                      <span className="ml-1 flex items-center gap-0.5" title="Saved to database">
+                        <CheckCircle2 size={10} className="text-emerald-500" />
+                      </span>
+                    )}
+                    {offsetStatus === 'error' && (
+                      <span className="ml-1 flex items-center gap-0.5" title="DB save failed">
+                        <XCircle size={10} className="text-red-500" />
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[9px] font-medium text-[#7c3aed]/75 leading-tight pl-[2px]">
+                    Today (no offset): {todayHijriLoading ? 'Loading…' : (todayHijriBase || 'Unavailable')}
+                  </div>
+                </div>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className={`gap-2 ${offsetDirty && hijriCalendar.size > 0 ? 'ring-2 ring-amber-400 ring-offset-1 shadow-md' : ''}`}
+                      disabled={populatingHijri || populatingAllMonths || populatingMissing || !!schemaError}
+                      title={schemaError ? 'Fix DB schema first' : `Fill Hijri dates using offset ${offsetLabel}`}
+                    >
+                      {(populatingHijri || populatingAllMonths || populatingMissing) ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
+                      Fill Hijri ({offsetLabel})
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuLabel>Fill Hijri</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={handlePopulateHijriDates}
+                      disabled={populatingHijri || populatingAllMonths || !data || data.length === 0 || !!schemaError}
+                    >
+                      <Moon size={14} className="mr-2" /> Fill Month ({MONTHS_FULL[selectedMonth - 1]})
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handlePopulateAllMonths}
+                      disabled={populatingAllMonths || populatingHijri || populatingMissing || !!schemaError}
+                    >
+                      <Moon size={14} className="mr-2" /> Fill Full Year {selectedYear}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handleFillMissingOnly}
+                      disabled={populatingMissing || populatingAllMonths || populatingHijri || !!schemaError}
+                    >
+                      <Zap size={14} className="mr-2" /> {populatingMissing ? 'Filling Missing…' : 'Fill Missing Days'}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={handleExportHijriCsv}
+                      disabled={exportingCsv || populatingAllMonths || populatingHijri}
+                    >
+                      {exportingCsv ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Download size={14} className="mr-2" />} Export Hijri CSV
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <Button variant="outline" size="sm" onClick={() => setCsvModal(true)} className="gap-2">
+                <Upload size={14} /> Import
               </Button>
 
-              {/* Eid Times */}
-              <Button
-                variant="outline" size="sm"
-                onClick={() => setEidModal(true)}
-                className="gap-2 border-[hsl(38_70%_70%)] bg-[hsl(38_80%_97%)] text-[hsl(38_60%_28%)] hover:bg-[hsl(38_80%_93%)] font-semibold"
-                title={`Manage Eid al-Fitr and Eid al-Adha prayer times for ${selectedYear}`}
-              >
-                <Star size={14} /> Eid Times
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <MoreHorizontal size={14} /> Advanced
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Advanced Actions</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setJumuahModal(true)}>
+                    <CalendarCheck size={14} className="mr-2" /> Set Jumu'ah
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setEidModal(true)}>
+                    <Star size={14} className="mr-2" /> Eid Times
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => refetch()} disabled={isFetching}>
+                    <RefreshCw size={14} className={`mr-2 ${isFetching ? 'animate-spin' : ''}`} /> Refresh Data
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <SlidersHorizontal size={14} /> View Options
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Display</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={showLegend}
+                    onCheckedChange={(checked) => setShowLegend(checked === true)}
+                  >
+                    Show Legend
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={showSolarCard}
+                    onCheckedChange={(checked) => setShowSolarCard(checked === true)}
+                  >
+                    Show Today's Solar Times
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={showPreviewHint}
+                    onCheckedChange={(checked) => setShowPreviewHint(checked === true)}
+                  >
+                    Show Preview Banner
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* Offset-changed warning */}
               {offsetDirty && hijriCalendar.size > 0 && (
@@ -1123,65 +1517,19 @@ const PrayerTimes = () => {
                 </div>
               )}
 
-              {/* Fill Dates — current month only */}
-              <Button
-                variant="outline" size="sm"
-                onClick={handlePopulateHijriDates}
-                disabled={populatingHijri || populatingAllMonths || !data || data.length === 0 || !!schemaError}
-                className={`gap-2 border-[hsl(270_50%_75%)] text-[#7c3aed] hover:bg-[hsl(270_50%_97%)] ${offsetDirty && hijriCalendar.size > 0 ? 'ring-2 ring-amber-400 ring-offset-1 shadow-md' : ''}`}
-                title={schemaError ? 'Fix DB schema first' : `Fetch Gregorian + Hijri dates from Aladhan API for this month`}
-              >
-                {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
-                {populatingHijri ? 'Filling…' : 'Fill Month'}
-              </Button>
-
-              {/* Fill Missing Only — fast partial update */}
-              <Button
-                variant="outline" size="sm"
-                onClick={handleFillMissingOnly}
-                disabled={populatingMissing || populatingAllMonths || populatingHijri || !!schemaError}
-                className="gap-2 border-[hsl(38_80%_65%)] bg-[hsl(38_80%_97%)] text-[hsl(38_70%_30%)] hover:bg-[hsl(38_80%_93%)] font-semibold"
-                title={schemaError ? 'Fix DB schema first' : `Only fetch days not yet in hijri_calendar for ${selectedYear} — much faster than Fill All`}
-              >
-                {populatingMissing
-                  ? <><Loader2 size={14} className="animate-spin" />{allMonthsProgress || 'Checking…'}</>
-                  : <><Zap size={14} />Fill Missing</>}
-              </Button>
-
-              {/* Fill All Months — entire year */}
-              <Button
-                variant="outline" size="sm"
-                onClick={handlePopulateAllMonths}
-                disabled={populatingAllMonths || populatingHijri || populatingMissing || !!schemaError}
-                className="gap-2 border-[hsl(270_60%_65%)] bg-[hsl(270_50%_97%)] text-[#6d28d9] hover:bg-[hsl(270_50%_93%)] font-semibold"
-                title={schemaError ? 'Fix DB schema first' : `Fetch + overwrite Hijri dates for ALL 12 months of ${selectedYear}`}
-              >
-                {populatingAllMonths
-                  ? <><Loader2 size={14} className="animate-spin" />{allMonthsProgress ? allMonthsProgress : 'Working…'}</>
-                  : <><Moon size={14} />Fill All {selectedYear}</>
-                }
-              </Button>
-
-              {/* Export Hijri CSV */}
-              <Button
-                variant="outline" size="sm"
-                onClick={handleExportHijriCsv}
-                disabled={exportingCsv || populatingAllMonths || populatingHijri}
-                className="gap-2 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]"
-                title={`Download all hijri_calendar entries for ${selectedYear} as CSV`}
-              >
-                {exportingCsv ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                {exportingCsv ? 'Exporting…' : `Export ${selectedYear} CSV`}
-              </Button>
-
-              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
-                <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
-              </Button>
             </div>
           </div>
 
-          {/* Year selector — unlimited range, type any year */}
-          <div className="flex items-center gap-2 mb-3">
+          {/* Month/year navigation */}
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest shrink-0">Navigate</span>
+            <button
+              onClick={goToPrevMonth}
+              className="h-8 px-2.5 flex items-center justify-center rounded-lg border border-[hsl(140_20%_88%)] hover:bg-[hsl(140_30%_97%)] transition-colors text-xs font-semibold"
+            >
+              <ChevronLeft size={14} className="mr-1" /> Prev Month
+            </button>
+
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest shrink-0">Year</span>
             <button
               onClick={() => setSelectedYear((y) => y - 1)}
@@ -1220,6 +1568,19 @@ const PrayerTimes = () => {
                 className="text-[10px] font-medium px-2 py-1 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)] transition-colors"
               >Today's year</button>
             )}
+
+            <button
+              onClick={goToNextMonth}
+              className="h-8 px-2.5 flex items-center justify-center rounded-lg border border-[hsl(140_20%_88%)] hover:bg-[hsl(140_30%_97%)] transition-colors text-xs font-semibold"
+            >
+              Next Month <ChevronRight size={14} className="ml-1" />
+            </button>
+
+            {hasPendingPreview && (
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Unsaved Hijri preview changes
+              </span>
+            )}
           </div>
 
           {/* Month selector */}
@@ -1243,7 +1604,8 @@ const PrayerTimes = () => {
         </div>
 
         {/* Legend */}
-        <div className="px-4 sm:px-8 py-2.5 bg-[hsl(140_30%_97%)] border-b border-[hsl(140_20%_88%)] flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
+        {showLegend && (
+          <div className="px-4 sm:px-8 py-2.5 bg-[hsl(140_30%_97%)] border-b border-[hsl(140_20%_88%)] flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded bg-[#fef9ec] border border-amber-200" />Friday</span>
           <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded bg-[#eff6ff] border border-blue-200" />Today</span>
           <span className="flex items-center gap-1.5"><span className="inline-block px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold text-[9px]">BST</span>Summer Time</span>
@@ -1251,7 +1613,8 @@ const PrayerTimes = () => {
           {hijriCalendar.size > 0 && (
             <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded bg-[hsl(270_50%_95%)] border border-[hsl(270_50%_75%)]" /><span className="text-[#7c3aed]">Hijri from DB</span></span>
           )}
-        </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="px-2 sm:px-6 py-4 flex-1 overflow-x-auto">
@@ -1284,15 +1647,15 @@ const PrayerTimes = () => {
           {!isLoading && !isError && data && (
             <>
               {/* Preview banner — auto-shown on offset change */}
-              {(previewHijri.size > 0 || previewLoading) && (
-                <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border border-[#7c3aed]/30 bg-[hsl(270_50%_97%)]">
+              {(previewHijri.size > 0 || previewLoading) && showPreviewHint && (
+                <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border border-[#7c3aed]/25 bg-[hsl(270_30%_98%)]">
                   {previewLoading
                     ? <Loader2 size={13} className="animate-spin text-[#7c3aed] shrink-0" />
                     : <span className="text-sm shrink-0">👁</span>}
                   <span className="text-xs font-semibold text-[#7c3aed]">
                     {previewLoading
                       ? `Auto-previewing offset ${hijriOffset > 0 ? '+' : ''}${hijriOffset}…`
-                      : `Previewing ${previewHijri.size} days · offset ${previewOffset !== null && previewOffset >= 0 ? '+' : ''}${previewOffset} — dashed = preview, solid = stored in DB`}
+                      : `DB → Preview active for ${previewHijri.size} day(s) · ${previewDiffCount} day(s) will change`}
                   </span>
                   {!previewLoading && (
                     <button onClick={clearPreview} className="ml-auto text-[10px] font-medium text-[#7c3aed]/60 hover:text-[#7c3aed] transition-colors">✕ Clear</button>
@@ -1301,19 +1664,20 @@ const PrayerTimes = () => {
               )}
 
               <PrayerTimesTable
-                data={data}
+                data={visibleData}
                 year={selectedYear}
                 hijriOffset={hijriOffset}
                 hijriCalendar={hijriCalendar}
                 previewHijri={previewHijri}
+                pendingChanges={pendingPrayerChanges}
                 eidPrayers={eidPrayers}
                 onEdit={setEditingRow}
                 highlightDay={highlightDay}
               />
 
-              {selectedYear === CURRENT_YEAR && selectedMonth === CURRENT_MONTH && (() => {
+              {showSolarCard && selectedYear === CURRENT_YEAR && selectedMonth === CURRENT_MONTH && (() => {
                 const today = new Date().getDate();
-                const todayRow = data.find((r) => r.day === today);
+                const todayRow = visibleData.find((r) => r.day === today);
                 if (!todayRow) return null;
                 return (
                   <div className="mt-4 max-w-2xl">
@@ -1331,6 +1695,47 @@ const PrayerTimes = () => {
             </>
           )}
         </div>
+
+        {hasPendingPreview && (
+          <div className="sticky bottom-0 z-30 border-t border-amber-300 bg-amber-50/95 backdrop-blur px-4 sm:px-8 py-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-xs font-semibold text-amber-800">
+                You have preview-only Hijri changes for {previewDiffCount} day(s). Apply to save these dates to the database.
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={clearPreview}>Discard Preview</Button>
+                <Button
+                  size="sm"
+                  onClick={handlePopulateHijriDates}
+                  disabled={populatingHijri || !!schemaError}
+                  className="gap-2"
+                >
+                  {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
+                  {populatingHijri ? 'Applying Hijri…' : `Apply Hijri (${offsetLabel})`}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {pendingPrayerRowsCount > 0 && (
+          <div className="sticky bottom-0 z-40 border-t border-amber-300 bg-amber-50/95 backdrop-blur px-4 sm:px-8 py-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-xs font-semibold text-amber-800">
+                {pendingPrayerCellCount} changes pending across {pendingPrayerRowsCount} day(s).
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleDiscardPendingPrayerChanges} disabled={savingPendingPrayerChanges}>
+                  Discard
+                </Button>
+                <Button size="sm" onClick={handleSavePendingPrayerChanges} disabled={savingPendingPrayerChanges} className="gap-2">
+                  {savingPendingPrayerChanges ? <Loader2 size={14} className="animate-spin" /> : null}
+                  {savingPendingPrayerChanges ? 'Saving Changes…' : 'Save Changes'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <JumuahYearModal open={jumuahModal} onClose={() => setJumuahModal(false)} year={selectedYear} queryClient={queryClient} />
@@ -1338,6 +1743,7 @@ const PrayerTimes = () => {
         row={editingRow}
         year={selectedYear}
         hijriEntry={editingRow ? (hijriCalendar.get(editingRow.day) ?? null) : null}
+        deferSave
         onClose={() => setEditingRow(null)}
         onSaved={handleSaved}
         onHijriSaved={handleHijriSaved}

@@ -10,6 +10,9 @@ import {
 import masjidPhoto from '#/assets/masjid-photo.png';
 import { supabaseAdmin } from '#/lib/supabase';
 import masjidLogo from '#/assets/masjid-logo.png';
+import { fetchEidPrayers, EidPrayer } from '#/components/features/EidTimesModal';
+import { isBST } from '#/lib/dateUtils';
+import { PrayerTime } from '#/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +44,116 @@ function formatCountdown(totalSeconds: number): string {
   if (m > 0) return `${m}m ${String(s).padStart(2,'0')}s`;
   return `${s}s`;
 }
+
+function monthIsBstByMidMonth(year: number, month: number): boolean {
+  return isBST(year, month, 15);
+}
+
+function getDominantJumuahPair(rows: PrayerTime[]): { first: string | null; second: string | null } {
+  const freq = new Map<string, { first: string | null; second: string | null; count: number }>();
+  rows.forEach((row) => {
+    const first = row.jumu_ah_1 ?? null;
+    const second = row.jumu_ah_2 ?? null;
+    if (!first && !second) return;
+    const key = `${first ?? ''}|${second ?? ''}`;
+    const existing = freq.get(key);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+    freq.set(key, { first, second, count: 1 });
+  });
+
+  let best: { first: string | null; second: string | null; count: number } | null = null;
+  freq.forEach((item) => {
+    if (!best || item.count > best.count) best = item;
+  });
+
+  return { first: best?.first ?? null, second: best?.second ?? null };
+}
+
+const SmallTimeTag = ({ label, value }: { label: string; value: string | null }) => (
+  <div className="px-2 py-1 rounded-md border border-white/70 bg-white text-[10px] font-semibold text-[hsl(150_30%_18%)]">
+    {label}: <span className="tabular-nums font-extrabold">{value ?? '—'}</span>
+  </div>
+);
+
+const YearSpecialTimesBlocks = ({
+  gmtTimes,
+  bstTimes,
+  eidPrayers,
+}: {
+  gmtTimes: { first: string | null; second: string | null };
+  bstTimes: { first: string | null; second: string | null };
+  eidPrayers: EidPrayer[];
+}) => {
+  const fitrTimes = eidPrayers
+    .filter((e) => e.eid_type === 'eid_al_fitr' && e.time)
+    .sort((a, b) => a.jamaat_number - b.jamaat_number);
+  const adhaTimes = eidPrayers
+    .filter((e) => e.eid_type === 'eid_al_adha' && e.time)
+    .sort((a, b) => a.jamaat_number - b.jamaat_number);
+
+  return (
+    <section>
+      <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <Star size={15} className="text-[hsl(142_60%_35%)]" />
+          <h2 className="text-sm font-bold text-[hsl(150_30%_12%)]">Yearly Jumu'ah & Eid Times</h2>
+        </div>
+        <div className="flex-1 h-px bg-[hsl(140_20%_88%)]" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_45%_96%)] px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(142_60%_32%)] mb-1.5">Jumu'ah · GMT (Winter)</p>
+            <div className="flex flex-wrap gap-1.5">
+              <SmallTimeTag label="1st" value={gmtTimes.first} />
+              <SmallTimeTag label="2nd" value={gmtTimes.second} />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(187_55%_96%)] px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-700 mb-1.5">Jumu'ah · BST (Summer)</p>
+            <div className="flex flex-wrap gap-1.5">
+              <SmallTimeTag label="1st" value={bstTimes.first} />
+              <SmallTimeTag label="2nd" value={bstTimes.second} />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_50%_96%)] px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-1.5">Eid al-Fitr · 1st Shawwal</p>
+            {fitrTimes.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No Eid times set.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {fitrTimes.map((entry) => (
+                  <SmallTimeTag key={`fitr-${entry.jamaat_number}`} label={`J${entry.jamaat_number}`} value={entry.time} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(38_85%_96%)] px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1.5">Eid al-Adha · 10th Dhul Hijjah</p>
+            {adhaTimes.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No Eid times set.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {adhaTimes.map((entry) => (
+                  <SmallTimeTag key={`adha-${entry.jamaat_number}`} label={`J${entry.jamaat_number}`} value={entry.time} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
 
 // ─── Next Prayer Countdown ────────────────────────────────────────────────────
 
@@ -489,9 +602,33 @@ const Dashboard = () => {
     staleTime: 300_000,
   });
 
+  const { data: yearPrayerTimes = [] } = useQuery({
+    queryKey: ['prayer-times-year-snapshot', now.getFullYear()],
+    queryFn: async () => {
+      const months = await Promise.all(Array.from({ length: 12 }, (_, i) => fetchPrayerTimes(i + 1)));
+      return months.flat();
+    },
+    staleTime: 300_000,
+  });
+
+  const { data: eidPrayers = [] } = useQuery({
+    queryKey: ['eid-prayers-dashboard'],
+    queryFn: fetchEidPrayers,
+    staleTime: 300_000,
+  });
+
   const todayRow = prayerTimes.find((r) => r.day === day);
   const activeAnnouncements = announcements.filter((a) => a.is_active);
   const activeAdhkar = adhkar.filter((a) => a.is_active);
+
+  const jumuahRows = yearPrayerTimes.filter((row) => {
+    const date = new Date(now.getFullYear(), row.month - 1, row.day);
+    return date.getDay() === 5;
+  });
+  const gmtJumuahRows = jumuahRows.filter((row) => !monthIsBstByMidMonth(now.getFullYear(), row.month));
+  const bstJumuahRows = jumuahRows.filter((row) => monthIsBstByMidMonth(now.getFullYear(), row.month));
+  const gmtTimes = getDominantJumuahPair(gmtJumuahRows);
+  const bstTimes = getDominantJumuahPair(bstJumuahRows);
 
   // Full prayer rows for the cards
   const prayerRows: PrayerRow[] = [
@@ -615,6 +752,12 @@ const Dashboard = () => {
               </div>
             )}
           </section>
+
+          <YearSpecialTimesBlocks
+            gmtTimes={gmtTimes}
+            bstTimes={bstTimes}
+            eidPrayers={eidPrayers}
+          />
 
           {/* ── Stats ── */}
           <section>
