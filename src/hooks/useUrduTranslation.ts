@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { supabase } from '#/lib/supabase';
+import { invokeExternalFunction } from '#/lib/supabase';
 import { toast } from 'sonner';
-import { FunctionsHttpError } from '@supabase/supabase-js';
 
 /**
  * Hook that provides a `translateToUrdu(text)` function backed by the
@@ -59,19 +58,12 @@ export function useUrduTranslation() {
     }
     setTranslating(true);
     try {
-      const { data, error } = await supabase.functions.invoke('translate-urdu', {
-        body: { text: text.trim() },
+      const { data, error } = await invokeExternalFunction('translate-urdu', {
+        text: text.trim(),
       });
 
       if (error) {
-        let msg = error.message;
-        if (error instanceof FunctionsHttpError) {
-          try {
-            const statusCode = error.context?.status ?? 500;
-            const textContent = await error.context?.text();
-            msg = `[${statusCode}] ${textContent || error.message}`;
-          } catch { /* keep original */ }
-        }
+        const msg = typeof error === 'string' ? error : 'Unknown translation error';
         try {
           const fallbackUrdu = await fallbackTranslateToUrdu(text.trim());
           if (fallbackUrdu) {

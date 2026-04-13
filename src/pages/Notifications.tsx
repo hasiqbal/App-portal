@@ -12,9 +12,9 @@ import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Textarea } from '#/components/ui/textarea';
 import Sidebar from '#/components/layout/Sidebar';
-import { supabase } from '#/lib/supabase';
+import { invokeExternalFunction, onspaceCloud, supabase } from '#/lib/supabase';
 import { toast } from 'sonner';
-import { FunctionsHttpError } from '@supabase/supabase-js';
+import { useUrduTranslation } from '#/hooks/useUrduTranslation';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -22,8 +22,12 @@ interface PushNotification {
   id: string;
   title: string;
   body: string;
+  urdu_body?: string | null;
   image_url: string | null;
   link_url: string | null;
+  payload_json?: Record<string, unknown> | null;
+  format_version?: string | null;
+  cta_label?: string | null;
   audience: string;
   category: string;
   status: 'draft' | 'sent' | 'failed' | 'scheduled';
@@ -151,21 +155,20 @@ function getCategoryMeta(value: string) {
 // ─── Urdu Auto-Translate Button ──────────────────────────────────────────────
 
 const UrduAutoTranslateBtn = ({ sourceText, onResult }: { sourceText: string; onResult: (v: string) => void }) => {
-  const [loading, setLoading] = useState(false);
+  const { translateToUrdu, translating } = useUrduTranslation();
+
   const handleClick = async () => {
     if (!sourceText.trim()) { toast.error('No English text to translate.'); return; }
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('translate-urdu', { body: { text: sourceText.trim() } });
-      if (error || !(data as { urdu?: string })?.urdu) { toast.error('Translation failed.'); return; }
-      onResult((data as { urdu: string }).urdu);
-      toast.success('Urdu translation generated.');
-    } catch { toast.error('Translation error.'); } finally { setLoading(false); }
+    const urdu = await translateToUrdu(sourceText.trim());
+    if (!urdu) return;
+    onResult(urdu);
+    toast.success('Urdu translation generated.');
   };
+
   return (
-    <button type="button" disabled={loading} onClick={handleClick}
+    <button type="button" disabled={translating} onClick={handleClick}
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors">
-      {loading ? <><RefreshCw size={11} className="animate-spin" /> Translating…</> : <>🌐 Auto-translate</>}
+      {translating ? <><RefreshCw size={11} className="animate-spin" /> Translating…</> : <>🌐 Auto-translate</>}
     </button>
   );
 };
@@ -182,7 +185,7 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const { data } = await supabase.storage.from('adhkar-images').list('notifications', {
+      const { data } = await onspaceCloud.storage.from('adhkar-images').list('notifications', {
         limit: 100, sortBy: { column: 'created_at', order: 'desc' },
       });
       if (data) {
@@ -190,7 +193,7 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
           .filter((f) => f.name !== '.emptyFolderPlaceholder' && f.metadata)
           .map((f) => {
             const path = `notifications/${f.name}`;
-            const { data: u } = supabase.storage.from('adhkar-images').getPublicUrl(path);
+            const { data: u } = onspaceCloud.storage.from('adhkar-images').getPublicUrl(path);
             return { name: f.name, url: u.publicUrl, path };
           });
         setImages(imgs);
@@ -371,9 +374,9 @@ const ComposePanel = ({
     try {
       const ext = file.name.split('.').pop() ?? 'jpg';
       const path = `notifications/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from('adhkar-images').upload(path, file, { contentType: file.type });
+      const { error } = await onspaceCloud.storage.from('adhkar-images').upload(path, file, { contentType: file.type });
       if (error) throw error;
-      const { data: u } = supabase.storage.from('adhkar-images').getPublicUrl(path);
+      const { data: u } = onspaceCloud.storage.from('adhkar-images').getPublicUrl(path);
       set('imageUrl', u.publicUrl);
       setShowAdvanced(true);
       toast.success('Image uploaded.');
@@ -388,8 +391,15 @@ const ComposePanel = ({
   const buildDbPayload = () => ({
     title: form.title.trim(),
     body: form.body.trim(),
+    urdu_body: form.urduBody.trim() || null,
     image_url: form.imageUrl.trim() || null,
     link_url: form.linkUrl.trim() || null,
+    payload_json: {
+      formatVersion: 'v1',
+      hasImage: Boolean(form.imageUrl.trim()),
+      hasUrl: Boolean(form.linkUrl.trim()),
+      hasUrdu: Boolean(form.urduBody.trim()),
+    },
     audience: form.audience,
     category: form.category,
   });
@@ -426,28 +436,24 @@ const ComposePanel = ({
       onSent(draft);
 
       // 2. Call the Edge Function to deliver via Expo
-      const { data, error } = await supabase.functions.invoke('send-notification', {
-        body: {
-          notificationId: draft.id,
-          title: form.title.trim(),
-          body: form.body.trim(),
-          imageUrl: form.imageUrl.trim() || undefined,
-          linkUrl: form.linkUrl.trim() || undefined,
-          audience: form.audience,
-        },
+      const { data, error } = await invokeExternalFunction<{
+        sent?: number;
+        total?: number;
+        errors?: string[];
+      }>('send-notification-formatted', {
+        notificationId: draft.id,
+        title: form.title.trim(),
+        body: form.body.trim(),
+        urduBody: form.urduBody.trim() || undefined,
+        imageUrl: form.imageUrl.trim() || undefined,
+        linkUrl: form.linkUrl.trim() || undefined,
+        audience: form.audience,
+        category: form.category,
+        formatVersion: 'v1',
       });
 
       if (error) {
-        let errorMessage = error.message;
-        if (error instanceof FunctionsHttpError) {
-          try {
-            const statusCode = error.context?.status ?? 500;
-            const textContent = await error.context?.text();
-            errorMessage = `[${statusCode}] ${textContent || error.message}`;
-          } catch {
-            errorMessage = error.message;
-          }
-        }
+        const errorMessage = typeof error === 'string' ? error : 'Unknown error';
         toast.error(`Send failed: ${errorMessage}`);
         // Mark as failed in DB
         await supabase.from('push_notifications').update({ status: 'failed', error_message: errorMessage }).eq('id', draft.id);
@@ -864,8 +870,10 @@ const HistoryRow = ({
               {[
                 { label: 'Title',     value: notif.title },
                 { label: 'Message',   value: notif.body  },
+                ...(notif.urdu_body ? [{ label: 'Urdu', value: notif.urdu_body }] : []),
                 { label: 'Audience',  value: AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience },
                 { label: 'Category',  value: getCategoryMeta(notif.category ?? 'general').label },
+                ...(notif.format_version ? [{ label: 'Format', value: notif.format_version }] : []),
                 ...(notif.recipient_count !== null ? [{ label: 'Delivered', value: `${notif.recipient_count.toLocaleString()} device${notif.recipient_count !== 1 ? 's' : ''}` }] : []),
                 ...(notif.scheduled_for ? [{ label: 'Scheduled', value: new Date(notif.scheduled_for).toLocaleString() }] : []),
                 ...(notif.sent_at ? [{ label: 'Sent at', value: new Date(notif.sent_at).toLocaleString() }] : []),
@@ -1360,6 +1368,7 @@ const Notifications = () => {
     setComposeData({
       title: notif.title,
       body: notif.body,
+      urduBody: notif.urdu_body ?? '',
       imageUrl: notif.image_url ?? '',
       linkUrl: notif.link_url ?? '',
       audience: notif.audience,

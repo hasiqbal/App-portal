@@ -4,8 +4,7 @@
  * Flow: UI → Hook (React Query) → Service → Supabase
  */
 
-import { supabase } from '#/lib/supabase';
-import { FunctionsHttpError } from '@supabase/supabase-js';
+import { invokeExternalFunction, onspaceCloud, supabase } from '#/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,8 +12,12 @@ export interface PushNotification {
   id: string;
   title: string;
   body: string;
+  urdu_body?: string | null;
   image_url: string | null;
   link_url: string | null;
+  payload_json?: Record<string, unknown> | null;
+  format_version?: string | null;
+  cta_label?: string | null;
   audience: string;
   category: string;
   status: 'draft' | 'sent' | 'failed' | 'scheduled';
@@ -40,8 +43,10 @@ export interface DeviceToken {
 export interface SendNotificationPayload {
   title: string;
   body: string;
+  urduBody?: string;
   imageUrl?: string;
   linkUrl?: string;
+  ctaLabel?: string;
   audience?: string;
   category?: string;
   scheduledFor?: string;
@@ -76,8 +81,17 @@ export const notificationService = {
       .insert({
         title: payload.title,
         body: payload.body,
+        urdu_body: payload.urduBody ?? null,
         image_url: payload.imageUrl ?? null,
         link_url: payload.linkUrl ?? null,
+        cta_label: payload.ctaLabel ?? null,
+        format_version: 'v1',
+        payload_json: {
+          hasImage: Boolean(payload.imageUrl),
+          hasUrl: Boolean(payload.linkUrl),
+          hasUrdu: Boolean(payload.urduBody),
+          ctaLabel: payload.ctaLabel ?? null,
+        },
         audience: payload.audience ?? 'all',
         category: payload.category ?? 'general',
         status,
@@ -122,28 +136,25 @@ export const notificationService = {
     const draft = await notificationService.saveDraft(payload, 'draft');
 
     // 2. Call Edge Function
-    const { data, error } = await supabase.functions.invoke('send-notification', {
-      body: {
-        notificationId: draft.id,
-        title: payload.title,
-        body: payload.body,
-        imageUrl: payload.imageUrl,
-        linkUrl: payload.linkUrl,
-        audience: payload.audience ?? 'all',
-      },
+    const { data, error } = await invokeExternalFunction<{
+      sent?: number;
+      total?: number;
+      errors?: string[];
+    }>('send-notification-formatted', {
+      notificationId: draft.id,
+      title: payload.title,
+      body: payload.body,
+      urduBody: payload.urduBody,
+      imageUrl: payload.imageUrl,
+      linkUrl: payload.linkUrl,
+      ctaLabel: payload.ctaLabel,
+      audience: payload.audience ?? 'all',
+      category: payload.category ?? 'general',
+      formatVersion: 'v1',
     });
 
     if (error) {
-      let errorMessage = error.message;
-      if (error instanceof FunctionsHttpError) {
-        try {
-          const statusCode = error.context?.status ?? 500;
-          const textContent = await error.context?.text();
-          errorMessage = `[${statusCode}] ${textContent || error.message}`;
-        } catch {
-          errorMessage = error.message;
-        }
-      }
+      const errorMessage = typeof error === 'string' ? error : 'Unknown edge function error';
       await notificationService.markFailed(draft.id, errorMessage);
       throw new Error(errorMessage);
     }
@@ -171,19 +182,19 @@ export const notificationService = {
     const ext = file.name.split('.').pop() ?? 'jpg';
     const path = `notifications/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-    const { error } = await supabase.storage
+    const { error } = await onspaceCloud.storage
       .from('adhkar-images')
       .upload(path, file, { contentType: file.type });
 
     if (error) throw new Error(`Upload failed: ${error.message}`);
 
-    const { data } = supabase.storage.from('adhkar-images').getPublicUrl(path);
+    const { data } = onspaceCloud.storage.from('adhkar-images').getPublicUrl(path);
     return data.publicUrl;
   },
 
   /** List notification images from storage. */
   listImages: async (): Promise<{ name: string; url: string; path: string }[]> => {
-    const { data } = await supabase.storage
+    const { data } = await onspaceCloud.storage
       .from('adhkar-images')
       .list('notifications', { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
 
@@ -193,7 +204,7 @@ export const notificationService = {
       .filter((f) => f.name !== '.emptyFolderPlaceholder' && f.metadata)
       .map((f) => {
         const path = `notifications/${f.name}`;
-        const { data: u } = supabase.storage.from('adhkar-images').getPublicUrl(path);
+        const { data: u } = onspaceCloud.storage.from('adhkar-images').getPublicUrl(path);
         return { name: f.name, url: u.publicUrl, path };
       });
   },
