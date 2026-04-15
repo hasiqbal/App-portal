@@ -39,7 +39,7 @@ const TABLE_CONFIGS: Record<string, { select: string; order: string; onConflict:
     onConflict: 'id',
   },
   sunnah_reminders: {
-    select: 'id,title,arabic_title,arabic,transliteration,translation,description,reference,count,category,group_name,group_order,display_order,is_active,file_url,created_at,updated_at',
+    select: 'id,title,arabic_title,arabic,transliteration,translation,urdu_translation,description,reference,count,category,group_name,group_order,display_order,is_active,file_url,created_at,updated_at',
     order: 'display_order.asc,created_at.asc',
     onConflict: 'id',
   },
