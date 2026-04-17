@@ -10,6 +10,15 @@ export interface HijriCalendarEntry {
   updated_at?: string;
 }
 
+export interface HijriMonthOverride {
+  id?: string;
+  hijri_year: number;
+  hijri_month: number; // 1-12
+  days_in_month: 29 | 30;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface PrayerTime {
   id: string;
   month: number;

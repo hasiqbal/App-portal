@@ -19,8 +19,19 @@ interface PrayerTimesTableProps {
 // ─── Eid detection from Hijri date string ──────────────────────────────────────
 function detectEidType(hijriDate: string | undefined): EidType | null {
   if (!hijriDate) return null;
-  if (/^1\s+Shaw/i.test(hijriDate)) return 'eid_al_fitr';
-  if (/^10\s+(Dhu|Dhul|Zu)/i.test(hijriDate)) return 'eid_al_adha';
+
+  const match = hijriDate.match(/^(\d{1,2})\s+(.+?)\s+\d{4}\s*AH$/i);
+  if (!match) return null;
+
+  const day = parseInt(match[1], 10);
+  const monthKey = match[2]
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+  if (day === 1 && monthKey === 'shawwal') return 'eid_al_fitr';
+  if (day === 10 && monthKey.includes('hijj')) return 'eid_al_adha';
   return null;
 }
 

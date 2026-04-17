@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import Sidebar from '#/components/layout/Sidebar';
@@ -10,7 +10,7 @@ import {
 import masjidPhoto from '#/assets/masjid-photo.png';
 import { supabaseAdmin } from '#/lib/supabase';
 import masjidLogo from '#/assets/masjid-logo.png';
-import { fetchEidPrayers, EidPrayer } from '#/components/features/EidTimesModal';
+import { fetchEidPrayers, EidPrayer, EidType } from '#/components/features/EidTimesModal';
 import { isBST } from '#/lib/dateUtils';
 import { PrayerTime } from '#/types';
 
@@ -154,6 +154,118 @@ const YearSpecialTimesBlocks = ({
     </section>
   );
 };
+
+function detectEidTypeFromHijriDate(hijriDate: string | null | undefined): EidType | null {
+  if (!hijriDate) return null;
+  const match = hijriDate.match(/^(\d{1,2})\s+(.+?)\s+\d{4}\s*AH$/i);
+  if (!match) return null;
+
+  const day = parseInt(match[1], 10);
+  const monthKey = normalizeDashboardHijriMonthKey(match[2]);
+
+  if (day === 1 && monthKey === 'shawwal') return 'eid_al_fitr';
+  if (day === 10 && monthKey.includes('hijj')) return 'eid_al_adha';
+  return null;
+}
+
+const DASH_EID_CONFIG: Record<EidType, { label: string; arabic: string; color: string; bg: string; border: string }> = {
+  eid_al_fitr: {
+    label: 'Eid al-Fitr',
+    arabic: 'عيد الفطر',
+    color: '#15803d',
+    bg: '#f0fdf4',
+    border: '#86efac',
+  },
+  eid_al_adha: {
+    label: 'Eid al-Adha',
+    arabic: 'عيد الأضحى',
+    color: '#b45309',
+    bg: '#fffbeb',
+    border: '#fcd34d',
+  },
+};
+
+type DashboardHijriParts = {
+  day: number;
+  monthKey: string;
+  year: number;
+};
+
+type KeyHijriDateSpec = {
+  label: string;
+  day: number;
+  monthKeys: string[];
+};
+
+type HijriCalendarLookupRow = {
+  gregorian_year: number;
+  gregorian_month: number;
+  gregorian_day: number;
+  hijri_date: string;
+};
+
+const DASHBOARD_KEY_HIJRI_DATES: KeyHijriDateSpec[] = [
+  { label: '10 Muharram', day: 10, monthKeys: ['muharram'] },
+  { label: '1 Ramadan', day: 1, monthKeys: ['ramadan'] },
+  { label: '1 Shawwal', day: 1, monthKeys: ['shawwal'] },
+  { label: '1 Dhu al-Hijjah', day: 1, monthKeys: ['dhualhijjah', 'dhulhijjah'] },
+  { label: '9 Dhu al-Hijjah', day: 9, monthKeys: ['dhualhijjah', 'dhulhijjah'] },
+  { label: '12 Rabi ul Awwal', day: 12, monthKeys: ['rabiulawwal', 'rabialawwal'] },
+];
+
+function normalizeDashboardHijriMonthKey(raw: string): string {
+  return raw
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function parseDashboardHijriDate(hijriDate: string | null | undefined): DashboardHijriParts | null {
+  if (!hijriDate) return null;
+  const match = hijriDate.match(/^(\d{1,2})\s+(.+?)\s+(\d{4})\s*AH$/i);
+  if (!match) return null;
+
+  const day = parseInt(match[1], 10);
+  const year = parseInt(match[3], 10);
+  if (!day || !year) return null;
+
+  return {
+    day,
+    monthKey: normalizeDashboardHijriMonthKey(match[2]),
+    year,
+  };
+}
+
+function formatDashboardGregorianDate(year: number, month: number, day: number): string {
+  return new Date(year, month - 1, day).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+const KeyHijriDatesCard = ({ rows }: { rows: Array<{ label: string; hijriDate: string | null; gregorianDate: string | null }> }) => (
+  <section>
+    <div className="flex items-center gap-3 mb-3">
+      <div className="flex items-center gap-2">
+        <CalendarDays size={15} className="text-[hsl(142_60%_35%)]" />
+        <h2 className="text-sm font-bold text-[hsl(150_30%_12%)]">Key Hijri Dates</h2>
+      </div>
+      <div className="flex-1 h-px bg-[hsl(140_20%_88%)]" />
+    </div>
+
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+      {rows.map((row) => (
+        <div key={row.label} className="rounded-xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(142_60%_35%)]">{row.label}</p>
+          <p className="text-sm font-semibold text-[hsl(150_30%_12%)] mt-1">{row.gregorianDate ?? 'Not found'}</p>
+          <p className="text-xs text-muted-foreground mt-1">{row.hijriDate ?? 'No matching Hijri date in calendar'}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+);
 
 // ─── Next Prayer Countdown ────────────────────────────────────────────────────
 
@@ -617,6 +729,39 @@ const Dashboard = () => {
     staleTime: 300_000,
   });
 
+  const { data: todayHijriDate = null } = useQuery({
+    queryKey: ['dashboard-today-hijri', now.getFullYear(), month, day],
+    queryFn: async () => {
+      const { data, error } = await supabaseAdmin
+        .from('hijri_calendar')
+        .select('hijri_date')
+        .eq('gregorian_year', now.getFullYear())
+        .eq('gregorian_month', month)
+        .eq('gregorian_day', day)
+        .maybeSingle();
+      if (error) return null;
+      return (data?.hijri_date as string | null) ?? null;
+    },
+    staleTime: 300_000,
+  });
+
+  const { data: keyHijriCalendarRows = [] } = useQuery({
+    queryKey: ['dashboard-key-hijri-dates', now.getFullYear(), now.getFullYear() + 1],
+    queryFn: async () => {
+      const { data, error } = await supabaseAdmin
+        .from('hijri_calendar')
+        .select('gregorian_year, gregorian_month, gregorian_day, hijri_date')
+        .gte('gregorian_year', now.getFullYear())
+        .lte('gregorian_year', now.getFullYear() + 1)
+        .order('gregorian_year', { ascending: true })
+        .order('gregorian_month', { ascending: true })
+        .order('gregorian_day', { ascending: true });
+      if (error) return [] as HijriCalendarLookupRow[];
+      return (data ?? []) as HijriCalendarLookupRow[];
+    },
+    staleTime: 300_000,
+  });
+
   const todayRow = prayerTimes.find((r) => r.day === day);
   const activeAnnouncements = announcements.filter((a) => a.is_active);
   const activeAdhkar = adhkar.filter((a) => a.is_active);
@@ -650,6 +795,34 @@ const Dashboard = () => {
     }));
 
   const hijriDate = getSimpleHijriDate(hijriOffset);
+  const todayEidType = detectEidTypeFromHijriDate(todayHijriDate);
+  const todayEidConfig = todayEidType ? DASH_EID_CONFIG[todayEidType] : null;
+  const todayEidTimes = todayEidType
+    ? eidPrayers
+        .filter((e) => e.eid_type === todayEidType && e.time)
+        .sort((a, b) => a.jamaat_number - b.jamaat_number)
+    : [];
+  const keyHijriDates = useMemo(() => {
+    const todayTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    return DASHBOARD_KEY_HIJRI_DATES.map((spec) => {
+      const matches = keyHijriCalendarRows.filter((row) => {
+        const parsed = parseDashboardHijriDate(row.hijri_date);
+        return !!parsed && parsed.day === spec.day && spec.monthKeys.includes(parsed.monthKey);
+      });
+
+      const upcoming = matches.find((row) => new Date(row.gregorian_year, row.gregorian_month - 1, row.gregorian_day).getTime() >= todayTime);
+      const chosen = upcoming ?? matches[0] ?? null;
+
+      return {
+        label: spec.label,
+        hijriDate: chosen?.hijri_date ?? null,
+        gregorianDate: chosen
+          ? formatDashboardGregorianDate(chosen.gregorian_year, chosen.gregorian_month, chosen.gregorian_day)
+          : null,
+      };
+    });
+  }, [keyHijriCalendarRows, now]);
 
   return (
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
@@ -742,6 +915,44 @@ const Dashboard = () => {
                   jumuah1={todayRow.jumu_ah_1 ?? null}
                   jumuah2={todayRow.jumu_ah_2 ?? null}
                 />
+
+                <SolarTimesCard
+                  sunrise={todayRow.sunrise ?? null}
+                  ishraq={todayRow.ishraq ?? null}
+                  zawaal={todayRow.zawaal ?? null}
+                />
+
+                {todayEidType && todayEidConfig && (
+                  <div
+                    className="rounded-xl border px-4 py-3"
+                    style={{ background: todayEidConfig.bg, borderColor: todayEidConfig.border }}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Star size={13} style={{ color: todayEidConfig.color }} />
+                      <p className="text-xs font-bold uppercase tracking-wide" style={{ color: todayEidConfig.color }}>
+                        {todayEidConfig.label} Today
+                      </p>
+                      <span className="ml-auto text-sm font-bold" style={{ color: todayEidConfig.color, fontFamily: 'serif' }} dir="rtl">
+                        {todayEidConfig.arabic}
+                      </span>
+                    </div>
+                    {todayEidTimes.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No Eid jamaat times set yet.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {todayEidTimes.map((entry) => (
+                          <div
+                            key={`today-eid-${entry.eid_type}-${entry.jamaat_number}`}
+                            className="text-sm font-bold tabular-nums px-2.5 py-1 rounded-lg"
+                            style={{ background: todayEidConfig.color + '15', color: todayEidConfig.color }}
+                          >
+                            J{entry.jamaat_number} · {entry.time}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-white border border-dashed border-[hsl(140_20%_88%)] rounded-xl px-5 py-6 text-sm text-muted-foreground text-center">
@@ -758,6 +969,8 @@ const Dashboard = () => {
             bstTimes={bstTimes}
             eidPrayers={eidPrayers}
           />
+
+          <KeyHijriDatesCard rows={keyHijriDates} />
 
           {/* ── Stats ── */}
           <section>

@@ -10,7 +10,7 @@ import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Button } from '#/components/ui/button';
 import { fetchPrayerTimes, bulkUpdatePrayerTimes, updatePrayerTime } from '#/lib/api';
-import { PrayerTime, HijriCalendarEntry, PrayerTimeUpdate } from '#/types';
+import { PrayerTime, HijriCalendarEntry, PrayerTimeUpdate, HijriMonthOverride } from '#/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
@@ -246,6 +246,205 @@ async function fetchHijriMonthFromApi(
   return map;
 }
 
+const HIJRI_MONTHS_CANONICAL = [
+  'Muharram',
+  'Safar',
+  'Rabi al-Awwal',
+  'Rabi al-Thani',
+  'Jumada al-Awwal',
+  'Jumada al-Thani',
+  'Rajab',
+  "Sha'ban",
+  'Ramadan',
+  'Shawwal',
+  "Dhu al-Qi'dah",
+  'Dhu al-Hijjah',
+] as const;
+
+const HIJRI_MONTH_ALIAS_TO_INDEX: Record<string, number> = {
+  muharram: 1,
+  safar: 2,
+  rabialawwal: 3,
+  rabialthani: 4,
+  rabiulawwal: 3,
+  rabiulthani: 4,
+  rabialakhir: 4,
+  rabiulakhir: 4,
+  jumadaalawwal: 5,
+  jumadaalula: 5,
+  jumadaula: 5,
+  jumadaalulaa: 5,
+  jumadaalthani: 6,
+  jumadaalakhira: 6,
+  jumadaakhira: 6,
+  rajab: 7,
+  shaban: 8,
+  ramadan: 9,
+  shawwal: 10,
+  dhualqidah: 11,
+  dhulqidah: 11,
+  dhualqadah: 11,
+  dhulqadah: 11,
+  dhulqaadah: 11,
+  dhualqaadah: 11,
+  dhualhijjah: 12,
+  dhulhijjah: 12,
+};
+
+type HijriParts = {
+  day: number;
+  month: number;
+  year: number;
+};
+
+function normalizeHijriMonthKey(raw: string): string {
+  // Convert accented month names (e.g., "Shawwāl") to ASCII before key matching.
+  return raw
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function parseHijriDate(raw: string): HijriParts | null {
+  const trimmed = (raw ?? '').trim();
+  const match = trimmed.match(/^(\d{1,2})\s+(.+?)\s+(\d{4})\s*AH$/i);
+  if (!match) return null;
+
+  const day = parseInt(match[1], 10);
+  const year = parseInt(match[3], 10);
+  const monthKey = normalizeHijriMonthKey(match[2]);
+  const month = HIJRI_MONTH_ALIAS_TO_INDEX[monthKey];
+
+  if (!day || !year || !month || day < 1 || day > 30) return null;
+  return { day, month, year };
+}
+
+function formatHijriDate(parts: HijriParts): string {
+  const monthName = HIJRI_MONTHS_CANONICAL[parts.month - 1] ?? '';
+  return `${parts.day} ${monthName} ${parts.year} AH`;
+}
+
+function compareHijriMonth(aYear: number, aMonth: number, bYear: number, bMonth: number): number {
+  if (aYear !== bYear) return aYear - bYear;
+  return aMonth - bMonth;
+}
+
+function getMonthLength(
+  year: number,
+  month: number,
+  overrides: Map<string, 29 | 30>,
+): 29 | 30 {
+  return overrides.get(`${year}-${month}`) ?? 30;
+}
+
+function shiftHijriByDays(
+  parts: HijriParts,
+  deltaDays: number,
+  overrides: Map<string, 29 | 30>,
+): HijriParts {
+  if (deltaDays === 0) return parts;
+
+  let day = parts.day;
+  let month = parts.month;
+  let year = parts.year;
+  let remaining = deltaDays;
+
+  while (remaining > 0) {
+    const len = getMonthLength(year, month, overrides);
+    if (day < len) {
+      day += 1;
+      remaining -= 1;
+      continue;
+    }
+    day = 1;
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+    remaining -= 1;
+  }
+
+  while (remaining < 0) {
+    if (day > 1) {
+      day -= 1;
+      remaining += 1;
+      continue;
+    }
+    month -= 1;
+    if (month < 1) {
+      month = 12;
+      year -= 1;
+    }
+    day = getMonthLength(year, month, overrides);
+    remaining += 1;
+  }
+
+  return { day, month, year };
+}
+
+function computeCascadeShift(
+  parts: HijriParts,
+  overrides: Map<string, 29 | 30>,
+): number {
+  let shift = 0;
+
+  overrides.forEach((days, key) => {
+    const [yRaw, mRaw] = key.split('-');
+    const y = parseInt(yRaw, 10);
+    const m = parseInt(mRaw, 10);
+    if (!y || !m) return;
+
+    if (compareHijriMonth(y, m, parts.year, parts.month) < 0) {
+      shift += days - 30;
+    }
+  });
+
+  return shift;
+}
+
+function applyMonthLengthOverrides(
+  monthMap: Map<number, { hijri: string; gregorian: string }>,
+  overrides: Map<string, 29 | 30>,
+): Map<number, { hijri: string; gregorian: string }> {
+  if (overrides.size === 0) return monthMap;
+
+  const out = new Map<number, { hijri: string; gregorian: string }>();
+
+  const sortedDays = Array.from(monthMap.keys()).sort((a, b) => a - b);
+  let prevAdjusted: HijriParts | null = null;
+  let prevGregorianDay: number | null = null;
+
+  for (const day of sortedDays) {
+    const entry = monthMap.get(day);
+    if (!entry) continue;
+
+    const parsed = parseHijriDate(entry.hijri);
+
+    if (!prevAdjusted) {
+      if (!parsed) {
+        out.set(day, entry);
+        continue;
+      }
+      const initialShift = computeCascadeShift(parsed, overrides);
+      const adjusted = shiftHijriByDays(parsed, initialShift, overrides);
+      out.set(day, { ...entry, hijri: formatHijriDate(adjusted) });
+      prevAdjusted = adjusted;
+      prevGregorianDay = day;
+      continue;
+    }
+
+    const gap = prevGregorianDay == null ? 1 : Math.max(1, day - prevGregorianDay);
+    const adjusted = shiftHijriByDays(prevAdjusted, gap, overrides);
+    out.set(day, { ...entry, hijri: formatHijriDate(adjusted) });
+    prevAdjusted = adjusted;
+    prevGregorianDay = day;
+  }
+
+  return out;
+}
+
 // ─── Hijri Calendar DB helpers ────────────────────────────────────────────────
 
 async function fetchHijriCalendarMonth(
@@ -301,6 +500,85 @@ async function upsertHijriCalendarEntries(
   }
 
   return { saved, errors };
+}
+
+async function fetchAllMonthOverrides(): Promise<{ map: Map<string, 29 | 30>; error: string | null }> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('hijri_month_overrides')
+      .select('hijri_year,hijri_month,days_in_month');
+
+    if (error) {
+      console.error('[hijri_month_overrides] Fetch error:', error.message);
+      return { map: new Map(), error: error.message ?? 'Unknown error' };
+    }
+
+    const map = new Map<string, 29 | 30>();
+    for (const row of (data ?? []) as HijriMonthOverride[]) {
+      const y = Number(row.hijri_year);
+      const m = Number(row.hijri_month);
+      const d = Number(row.days_in_month);
+      if (!y || !m || (d !== 29 && d !== 30)) continue;
+      map.set(`${y}-${m}`, d);
+    }
+    return { map, error: null };
+  } catch (e) {
+    console.error('[hijri_month_overrides] Unexpected fetch error:', e);
+    return { map: new Map(), error: String(e) };
+  }
+}
+
+async function saveMonthOverridesForYear(
+  hijriYear: number,
+  overrides: Map<string, 29 | 30>,
+): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const { data: existingRows, error: existingErr } = await supabaseAdmin
+      .from('hijri_month_overrides')
+      .select('hijri_month')
+      .eq('hijri_year', hijriYear);
+
+    if (existingErr) {
+      return { ok: false, message: existingErr.message };
+    }
+
+    const rowsToUpsert: Array<{ hijri_year: number; hijri_month: number; days_in_month: 29 | 30; updated_at: string }> = [];
+    for (let m = 1; m <= 12; m++) {
+      const key = `${hijriYear}-${m}`;
+      const days = overrides.get(key);
+      if (!days || days === 30) continue;
+      rowsToUpsert.push({
+        hijri_year: hijriYear,
+        hijri_month: m,
+        days_in_month: days,
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    if (rowsToUpsert.length > 0) {
+      const { error: upsertErr } = await supabaseAdmin
+        .from('hijri_month_overrides')
+        .upsert(rowsToUpsert, { onConflict: 'hijri_year,hijri_month' });
+      if (upsertErr) return { ok: false, message: upsertErr.message };
+    }
+
+    const existingMonths = new Set<number>((existingRows ?? []).map((r: { hijri_month: number }) => Number(r.hijri_month)).filter(Boolean));
+    const wantedMonths = new Set<number>(rowsToUpsert.map((r) => r.hijri_month));
+    const monthsToDelete = Array.from(existingMonths).filter((m) => !wantedMonths.has(m));
+
+    if (monthsToDelete.length > 0) {
+      const { error: deleteErr } = await supabaseAdmin
+        .from('hijri_month_overrides')
+        .delete()
+        .eq('hijri_year', hijriYear)
+        .in('hijri_month', monthsToDelete);
+      if (deleteErr) return { ok: false, message: deleteErr.message };
+    }
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: String(e) };
+  }
 }
 
 // ─── Hijri offset DB helpers ──────────────────────────────────────────────────
@@ -445,14 +723,53 @@ alter table public.hijri_calendar
 -- Step 4: Enable RLS
 alter table public.hijri_calendar enable row level security;
 
-create policy if not exists "anon_select_hijri_calendar"
+drop policy if exists "anon_select_hijri_calendar" on public.hijri_calendar;
+create policy "anon_select_hijri_calendar"
   on public.hijri_calendar for select to anon using (true);
 
-create policy if not exists "auth_all_hijri_calendar"
+drop policy if exists "auth_all_hijri_calendar" on public.hijri_calendar;
+create policy "auth_all_hijri_calendar"
   on public.hijri_calendar for all to authenticated using (true) with check (true);
 
-create policy if not exists "service_all_hijri_calendar"
+drop policy if exists "service_all_hijri_calendar" on public.hijri_calendar;
+create policy "service_all_hijri_calendar"
   on public.hijri_calendar for all to service_role using (true) with check (true);`;
+
+const MONTH_OVERRIDES_SQL_SETUP = `-- Run this in your Supabase SQL Editor (lhaqqqatdztuijgdfdcf):
+create table if not exists public.hijri_month_overrides (
+  id uuid primary key default gen_random_uuid(),
+  hijri_year integer not null,
+  hijri_month integer not null,
+  days_in_month integer not null check (days_in_month in (29, 30)),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (hijri_year, hijri_month),
+  check (hijri_month between 1 and 12)
+);
+
+alter table public.hijri_month_overrides enable row level security;
+
+drop policy if exists "anon_select_hijri_month_overrides" on public.hijri_month_overrides;
+create policy "anon_select_hijri_month_overrides"
+  on public.hijri_month_overrides for select to anon using (true);
+
+drop policy if exists "auth_all_hijri_month_overrides" on public.hijri_month_overrides;
+create policy "auth_all_hijri_month_overrides"
+  on public.hijri_month_overrides for all to authenticated using (true) with check (true);
+
+drop policy if exists "service_all_hijri_month_overrides" on public.hijri_month_overrides;
+create policy "service_all_hijri_month_overrides"
+  on public.hijri_month_overrides for all to service_role using (true) with check (true);`;
+
+function isMonthOverridesSchemaError(message: string | null | undefined): boolean {
+  const msg = (message ?? '').toLowerCase();
+  return (
+    msg.includes("could not find the table 'public.hijri_month_overrides' in the schema cache") ||
+    msg.includes('relation "public.hijri_month_overrides" does not exist') ||
+    msg.includes('relation "hijri_month_overrides" does not exist') ||
+    msg.includes('table "hijri_month_overrides" does not exist')
+  );
+}
 
 const DbSetupBanner = ({ onDismiss }: { onDismiss: () => void }) => {
   const [copied, setCopied] = useState(false);
@@ -609,6 +926,147 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
   );
 };
 
+interface HijriMonthLengthModalProps {
+  open: boolean;
+  onClose: () => void;
+  hijriYear: number;
+  setHijriYear: (year: number) => void;
+  overrides: Map<string, 29 | 30>;
+  onSetMonthDays: (month: number, days: 29 | 30) => void;
+  onResetMonth: (month: number) => void;
+  onSave: () => void;
+  loading: boolean;
+  saving: boolean;
+  dirty: boolean;
+  schemaError: string | null;
+  onCopySetupSql: () => void;
+  onRetrySchemaCheck: () => void;
+}
+
+const HijriMonthLengthModal = ({
+  open,
+  onClose,
+  hijriYear,
+  setHijriYear,
+  overrides,
+  onSetMonthDays,
+  onResetMonth,
+  onSave,
+  loading,
+  saving,
+  dirty,
+  schemaError,
+  onCopySetupSql,
+  onRetrySchemaCheck,
+}: HijriMonthLengthModalProps) => {
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-base font-bold flex items-center gap-2">
+            <SlidersHorizontal size={16} className="text-[#7c3aed]" />
+            Hijri Month Lengths (29/30)
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground pt-1">
+            Default is 30 days. Set a month to 29 to shift following Hijri months for that Hijri year.
+          </p>
+        </DialogHeader>
+
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground">Hijri Year</Label>
+          <Input
+            type="number"
+            value={hijriYear}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              if (!isNaN(n) && n > 0) setHijriYear(n);
+            }}
+            className="h-8 w-28 font-mono text-sm"
+          />
+          <span className="text-[11px] text-muted-foreground">Apply settings per Hijri year and month.</span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          {HIJRI_MONTHS_CANONICAL.map((monthName, idx) => {
+            const month = idx + 1;
+            const key = `${hijriYear}-${month}`;
+            const current = overrides.get(key) ?? 30;
+            return (
+              <div key={month} className="rounded-lg border border-[hsl(270_35%_85%)] bg-[hsl(270_40%_98%)] p-2.5 space-y-2">
+                <div className="text-[11px] font-semibold text-[hsl(270_55%_35%)] leading-tight">{month}. {monthName}</div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={current === 29 ? 'default' : 'outline'}
+                    onClick={() => onSetMonthDays(month, 29)}
+                    className="h-7 px-2 text-[11px]"
+                  >
+                    29
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={current === 30 ? 'default' : 'outline'}
+                    onClick={() => onSetMonthDays(month, 30)}
+                    className="h-7 px-2 text-[11px]"
+                  >
+                    30
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => onResetMonth(month)}
+                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    reset
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="text-[11px] text-muted-foreground">
+          {loading ? 'Loading saved month-length overrides…' : dirty ? 'Unsaved changes.' : 'No pending changes.'}
+        </div>
+
+        {schemaError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+            <p className="text-[12px] font-semibold text-red-700">hijri_month_overrides table needs setup</p>
+            <p className="text-[11px] text-red-600 mt-1">
+              Run the setup SQL in Supabase SQL Editor. Then click Recheck Setup.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onCopySetupSql}
+                className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors"
+              >
+                Copy Setup SQL
+              </button>
+              <button
+                type="button"
+                onClick={onRetrySchemaCheck}
+                disabled={loading}
+                className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md border border-red-300 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-60"
+              >
+                {loading ? 'Rechecking…' : 'Recheck Setup'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 pt-1">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Close</Button>
+          <Button onClick={onSave} disabled={saving || loading || !dirty || !!schemaError} className="gap-2">
+            {saving ? <><Loader2 size={13} className="animate-spin" /> Saving…</> : 'Save Month Lengths'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ─── Prayer Times page ────────────────────────────────────────────────────────
 
 const PrayerTimes = () => {
@@ -619,6 +1077,7 @@ const PrayerTimes = () => {
   const [jumuahModal,     setJumuahModal]     = useState(false);
   const [csvModal,        setCsvModal]        = useState(false);
   const [csvPreload,      setCsvPreload]      = useState<string | undefined>(undefined);
+  const [monthLengthModal, setMonthLengthModal] = useState(false);
   const [hijriOffset,     setHijriOffset]     = useState<number>(initialOffset);
   const [populatingHijri,    setPopulatingHijri]    = useState(false);
   const [populatingAllMonths,   setPopulatingAllMonths]   = useState(false);
@@ -648,6 +1107,12 @@ const PrayerTimes = () => {
   const [previewOffset,   setPreviewOffset]   = useState<number | null>(null);
   const [todayHijriBase,  setTodayHijriBase]  = useState<string>('');
   const [todayHijriLoading, setTodayHijriLoading] = useState(false);
+  const [hijriOverrideYear, setHijriOverrideYear] = useState<number>(CURRENT_YEAR + 579);
+  const [hijriMonthOverrides, setHijriMonthOverrides] = useState<Map<string, 29 | 30>>(new Map());
+  const [monthOverridesLoading, setMonthOverridesLoading] = useState(false);
+  const [monthOverridesSaving, setMonthOverridesSaving] = useState(false);
+  const [monthOverridesDirty, setMonthOverridesDirty] = useState(false);
+  const [monthOverridesSchemaError, setMonthOverridesSchemaError] = useState<string | null>(null);
   const [yearInput,       setYearInput]       = useState<string>('');
   const [pendingPrayerChanges, setPendingPrayerChanges] = useState<Record<string, PrayerTimeUpdate>>({});
   const [savingPendingPrayerChanges, setSavingPendingPrayerChanges] = useState(false);
@@ -661,6 +1126,28 @@ const PrayerTimes = () => {
   const [hijriLoading,  setHijriLoading]  = useState(false);
 
   const queryClient = useQueryClient();
+
+  const hijriAdjustmentsDirty = offsetDirty || monthOverridesDirty;
+  const currentYearOverrideCount = useMemo(() => {
+    let count = 0;
+    for (const key of hijriMonthOverrides.keys()) {
+      if (key.startsWith(`${hijriOverrideYear}-`)) count++;
+    }
+    return count;
+  }, [hijriMonthOverrides, hijriOverrideYear]);
+
+  const applyCurrentHijriAdjustments = useCallback(
+    (
+      monthMap: Map<number, { hijri: string; gregorian: string }>,
+      overridesSnapshot?: Map<string, 29 | 30>,
+    ) => applyMonthLengthOverrides(monthMap, overridesSnapshot ?? hijriMonthOverrides),
+    [hijriMonthOverrides],
+  );
+
+  const getHijriAdjustmentSnapshot = useCallback(() => ({
+    offset: hijriOffsetRef.current,
+    overrides: new Map(hijriMonthOverrides),
+  }), [hijriMonthOverrides]);
 
   // Handle CSV import from URL param
   useEffect(() => {
@@ -713,6 +1200,28 @@ const PrayerTimes = () => {
     };
   }, []);
 
+  const reloadMonthOverrides = useCallback(async (showToast = false) => {
+    setMonthOverridesLoading(true);
+    const { map, error } = await fetchAllMonthOverrides();
+    setHijriMonthOverrides(map);
+    const schemaMissing = !!(error && isMonthOverridesSchemaError(error));
+    setMonthOverridesSchemaError(schemaMissing ? error : null);
+    if (showToast) {
+      if (schemaMissing) toast.error('Setup not detected yet. Run SQL, then Recheck Setup.');
+      else toast.success('Month lengths setup is ready.');
+    }
+    setMonthOverridesLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void reloadMonthOverrides(false);
+  }, [reloadMonthOverrides]);
+
+  useEffect(() => {
+    if (!monthLengthModal) return;
+    void reloadMonthOverrides(false);
+  }, [monthLengthModal, reloadMonthOverrides]);
+
   useEffect(() => {
     hijriOffsetRef.current = hijriOffset;
     writeOffsetToStorage(hijriOffset);
@@ -754,6 +1263,8 @@ const PrayerTimes = () => {
       .then(({ hijri }) => {
         if (!active) return;
         setTodayHijriBase(hijri);
+        const y = parseHijriDate(hijri)?.year;
+        if (y) setHijriOverrideYear(y);
       })
       .catch(() => {
         if (!active) return;
@@ -770,17 +1281,20 @@ const PrayerTimes = () => {
   // ── Auto-preview on offset or month/year change (1s debounce) ──────────────
   useEffect(() => {
     if (!offsetReady) return;
-    if (!offsetChangedByUser) return;
+    const shouldAutoPreview = offsetChangedByUser || monthOverridesDirty || hijriMonthOverrides.size > 0;
+    if (!shouldAutoPreview) return;
+    const adjustmentSnapshot = getHijriAdjustmentSnapshot();
     if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     previewDebounceRef.current = setTimeout(async () => {
       setPreviewLoading(true);
       setPreviewHijri(new Map());
       try {
-        const monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, hijriOffset);
+        const monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, adjustmentSnapshot.offset);
+        const adjustedMap = applyCurrentHijriAdjustments(monthMap, adjustmentSnapshot.overrides);
         const preview = new Map<number, string>();
-        monthMap.forEach(({ hijri }, day) => preview.set(day, hijri));
+        adjustedMap.forEach(({ hijri }, day) => preview.set(day, hijri));
         setPreviewHijri(preview);
-        setPreviewOffset(hijriOffset);
+        setPreviewOffset(adjustmentSnapshot.offset);
       } catch (e) {
         console.warn('[Preview] Auto-preview failed:', e);
       } finally {
@@ -790,20 +1304,21 @@ const PrayerTimes = () => {
     return () => {
       if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     };
-  }, [hijriOffset, selectedYear, selectedMonth, offsetReady, offsetChangedByUser]);
+  }, [hijriOffset, selectedYear, selectedMonth, offsetReady, offsetChangedByUser, monthOverridesDirty, hijriMonthOverrides, getHijriAdjustmentSnapshot, applyCurrentHijriAdjustments]);
 
   // ── Manual preview helper (kept for clearPreview) ──────────────────────────
   const handlePreviewHijri = async () => {
-    const effectiveOffset = hijriOffsetRef.current;
+    const adjustmentSnapshot = getHijriAdjustmentSnapshot();
     setPreviewLoading(true);
     setPreviewHijri(new Map());
     try {
-      const monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, effectiveOffset);
+      const monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, adjustmentSnapshot.offset);
+      const adjustedMap = applyCurrentHijriAdjustments(monthMap, adjustmentSnapshot.overrides);
       const preview = new Map<number, string>();
-      monthMap.forEach(({ hijri }, day) => preview.set(day, hijri));
+      adjustedMap.forEach(({ hijri }, day) => preview.set(day, hijri));
       setPreviewHijri(preview);
-      setPreviewOffset(effectiveOffset);
-      toast.success(`Preview ready — ${preview.size} days with offset ${effectiveOffset > 0 ? '+' : ''}${effectiveOffset}. Click "Fill Month" to save to DB.`);
+      setPreviewOffset(adjustmentSnapshot.offset);
+      toast.success(`Preview ready — ${preview.size} days with current Hijri adjustments (offset ${adjustmentSnapshot.offset > 0 ? '+' : ''}${adjustmentSnapshot.offset}). Click "Fill Month" to save to DB.`);
     } catch (e) {
       toast.error(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -814,6 +1329,66 @@ const PrayerTimes = () => {
   const clearPreview = () => {
     setPreviewHijri(new Map());
     setPreviewOffset(null);
+  };
+
+  const setMonthOverride = (month: number, days: 29 | 30) => {
+    setHijriMonthOverrides((prev) => {
+      const next = new Map(prev);
+      const key = `${hijriOverrideYear}-${month}`;
+      if (days === 30) next.delete(key);
+      else next.set(key, days);
+      return next;
+    });
+    setMonthOverridesDirty(true);
+    setOffsetDirty(true);
+  };
+
+  const resetMonthOverride = (month: number) => {
+    setHijriMonthOverrides((prev) => {
+      const next = new Map(prev);
+      next.delete(`${hijriOverrideYear}-${month}`);
+      return next;
+    });
+    setMonthOverridesDirty(true);
+    setOffsetDirty(true);
+  };
+
+  const handleSaveMonthOverrides = async () => {
+    setMonthOverridesSaving(true);
+    const result = await saveMonthOverridesForYear(hijriOverrideYear, hijriMonthOverrides);
+    if (!result.ok) {
+      if (isMonthOverridesSchemaError(result.message)) {
+        setMonthOverridesSchemaError(result.message ?? 'Missing table: hijri_month_overrides');
+        toast.error('Month lengths table is missing. Copy and run setup SQL from the modal.');
+      } else {
+        toast.error(`Failed to save month lengths: ${result.message ?? 'Unknown error'}`);
+      }
+      setMonthOverridesSaving(false);
+      return;
+    }
+
+    const fresh = await fetchAllMonthOverrides();
+    setHijriMonthOverrides(fresh.map);
+    if (fresh.error && isMonthOverridesSchemaError(fresh.error)) {
+      setMonthOverridesSchemaError(fresh.error);
+      toast.error('Saved, but reload of month lengths failed due to missing schema.');
+      setMonthOverridesSaving(false);
+      return;
+    }
+
+    setMonthOverridesSchemaError(null);
+    setMonthOverridesDirty(false);
+    setOffsetDirty(true);
+    toast.success(`Saved Hijri month lengths for ${hijriOverrideYear}. Run Fill to persist adjusted dates in hijri_calendar.`);
+    setMonthOverridesSaving(false);
+  };
+
+  const handleCopyMonthOverridesSetupSql = () => {
+    navigator.clipboard.writeText(MONTH_OVERRIDES_SQL_SETUP).then(() => {
+      toast.success('Copied month-overrides SQL setup to clipboard.');
+    }).catch(() => {
+      toast.error('Failed to copy SQL.');
+    });
   };
 
   const changeOffset = (delta: number) => {
@@ -905,7 +1480,8 @@ const PrayerTimes = () => {
   // ── Fill Missing Only: Aladhan API → skips days already in hijri_calendar ─
   // Uses monthly calendar endpoint (12 calls/year) for speed
   const handleFillMissingOnly = async () => {
-    const effectiveOffset = hijriOffsetRef.current;
+    const adjustmentSnapshot = getHijriAdjustmentSnapshot();
+    const effectiveOffset = adjustmentSnapshot.offset;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     setPopulatingMissing(true);
     const toastId = 'fill-missing-hijri';
@@ -970,8 +1546,9 @@ const PrayerTimes = () => {
       toast.loading(`Fetching ${monthName} — ${days.length} missing days…`, { id: toastId });
       try {
         const monthMap = await fetchHijriMonthFromApi(selectedYear, month, effectiveOffset);
+        const adjustedMap = applyCurrentHijriAdjustments(monthMap, adjustmentSnapshot.overrides);
         for (const day of days) {
-          const result = monthMap.get(day);
+          const result = adjustedMap.get(day);
           if (result) {
             newEntries.push({
               gregorian_year:  selectedYear,
@@ -1031,6 +1608,7 @@ const PrayerTimes = () => {
     setHijriCalendar(updated);
     setLoadedOffset(effectiveOffset);
     setOffsetDirty(false);
+    setMonthOverridesDirty(false);
     setAllMonthsProgress('');
     setPopulatingMissing(false);
   };
@@ -1038,7 +1616,8 @@ const PrayerTimes = () => {
   // ── Fill All 12 Months: Aladhan API → hijri_calendar table ───────────────
   // Uses gToHCalendar (1 call/month = 12 calls total instead of 365)
   const handlePopulateAllMonths = async () => {
-    const effectiveOffset = hijriOffsetRef.current;
+    const adjustmentSnapshot = getHijriAdjustmentSnapshot();
+    const effectiveOffset = adjustmentSnapshot.offset;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     setPopulatingAllMonths(true);
     const toastId = 'fill-all-hijri';
@@ -1055,8 +1634,9 @@ const PrayerTimes = () => {
       toast.loading(`Fetching ${monthName} ${selectedYear}… (${month}/12)`, { id: toastId });
       try {
         const monthMap = await fetchHijriMonthFromApi(selectedYear, month, effectiveOffset);
+        const adjustedMap = applyCurrentHijriAdjustments(monthMap, adjustmentSnapshot.overrides);
         for (let day = 1; day <= lastDay; day++) {
-          const result = monthMap.get(day);
+          const result = adjustedMap.get(day);
           if (result) {
             allEntries.push({
               gregorian_year:  selectedYear,
@@ -1103,13 +1683,15 @@ const PrayerTimes = () => {
     setHijriCalendar(updated);
     setLoadedOffset(effectiveOffset);
     setOffsetDirty(false);
+    setMonthOverridesDirty(false);
     setAllMonthsProgress('');
     setPopulatingAllMonths(false);
   };
 
   // ── Fill Dates: Aladhan API → hijri_calendar table (single month, batch call) ─
   const handlePopulateHijriDates = async () => {
-    const effectiveOffset = hijriOffsetRef.current;
+    const adjustmentSnapshot = getHijriAdjustmentSnapshot();
+    const effectiveOffset = adjustmentSnapshot.offset;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
     if (!data || data.length === 0) { toast.error('No prayer times loaded for this month.'); return; }
     setPopulatingHijri(true);
@@ -1122,6 +1704,7 @@ const PrayerTimes = () => {
     let monthMap: Map<number, { hijri: string; gregorian: string }>;
     try {
       monthMap = await fetchHijriMonthFromApi(selectedYear, selectedMonth, effectiveOffset);
+      monthMap = applyCurrentHijriAdjustments(monthMap, adjustmentSnapshot.overrides);
     } catch (e) {
       toast.error(`Aladhan API failed: ${e instanceof Error ? e.message : String(e)}`, { id: toastId, duration: 7000 });
       setPopulatingHijri(false);
@@ -1166,6 +1749,7 @@ const PrayerTimes = () => {
       setHijriCalendar(updated);
       setLoadedOffset(effectiveOffset);
       setOffsetDirty(false);
+      setMonthOverridesDirty(false);
     }
     setPopulatingHijri(false);
   };
@@ -1413,9 +1997,9 @@ const PrayerTimes = () => {
                     <Button
                       variant="default"
                       size="sm"
-                      className={`gap-2 ${offsetDirty && hijriCalendar.size > 0 ? 'ring-2 ring-amber-400 ring-offset-1 shadow-md' : ''}`}
+                      className={`gap-2 ${hijriAdjustmentsDirty && hijriCalendar.size > 0 ? 'ring-2 ring-amber-400 ring-offset-1 shadow-md' : ''}`}
                       disabled={populatingHijri || populatingAllMonths || populatingMissing || !!schemaError}
-                      title={schemaError ? 'Fix DB schema first' : `Fill Hijri dates using offset ${offsetLabel}`}
+                      title={schemaError ? 'Fix DB schema first' : `Fill Hijri dates using current adjustments (${currentYearOverrideCount} month overrides, offset ${offsetLabel})`}
                     >
                       {(populatingHijri || populatingAllMonths || populatingMissing) ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
                       Fill Hijri ({offsetLabel})
@@ -1442,6 +2026,12 @@ const PrayerTimes = () => {
                     >
                       <Zap size={14} className="mr-2" /> {populatingMissing ? 'Filling Missing…' : 'Fill Missing Days'}
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setMonthLengthModal(true)}
+                      disabled={monthOverridesLoading || monthOverridesSaving}
+                    >
+                      <SlidersHorizontal size={14} className="mr-2" /> Month Lengths (29/30)
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onClick={handleExportHijriCsv}
@@ -1451,6 +2041,20 @@ const PrayerTimes = () => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMonthLengthModal(true)}
+                  disabled={monthOverridesLoading || monthOverridesSaving}
+                  className="gap-2"
+                  title="Set Hijri month lengths (29/30)"
+                >
+                  {(monthOverridesLoading || monthOverridesSaving)
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : <SlidersHorizontal size={14} />}
+                  Month Lengths
+                </Button>
               </div>
 
               <Button variant="outline" size="sm" onClick={() => setCsvModal(true)} className="gap-2">
@@ -1509,11 +2113,11 @@ const PrayerTimes = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Offset-changed warning */}
-              {offsetDirty && hijriCalendar.size > 0 && (
+              {/* Hijri-adjustment warning */}
+              {hijriAdjustmentsDirty && hijriCalendar.size > 0 && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 animate-pulse">
                   <span className="text-[11px]">⚠️</span>
-                  <span className="text-[10px] font-semibold">Offset changed — click <strong>Fill Month</strong> or <strong>Fill All {selectedYear}</strong> to apply new offset to DB</span>
+                  <span className="text-[10px] font-semibold">Hijri adjustments changed (offset/month lengths) — click <strong>Fill Month</strong> or <strong>Fill All {selectedYear}</strong> to apply updates to DB</span>
                 </div>
               )}
 
@@ -1739,6 +2343,22 @@ const PrayerTimes = () => {
       </main>
 
       <JumuahYearModal open={jumuahModal} onClose={() => setJumuahModal(false)} year={selectedYear} queryClient={queryClient} />
+      <HijriMonthLengthModal
+        open={monthLengthModal}
+        onClose={() => setMonthLengthModal(false)}
+        hijriYear={hijriOverrideYear}
+        setHijriYear={setHijriOverrideYear}
+        overrides={hijriMonthOverrides}
+        onSetMonthDays={setMonthOverride}
+        onResetMonth={resetMonthOverride}
+        onSave={handleSaveMonthOverrides}
+        loading={monthOverridesLoading}
+        saving={monthOverridesSaving}
+        dirty={monthOverridesDirty}
+        schemaError={monthOverridesSchemaError}
+        onCopySetupSql={handleCopyMonthOverridesSetupSql}
+        onRetrySchemaCheck={() => void reloadMonthOverrides(true)}
+      />
       <EditPrayerTimeModal
         row={editingRow}
         year={selectedYear}
