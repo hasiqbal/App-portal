@@ -10,6 +10,7 @@ import {
   Bell, BellOff, GripVertical, ToggleLeft, ToggleRight, Link2, ExternalLink,
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   List, ListOrdered, Type, Palette, ImagePlus, X, Smartphone, Eye,
+  Users, Clock3,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
 import { Button } from '#/components/ui/button';
@@ -29,11 +30,14 @@ import TipTapUnderline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
-import { supabase } from '#/lib/supabase';
+import { supabaseAdmin } from '#/lib/supabase';
+import { useUrduTranslation } from '#/hooks/useUrduTranslation';
 import { Extension } from '@tiptap/core';
 
 const FONT_SIZES = ['12px','14px','16px','18px','20px','24px','28px','32px','40px'];
 const TEXT_COLORS = ['#000000','#1a1a2e','#374151','#6b7280','#dc2626','#ea580c','#d97706','#16a34a','#0284c7','#7c3aed','#db2777','#0f766e','#ffffff','#f8fafc','#fef3c7','#dbeafe'];
+const ANNOUNCEMENTS_EVENTS_BUCKET = (import.meta.env.VITE_ANNOUNCEMENTS_EVENTS_BUCKET ?? '').trim();
+const ANNOUNCEMENT_TYPE_OPTIONS = ['Urgent', 'Jalsa', 'Public Safety', 'Class', 'Special', 'Ramadan', 'Eid', 'Jumuah', 'Lecture', 'Workshop', 'Community', 'Youth', 'Funeral', 'Nikah'];
 
 const FontSize = Extension.create({
   name: 'fontSize',
@@ -126,7 +130,7 @@ const RichTextEditor = ({ content, onChange }: { content: string; onChange: (htm
   );
 };
 
-const EMPTY_FORM = { title: '', body: '', urdu_body: '', link_url: '', image_url: '', is_active: true, display_order: 0 };
+const EMPTY_FORM = { title: '', type: '', urdu_title: '', body: '', urdu_body: '', tag: false, lead_names: '', urdu_lead_names: '', start_time: '', link_url: '', image_url: '', is_active: true, display_order: 0 };
 
 // ─── Phone Preview Modal ──────────────────────────────────────────────────────
 
@@ -302,38 +306,61 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [translatingUrdu, setTranslatingUrdu] = useState(false);
+  const { translateToUrdu, translating: translatingUrdu } = useUrduTranslation();
 
   const handleTranslateUrdu = async () => {
     const rawBody = form.body ? form.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : '';
     const src = rawBody || form.title || '';
     if (!src.trim()) { toast.error('No English text to translate.'); return; }
-    setTranslatingUrdu(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('translate-urdu', { body: { text: src } });
-      if (error || !(data as { urdu?: string })?.urdu) { toast.error('Translation failed.'); return; }
-      setForm((prev) => ({ ...prev, urdu_body: (data as { urdu: string }).urdu }));
-      toast.success('Urdu translation generated.');
-    } catch { toast.error('Translation error.'); } finally { setTranslatingUrdu(false); }
+    const urdu = await translateToUrdu(src);
+    if (!urdu) return;
+    setForm((prev) => ({ ...prev, urdu_body: urdu }));
+    toast.success('Urdu translation generated.');
+  };
+
+  const handleTranslateUrduTitle = async () => {
+    const src = form.title?.trim() || '';
+    if (!src) { toast.error('No English title to translate.'); return; }
+    const urdu = await translateToUrdu(src);
+    if (!urdu) return;
+    setForm((prev) => ({ ...prev, urdu_title: urdu }));
+    toast.success('Urdu title generated.');
+  };
+
+  const handleTranslateUrduGuests = async () => {
+    const src = form.lead_names?.trim() || '';
+    if (!src) { toast.error('No English guest/teacher names to translate.'); return; }
+    const urdu = await translateToUrdu(src);
+    if (!urdu) return;
+    setForm((prev) => ({ ...prev, urdu_lead_names: urdu }));
+    toast.success('Urdu guest names generated.');
   };
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const [lastItem, setLastItem] = useState(item);
   if (item !== lastItem) {
     setLastItem(item);
-    setForm(item ? { title: item.title, body: item.body ?? '', urdu_body: (item as Announcement & { urdu_body?: string | null }).urdu_body ?? '', link_url: item.link_url ?? '', image_url: item.image_url ?? '', is_active: item.is_active, display_order: item.display_order } : { ...EMPTY_FORM });
+    setForm(item ? { title: item.title, type: (item as Announcement & { type?: string | null }).type ?? '', urdu_title: (item as Announcement & { urdu_title?: string | null }).urdu_title ?? '', body: item.body ?? '', urdu_body: (item as Announcement & { urdu_body?: string | null }).urdu_body ?? '', tag: Boolean((item as Announcement & { tag?: boolean | null }).tag), lead_names: (item as Announcement & { lead_names?: string | null }).lead_names ?? '', urdu_lead_names: (item as Announcement & { urdu_lead_names?: string | null }).urdu_lead_names ?? '', start_time: (item as Announcement & { start_time?: string | null }).start_time ?? '', link_url: item.link_url ?? '', image_url: item.image_url ?? '', is_active: item.is_active, display_order: item.display_order } : { ...EMPTY_FORM });
   }
 
   const set = <K extends keyof typeof EMPTY_FORM>(k: K, v: (typeof EMPTY_FORM)[K]) => setForm((prev) => ({ ...prev, [k]: v }));
 
   const handleUpload = async (file: File) => {
+    if (!ANNOUNCEMENTS_EVENTS_BUCKET) {
+      toast.error('Missing VITE_ANNOUNCEMENTS_EVENTS_BUCKET in .env');
+      return;
+    }
     setUploadingImage(true);
     const ext = file.name.split('.').pop() ?? 'jpg';
     const path = `announcements/${crypto.randomUUID()}.${ext}`;
-    const { data, error } = await supabase.storage.from('adhkar-images').upload(path, file, { contentType: file.type, upsert: false });
+    const { data, error } = await supabaseAdmin.storage
+      .from(ANNOUNCEMENTS_EVENTS_BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
     setUploadingImage(false);
     if (error || !data) { toast.error('Upload failed: ' + (error?.message ?? 'Unknown')); return; }
-    const { data: urlData } = supabase.storage.from('adhkar-images').getPublicUrl(data.path);
+    const { data: urlData } = supabaseAdmin.storage
+      .from(ANNOUNCEMENTS_EVENTS_BUCKET)
+      .getPublicUrl(data.path);
     set('image_url', urlData.publicUrl);
     toast.success('Poster uploaded.');
     if (imageInputRef.current) imageInputRef.current.value = '';
@@ -343,7 +370,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
     if (!form.title?.trim()) { toast.error('Title is required.'); return; }
     setSaving(true);
     try {
-      const payload: Partial<AnnouncementPayload> = { title: form.title.trim(), body: form.body?.trim() || null, urdu_body: (form as typeof EMPTY_FORM & { urdu_body?: string }).urdu_body?.trim() || null, link_url: form.link_url?.trim() || null, image_url: form.image_url?.trim() || null, is_active: form.is_active ?? true, display_order: Number(form.display_order) || 0 } as Partial<AnnouncementPayload>;
+      const payload: Partial<AnnouncementPayload> = { title: form.title.trim(), type: form.type?.trim() || null, urdu_title: form.urdu_title?.trim() || null, body: form.body?.trim() || null, urdu_body: (form as typeof EMPTY_FORM & { urdu_body?: string }).urdu_body?.trim() || null, tag: Boolean(form.tag), lead_names: form.lead_names?.trim() || null, urdu_lead_names: form.urdu_lead_names?.trim() || null, start_time: form.start_time?.trim() || null, link_url: form.link_url?.trim() || null, image_url: form.image_url?.trim() || null, is_active: form.is_active ?? true, display_order: Number(form.display_order) || 0 } as Partial<AnnouncementPayload>;
       const saved = item ? await updateAnnouncement(item.id, payload) : await createAnnouncement(payload);
       toast.success(item ? 'Announcement updated.' : 'Announcement created.');
       onSaved(saved);
@@ -375,8 +402,104 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
               <Input value={form.title ?? ''} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Ramadan Timetable Now Available" className="h-9" autoFocus />
             </div>
             <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Urdu Title <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                <button type="button" disabled={translatingUrdu} onClick={handleTranslateUrduTitle}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors">
+                  {translatingUrdu ? <><Loader2 size={11} className="animate-spin" /> Translating…</> : <>🌐 Auto-translate title</>}
+                </button>
+              </div>
+              <Input
+                value={form.urdu_title ?? ''}
+                onChange={(e) => set('urdu_title', e.target.value)}
+                placeholder="اردو عنوان یہاں لکھیں…"
+                dir="rtl"
+                className="h-9 text-sm text-right"
+                style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif" }}
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-sm font-medium">Description (English)</Label>
               <RichTextEditor content={form.body ?? ''} onChange={(html) => set('body', html)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Type</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => set('tag', true)}
+                  className={`px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${form.tag ? 'border-[hsl(142_55%_45%)] bg-[hsl(142_60%_94%)] text-[hsl(142_65%_28%)]' : 'border-[hsl(140_20%_88%)] bg-white text-muted-foreground hover:bg-[hsl(140_25%_96%)]'}`}
+                >
+                  Event
+                </button>
+                <button
+                  type="button"
+                  onClick={() => set('tag', false)}
+                  className={`px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${!form.tag ? 'border-[hsl(142_55%_45%)] bg-[hsl(142_60%_94%)] text-[hsl(142_65%_28%)]' : 'border-[hsl(140_20%_88%)] bg-white text-muted-foreground hover:bg-[hsl(140_25%_96%)]'}`}
+                >
+                  Announcement
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Event saves tag as true. Announcement saves tag as false.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Tag Type <span className="text-muted-foreground font-normal text-xs">(updates type column)</span></Label>
+              <div className="flex flex-wrap gap-2">
+                {ANNOUNCEMENT_TYPE_OPTIONS.map((option) => {
+                  const active = (form.type ?? '').toLowerCase() === option.toLowerCase();
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => set('type', option)}
+                      className={`px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors ${active ? 'border-[hsl(8_70%_50%)] bg-[hsl(8_90%_95%)] text-[hsl(8_80%_40%)]' : 'border-[hsl(140_20%_88%)] bg-white text-muted-foreground hover:bg-[hsl(140_25%_96%)]'}`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+              <Input
+                value={form.type ?? ''}
+                onChange={(e) => set('type', e.target.value)}
+                placeholder="Custom type (e.g. Family Program)"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Leading Teacher / Guest Speakers <span className="text-muted-foreground font-normal text-xs">(optional, comma-separated)</span></Label>
+              <Input
+                value={form.lead_names ?? ''}
+                onChange={(e) => set('lead_names', e.target.value)}
+                placeholder="e.g. Sheikh Abdullah, Mufti Ahmad"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Urdu Guest / Teacher Names <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                <button type="button" disabled={translatingUrdu} onClick={handleTranslateUrduGuests}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors">
+                  {translatingUrdu ? <><Loader2 size={11} className="animate-spin" /> Translating…</> : <>🌐 Auto-translate guests</>}
+                </button>
+              </div>
+              <Input
+                value={form.urdu_lead_names ?? ''}
+                onChange={(e) => set('urdu_lead_names', e.target.value)}
+                placeholder="مہمان یا استاد کے نام…"
+                dir="rtl"
+                className="h-9 text-sm text-right"
+                style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif" }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Start Time <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+              <Input
+                type="time"
+                value={form.start_time ?? ''}
+                onChange={(e) => set('start_time', e.target.value)}
+                className="h-9 text-sm"
+              />
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -472,6 +595,17 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
   };
 
   const plainBody = item.body ? item.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : null;
+  const formattedStartTime = item.start_time
+    ? (() => {
+        const m = item.start_time.match(/^(\d{1,2}):(\d{2})/);
+        if (!m) return item.start_time;
+        const hour24 = Number(m[1]);
+        const minute = m[2];
+        const meridiem = hour24 >= 12 ? 'PM' : 'AM';
+        const hour12 = hour24 % 12 || 12;
+        return `${hour12}:${minute} ${meridiem}`;
+      })()
+    : null;
 
   return (
     <div ref={setNodeRef}
@@ -492,12 +626,17 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-semibold text-sm leading-snug text-[hsl(150_30%_12%)]">{item.title}</h3>
-            <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${item.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-              {item.is_active ? 'LIVE' : 'OFF'}
-            </span>
+            <div className="shrink-0 flex items-center gap-1">
+              {item.type && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[hsl(8_90%_95%)] text-[hsl(8_80%_40%)] border border-[hsl(8_60%_85%)]">{item.type}</span>}
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                {item.is_active ? 'LIVE' : 'OFF'}
+              </span>
+            </div>
           </div>
           {plainBody && <p className="text-xs text-muted-foreground mt-1 leading-relaxed line-clamp-2">{plainBody}</p>}
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+            {item.lead_names && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Users size={10} /> {item.lead_names}</span>}
+            {formattedStartTime && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Clock3 size={10} /> {formattedStartTime}</span>}
             {item.image_url && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><ImagePlus size={10} /> Poster</span>}
             {item.link_url && <a href={item.link_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] font-medium text-[hsl(142_60%_35%)] hover:underline"><ExternalLink size={10} /> More Info</a>}
           </div>
@@ -523,7 +662,7 @@ const Announcements = () => {
   const [editing, setEditing] = useState<Announcement | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const { data, isLoading, isError, refetch, isFetching } = useQuery({ queryKey: ['announcements'], queryFn: fetchAnnouncements, staleTime: 60_000 });
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<Announcement[], Error>({ queryKey: ['announcements'], queryFn: fetchAnnouncements, staleTime: 60_000 });
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const openNew = () => { setEditing(null); setModalOpen(true); };
@@ -586,7 +725,15 @@ const Announcements = () => {
         {/* Content */}
         <div className="px-4 sm:px-8 py-6 flex-1 max-w-3xl">
           {isLoading && <div className="flex items-center justify-center h-48 gap-3 text-muted-foreground"><Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" /><span className="text-sm">Loading…</span></div>}
-          {isError && <div className="flex items-center gap-3 p-4 rounded-xl border border-destructive/30 bg-destructive/5 text-sm text-destructive"><AlertCircle size={16} />Failed to load. Try refreshing.</div>}
+          {isError && (
+            <div className="flex items-center gap-3 p-4 rounded-xl border border-destructive/30 bg-destructive/5 text-sm text-destructive">
+              <AlertCircle size={16} />
+              <div className="flex flex-col gap-0.5">
+                <span>Failed to load. Try refreshing.</span>
+                {error?.message && <span className="text-xs opacity-80">{error.message}</span>}
+              </div>
+            </div>
+          )}
           {!isLoading && !isError && data && (
             data.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground rounded-2xl border-2 border-dashed border-[hsl(140_20%_88%)] bg-white">

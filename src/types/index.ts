@@ -190,8 +190,14 @@ export const GROUP_ICON_OPTIONS = [
 export interface Announcement {
   id: string;
   title: string;
+  type: string | null;
+  urdu_title: string | null;
   body: string | null;
   urdu_body: string | null;
+  tag: boolean;
+  lead_names: string | null;
+  urdu_lead_names: string | null;
+  start_time: string | null;
   link_url: string | null;
   image_url: string | null;
   is_active: boolean;

@@ -2,6 +2,111 @@
 import { PrayerTime, PrayerTimeUpdate, Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, Announcement, AnnouncementPayload, SunnahReminder, SunnahReminderPayload, SunnahGroup, SunnahGroupPayload } from '#/types';
 import { supabase, supabaseAdmin, invokeExternalFunction } from '#/lib/supabase';
 
+const ANNOUNCEMENTS_TABLE = (import.meta.env.VITE_ANNOUNCEMENTS_TABLE ?? 'announcements').trim() || 'announcements';
+const ANNOUNCEMENTS_URDU_TITLE_COLUMN = (import.meta.env.VITE_ANNOUNCEMENTS_URDU_TITLE_COLUMN ?? 'Urdu title').trim() || 'Urdu title';
+const ANNOUNCEMENTS_URDU_GUESTS_COLUMN = 'guest_urdu';
+const ANNOUNCEMENTS_GUESTS_COLUMN = 'guests';
+const ANNOUNCEMENTS_TIME_COLUMN = 'time';
+
+type AnnouncementDbRow = Omit<Announcement, 'type' | 'urdu_title' | 'urdu_body' | 'tag' | 'urdu_lead_names'> & {
+  type?: string | null;
+  event_type?: string | null;
+  category?: string | null;
+  urdu_title?: string | null;
+  urdu_body?: string | null;
+  urdu_translation?: string | null;
+  urdu_lead_names?: string | string[] | null;
+  urdu_guest_speakers?: string | string[] | null;
+  urdu_teacher_name?: string | string[] | null;
+  guest_urdu?: string | string[] | null;
+  tag?: boolean | null;
+  lead_names?: string | string[] | null;
+  guest_speakers?: string | string[] | null;
+  teacher_name?: string | string[] | null;
+  guests?: string | string[] | null;
+  start_time?: string | null;
+  event_time?: string | null;
+  time?: string | null;
+};
+
+function normalizeNameList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry) => entry.length > 0);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  }
+
+  return [];
+}
+
+function joinNameList(value: unknown): string | null {
+  const names = normalizeNameList(value);
+  return names.length > 0 ? names.join(', ') : null;
+}
+
+function mapAnnouncementFromDb(row: AnnouncementDbRow): Announcement {
+  const legacyUrduTitle = (row as Record<string, unknown>)['Urdu title'];
+  const resolvedUrduTitle = typeof legacyUrduTitle === 'string'
+    ? legacyUrduTitle
+    : row.urdu_title ?? null;
+
+  const legacyUrduGuests = (row as Record<string, unknown>)['Urdu guests'];
+  const resolvedUrduGuests = typeof legacyUrduGuests === 'string'
+    ? legacyUrduGuests
+    : row.urdu_lead_names ?? row.guest_urdu ?? row.urdu_guest_speakers ?? row.urdu_teacher_name ?? null;
+
+  return {
+    ...row,
+    tag: Boolean(row.tag),
+    type: row.type ?? row.event_type ?? row.category ?? null,
+    urdu_title: resolvedUrduTitle,
+    lead_names: joinNameList(row.lead_names ?? row.guests ?? row.guest_speakers ?? row.teacher_name),
+    urdu_lead_names: joinNameList(resolvedUrduGuests),
+    start_time: row.start_time ?? row.time ?? row.event_time ?? null,
+    urdu_body: row.urdu_body ?? row.urdu_translation ?? null,
+  };
+}
+
+function mapAnnouncementPayloadToDb(data: Partial<AnnouncementPayload>): Record<string, unknown> {
+  const { urdu_body, urdu_title, urdu_lead_names, lead_names, start_time, type: announcementType, ...rest } = data as Partial<AnnouncementPayload> & Record<string, unknown>;
+  const mapped: Record<string, unknown> = { ...rest };
+
+  if (announcementType !== undefined) {
+    mapped.type = announcementType;
+  }
+
+  if (urdu_body !== undefined) {
+    mapped.urdu_translation = urdu_body;
+  }
+
+  if (urdu_title !== undefined) {
+    mapped[ANNOUNCEMENTS_URDU_TITLE_COLUMN] = urdu_title;
+  }
+
+  if (urdu_lead_names !== undefined) {
+    const urduNames = normalizeNameList(urdu_lead_names);
+    mapped[ANNOUNCEMENTS_URDU_GUESTS_COLUMN] = urduNames.length > 0 ? urduNames : null;
+  }
+
+  if (lead_names !== undefined) {
+    const names = normalizeNameList(lead_names);
+    mapped[ANNOUNCEMENTS_GUESTS_COLUMN] = names.length > 0 ? names : null;
+  }
+
+  if (start_time !== undefined) {
+    mapped[ANNOUNCEMENTS_TIME_COLUMN] = start_time;
+  }
+
+  return mapped;
+}
+
 // All data now lives in the single external Supabase project (lhaqqqatdztuijgdfdcf).
 // The supabase client in src/lib/supabase.ts already points there.
 
@@ -209,38 +314,39 @@ export async function deleteAdhkarGroup(id: string): Promise<void> {
 
 export async function fetchAnnouncements(): Promise<Announcement[]> {
   const { data, error } = await supabase
-    .from('announcements')
+    .from(ANNOUNCEMENTS_TABLE)
     .select('*')
     .order('created_at', { ascending: false });
   if (error) throw new Error(`Failed to fetch announcements: ${error.message}`);
-  return data as Announcement[];
+  return (data ?? []).map((row) => mapAnnouncementFromDb(row as AnnouncementDbRow));
 }
 
 export async function createAnnouncement(data: Partial<AnnouncementPayload>): Promise<Announcement> {
-  const payload = { is_active: true, ...data };
+  const payload = { is_active: true, ...mapAnnouncementPayloadToDb(data) };
   const { data: rows, error } = await supabase
-    .from('announcements')
+    .from(ANNOUNCEMENTS_TABLE)
     .insert(payload)
     .select()
     .single();
   if (error) throw new Error(`Failed to create announcement: ${error.message}`);
-  return rows as Announcement;
+  return mapAnnouncementFromDb(rows as AnnouncementDbRow);
 }
 
 export async function updateAnnouncement(id: string, data: Partial<AnnouncementPayload>): Promise<Announcement> {
+  const payload = mapAnnouncementPayloadToDb(data);
   const { data: rows, error } = await supabase
-    .from('announcements')
-    .update(data)
+    .from(ANNOUNCEMENTS_TABLE)
+    .update(payload)
     .eq('id', id)
     .select()
     .single();
   if (error) throw new Error(`Failed to update announcement: ${error.message}`);
-  return rows as Announcement;
+  return mapAnnouncementFromDb(rows as AnnouncementDbRow);
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {
   const { error } = await supabase
-    .from('announcements')
+    .from(ANNOUNCEMENTS_TABLE)
     .delete()
     .eq('id', id);
   if (error) throw new Error(`Failed to delete announcement: ${error.message}`);
