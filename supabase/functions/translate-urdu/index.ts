@@ -20,8 +20,8 @@ serve(async (req) => {
     const baseUrl = Deno.env.get('ONSPACE_AI_BASE_URL');
 
     if (!apiKey || !baseUrl) {
-      return new Response(JSON.stringify({ error: 'OnSpace AI not configured.' }), {
-        status: 500,
+      return new Response(JSON.stringify({ urdu: '' }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -58,8 +58,8 @@ Rules:
     if (!response.ok) {
       const errText = await response.text();
       console.error('[translate-urdu] AI API error:', errText);
-      return new Response(JSON.stringify({ error: `AI error: ${errText}` }), {
-        status: 502,
+      return new Response(JSON.stringify({ urdu: '' }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -68,8 +68,8 @@ Rules:
     const urdu = data.choices?.[0]?.message?.content?.trim() ?? '';
 
     if (!urdu) {
-      return new Response(JSON.stringify({ error: 'Empty translation returned.' }), {
-        status: 500,
+      return new Response(JSON.stringify({ urdu: '' }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -82,8 +82,8 @@ Rules:
     });
   } catch (err) {
     console.error('[translate-urdu] Unexpected error:', err);
-    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error' }), {
-      status: 500,
+    return new Response(JSON.stringify({ urdu: '' }), {
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

@@ -1,0 +1,7 @@
+project_id = "lhaqqqatdztuijgdfdcf"
+
+[functions.announcements-feed-format]
+verify_jwt = false
+
+[functions.translate-urdu]
+verify_jwt = false

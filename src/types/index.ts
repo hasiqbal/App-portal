@@ -138,6 +138,7 @@ export interface AdhkarGroup {
   id: string;
   name: string;
   prayer_time: string | null;
+  group_name: string | null;
   icon: string;
   icon_color: string;
   icon_bg_color: string;
@@ -145,7 +146,17 @@ export interface AdhkarGroup {
   badge_color: string;
   description: string | null;
   display_order: number;
+  is_active: boolean;
   bg_image_url: string | null;
+  content_type: 'adhkar' | 'quran' | null;
+  content_source: 'db' | 'local' | 'api' | null;
+  content_key: string | null;
+  card_icon: string | null;
+  card_badge: string | null;
+  card_subtitle: string | null;
+  arabic_title: string | null;
+  card_reference: string | null;
+  card_color: string | null;
   created_at: string;
   updated_at: string;
 }
