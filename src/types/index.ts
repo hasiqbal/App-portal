@@ -122,6 +122,98 @@ export interface QaseedahNaatEntry {
 
 export type QaseedahNaatEntryPayload = Omit<QaseedahNaatEntry, 'id' | 'group_name' | 'created_at' | 'updated_at'>;
 
+export type HowToLanguage = 'en' | 'ur' | 'ar';
+export type HowToBlockKind = 'text' | 'action' | 'note' | 'recitation';
+
+export interface HowToGroup {
+  id: string;
+  slug: string;
+  name: string;
+  icon: string | null;
+  color: string | null;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type HowToGroupPayload = Omit<HowToGroup, 'id' | 'created_at' | 'updated_at'>;
+
+export interface HowToGuide {
+  id: string;
+  group_id: string;
+  slug: string;
+  title: string;
+  subtitle: string | null;
+  intro: string | null;
+  language: HowToLanguage;
+  icon: string | null;
+  color: string | null;
+  display_order: number;
+  is_active: boolean;
+  publish_start_at: string | null;
+  publish_end_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type HowToGuidePayload = Omit<HowToGuide, 'id' | 'created_at' | 'updated_at'>;
+
+export interface HowToSection {
+  id: string;
+  guide_id: string;
+  heading: string;
+  section_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HowToStep {
+  id: string;
+  section_id: string;
+  step_order: number;
+  title: string;
+  detail: string | null;
+  note: string | null;
+  rich_content_html: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HowToStepBlock {
+  id: string;
+  step_id: string;
+  block_order: number;
+  kind: HowToBlockKind;
+  payload: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HowToStepImage {
+  id: string;
+  step_id: string;
+  display_order: number;
+  image_url: string;
+  thumb_url: string | null;
+  caption: string | null;
+  source: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HowToGuideTree {
+  guide: HowToGuide;
+  sections: Array<{
+    section: HowToSection;
+    steps: Array<{
+      step: HowToStep;
+      blocks: HowToStepBlock[];
+      images: HowToStepImage[];
+    }>;
+  }>;
+}
+
 // Slug → display label mapping
 export const PRAYER_TIME_LABELS: Record<string, string> = {
   'before-fajr': 'Before Fajr',

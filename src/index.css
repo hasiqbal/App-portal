@@ -94,13 +94,43 @@
   }
 }
 
+/* ── Indo-Pak Arabic font (bundled with the app) ── */
+@font-face {
+  font-family: 'IndopakNastaleeq';
+  src: url('/fonts/IndopakNastaleeq.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Urdu Nastaliq (bundled with the app) ── */
+@font-face {
+  font-family: 'UrduNastaliq';
+  src: url('/fonts/UrduNastaliq.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Arabic font utility (matches mobile app) ── */
+.font-arabic,
+[dir="rtl"].font-arabic,
+textarea.font-arabic,
+input.font-arabic {
+  font-family: 'IndopakNastaleeq', 'Scheherazade New', 'Amiri', serif;
+  line-height: 2.2;
+}
+
 /* ── Urdu / Nastaliq font utility ── */
 .font-urdu,
-[dir="rtl"].font-urdu,
-textarea[dir="rtl"],
-p[dir="rtl"] {
-  font-family: 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif;
+[dir="rtl"].font-urdu {
+  font-family: 'UrduNastaliq', 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif;
   line-height: 2.4;
+}
+
+/* ── Global Arabic default: any RTL text that isn't Urdu uses IndoPak ── */
+[dir="rtl"]:not(.font-urdu):not([class*="nastaliq"]):not([style*="Nastaliq"]):not([style*="Nastaleeq"]) {
+  font-family: 'IndopakNastaleeq', 'Scheherazade New', 'Amiri', serif !important;
 }
 
 /* ── Custom scrollbar ── */

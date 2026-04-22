@@ -18,6 +18,16 @@ import {
   QaseedahNaatGroup,
   QaseedahNaatGroupPayload,
   QaseedahNaatType,
+  HowToGroup,
+  HowToGroupPayload,
+  HowToGuide,
+  HowToGuidePayload,
+  HowToGuideTree,
+  HowToSection,
+  HowToStep,
+  HowToStepBlock,
+  HowToStepImage,
+  HowToLanguage,
 } from '#/types';
 import { supabase, supabaseAdmin, invokeExternalFunction } from '#/lib/supabase';
 
@@ -482,6 +492,487 @@ export async function deleteQaseedahNaatEntry(id: string): Promise<void> {
     .eq('id', id);
 
   if (error) throw new Error(`Failed to delete qaseedah/naat entry: ${error.message}`);
+}
+
+// ─── How-To Guides (hierarchical schema) ───────────────────────────────────
+
+export async function fetchHowToGroups(options?: {
+  onlyActive?: boolean;
+}): Promise<HowToGroup[]> {
+  let query = supabase
+    .from('howto_groups')
+    .select('*')
+    .order('display_order', { ascending: true })
+    .order('name', { ascending: true });
+
+  if (options?.onlyActive) {
+    query = query.eq('is_active', true);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch how-to groups: ${error.message}`);
+  return (data ?? []) as HowToGroup[];
+}
+
+export async function createHowToGroup(data: Partial<HowToGroupPayload>): Promise<HowToGroup> {
+  const { data: rows, error } = await supabase
+    .from('howto_groups')
+    .insert(data)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create how-to group: ${error.message}`);
+  return rows as HowToGroup;
+}
+
+export async function updateHowToGroup(id: string, data: Partial<HowToGroupPayload>): Promise<HowToGroup> {
+  const { data: rows, error } = await supabase
+    .from('howto_groups')
+    .update(data)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update how-to group: ${error.message}`);
+  return rows as HowToGroup;
+}
+
+export async function deleteHowToGroup(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('howto_groups')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to delete how-to group: ${error.message}`);
+}
+
+export async function fetchHowToGuides(options?: {
+  groupId?: string;
+  language?: HowToLanguage;
+  onlyActive?: boolean;
+}): Promise<HowToGuide[]> {
+  let query = supabase
+    .from('howto_guides')
+    .select('*')
+    .order('display_order', { ascending: true })
+    .order('title', { ascending: true });
+
+  if (options?.groupId) {
+    query = query.eq('group_id', options.groupId);
+  }
+
+  if (options?.language) {
+    query = query.eq('language', options.language);
+  }
+
+  if (options?.onlyActive) {
+    query = query.eq('is_active', true);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch how-to guides: ${error.message}`);
+  return (data ?? []) as HowToGuide[];
+}
+
+export async function createHowToGuide(data: Partial<HowToGuidePayload>): Promise<HowToGuide> {
+  const { data: rows, error } = await supabase
+    .from('howto_guides')
+    .insert(data)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create how-to guide: ${error.message}`);
+  return rows as HowToGuide;
+}
+
+export type HowToDemoSeedResult = {
+  groupId: string;
+  guideId: string;
+  groupName: string;
+  guideTitle: string;
+};
+
+export async function createHowToDemoGuide(language: HowToLanguage = 'en'): Promise<HowToDemoSeedResult> {
+  const stamp = Date.now();
+  const groupSlug = `demo-howto-group-${stamp}`;
+  const guideSlug = `demo-howto-guide-${stamp}`;
+  const groupName = `Demo How-To Group ${stamp}`;
+  const guideTitle = `Demo How-To Guide ${stamp}`;
+
+  const { data: group, error: groupError } = await supabase
+    .from('howto_groups')
+    .insert({
+      slug: groupSlug,
+      name: groupName,
+      icon: 'menu-book',
+      color: '#2e7d32',
+      display_order: 999,
+      is_active: true,
+    })
+    .select('*')
+    .single();
+
+  if (groupError || !group) {
+    throw new Error(`Failed to create demo group: ${groupError?.message ?? 'Unknown error'}`);
+  }
+
+  const { data: guide, error: guideError } = await supabase
+    .from('howto_guides')
+    .insert({
+      group_id: group.id,
+      slug: guideSlug,
+      title: guideTitle,
+      subtitle: 'Portal demo entry',
+      intro: 'This is a one-click demo guide created from the portal.',
+      language,
+      icon: 'menu-book',
+      color: '#2e7d32',
+      display_order: 999,
+      is_active: true,
+    })
+    .select('*')
+    .single();
+
+  if (guideError || !guide) {
+    throw new Error(`Failed to create demo guide: ${guideError?.message ?? 'Unknown error'}`);
+  }
+
+  const { data: section, error: sectionError } = await supabase
+    .from('howto_sections')
+    .insert({
+      guide_id: guide.id,
+      heading: 'Demo Section',
+      section_order: 0,
+    })
+    .select('*')
+    .single();
+
+  if (sectionError || !section) {
+    throw new Error(`Failed to create demo section: ${sectionError?.message ?? 'Unknown error'}`);
+  }
+
+  const { data: step, error: stepError } = await supabase
+    .from('howto_steps')
+    .insert({
+      section_id: section.id,
+      step_order: 0,
+      title: 'Demo Step',
+      detail: 'Open the tree editor and customize this step.',
+      note: 'You can now publish or snapshot this guide.',
+      rich_content_html: null,
+    })
+    .select('*')
+    .single();
+
+  if (stepError || !step) {
+    throw new Error(`Failed to create demo step: ${stepError?.message ?? 'Unknown error'}`);
+  }
+
+  const { error: blockError } = await supabase
+    .from('howto_step_blocks')
+    .insert({
+      step_id: step.id,
+      block_order: 0,
+      kind: 'text',
+      payload: {
+        text: 'Demo block content. Replace this with your real instructions.',
+      },
+    });
+
+  if (blockError) {
+    throw new Error(`Failed to create demo block: ${blockError.message}`);
+  }
+
+  return {
+    groupId: group.id as string,
+    guideId: guide.id as string,
+    groupName,
+    guideTitle,
+  };
+}
+
+export async function updateHowToGuide(id: string, data: Partial<HowToGuidePayload>): Promise<HowToGuide> {
+  const { data: rows, error } = await supabase
+    .from('howto_guides')
+    .update(data)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update how-to guide: ${error.message}`);
+  return rows as HowToGuide;
+}
+
+export async function deleteHowToGuide(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('howto_guides')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to delete how-to guide: ${error.message}`);
+}
+
+export async function fetchHowToGuideTree(guideId: string): Promise<HowToGuideTree | null> {
+  const { data: guide, error: guideError } = await supabase
+    .from('howto_guides')
+    .select('*')
+    .eq('id', guideId)
+    .maybeSingle();
+
+  if (guideError) throw new Error(`Failed to fetch how-to guide: ${guideError.message}`);
+  if (!guide) return null;
+
+  const { data: sections, error: sectionsError } = await supabase
+    .from('howto_sections')
+    .select('*')
+    .eq('guide_id', guideId)
+    .order('section_order', { ascending: true });
+
+  if (sectionsError) throw new Error(`Failed to fetch how-to sections: ${sectionsError.message}`);
+
+  const sectionIds = (sections ?? []).map((section) => section.id);
+  const { data: steps, error: stepsError } = await supabase
+    .from('howto_steps')
+    .select('*')
+    .in('section_id', sectionIds.length > 0 ? sectionIds : ['00000000-0000-0000-0000-000000000000'])
+    .order('step_order', { ascending: true });
+
+  if (stepsError) throw new Error(`Failed to fetch how-to steps: ${stepsError.message}`);
+
+  const stepIds = (steps ?? []).map((step) => step.id);
+  const blockQuery = stepIds.length > 0
+    ? supabase.from('howto_step_blocks').select('*').in('step_id', stepIds).order('block_order', { ascending: true })
+    : Promise.resolve({ data: [], error: null } as { data: HowToStepBlock[]; error: null });
+  const imageQuery = stepIds.length > 0
+    ? supabase.from('howto_step_images').select('*').in('step_id', stepIds).order('display_order', { ascending: true })
+    : Promise.resolve({ data: [], error: null } as { data: HowToStepImage[]; error: null });
+
+  const [{ data: blocks, error: blocksError }, { data: images, error: imagesError }] = await Promise.all([blockQuery, imageQuery]);
+
+  if (blocksError) throw new Error(`Failed to fetch how-to blocks: ${blocksError.message}`);
+  if (imagesError) throw new Error(`Failed to fetch how-to images: ${imagesError.message}`);
+
+  const stepsBySection = new Map<string, HowToStep[]>();
+  for (const step of (steps ?? []) as HowToStep[]) {
+    const list = stepsBySection.get(step.section_id) ?? [];
+    list.push(step);
+    stepsBySection.set(step.section_id, list);
+  }
+
+  const blocksByStep = new Map<string, HowToStepBlock[]>();
+  for (const block of (blocks ?? []) as HowToStepBlock[]) {
+    const list = blocksByStep.get(block.step_id) ?? [];
+    list.push(block);
+    blocksByStep.set(block.step_id, list);
+  }
+
+  const imagesByStep = new Map<string, HowToStepImage[]>();
+  for (const image of (images ?? []) as HowToStepImage[]) {
+    const list = imagesByStep.get(image.step_id) ?? [];
+    list.push(image);
+    imagesByStep.set(image.step_id, list);
+  }
+
+  return {
+    guide: guide as HowToGuide,
+    sections: ((sections ?? []) as HowToSection[]).map((section) => ({
+      section,
+      steps: (stepsBySection.get(section.id) ?? []).map((step) => ({
+        step,
+        blocks: blocksByStep.get(step.id) ?? [],
+        images: imagesByStep.get(step.id) ?? [],
+      })),
+    })),
+  };
+}
+
+export type HowToTreeSaveInput = {
+  sections: Array<{
+    heading: string;
+    section_order: number;
+    steps: Array<{
+      step_order: number;
+      title: string;
+      detail?: string | null;
+      note?: string | null;
+      rich_content_html?: string | null;
+      blocks: Array<{
+        block_order: number;
+        kind: HowToStepBlock['kind'];
+        payload: Record<string, unknown>;
+      }>;
+      images: Array<{
+        display_order: number;
+        image_url: string;
+        thumb_url?: string | null;
+        caption?: string | null;
+        source?: string | null;
+      }>;
+    }>;
+  }>;
+};
+
+export async function saveHowToGuideTree(guideId: string, input: HowToTreeSaveInput): Promise<void> {
+  const existing = await fetchHowToGuideTree(guideId);
+  if (existing) {
+    const sectionIds = existing.sections.map((item) => item.section.id);
+    const stepIds = existing.sections.flatMap((item) => item.steps.map((step) => step.step.id));
+
+    if (stepIds.length > 0) {
+      await supabase.from('howto_step_blocks').delete().in('step_id', stepIds);
+      await supabase.from('howto_step_images').delete().in('step_id', stepIds);
+      await supabase.from('howto_steps').delete().in('id', stepIds);
+    }
+
+    if (sectionIds.length > 0) {
+      await supabase.from('howto_sections').delete().in('id', sectionIds);
+    }
+  }
+
+  if (input.sections.length === 0) return;
+
+  const { data: sections, error: sectionsError } = await supabase
+    .from('howto_sections')
+    .insert(input.sections.map((section) => ({
+      guide_id: guideId,
+      heading: section.heading,
+      section_order: section.section_order,
+    })))
+    .select('*');
+
+  if (sectionsError) throw new Error(`Failed to save sections: ${sectionsError.message}`);
+
+  const sectionByOrder = new Map<number, string>();
+  for (const section of sections ?? []) {
+    sectionByOrder.set(section.section_order as number, section.id as string);
+  }
+
+  const stepInsertRows: Array<{
+    section_id: string;
+    step_order: number;
+    title: string;
+    detail: string | null;
+    note: string | null;
+    rich_content_html: string | null;
+  }> = [];
+
+  for (const section of input.sections) {
+    const sectionId = sectionByOrder.get(section.section_order);
+    if (!sectionId) continue;
+    for (const step of section.steps) {
+      stepInsertRows.push({
+        section_id: sectionId,
+        step_order: step.step_order,
+        title: step.title,
+        detail: step.detail ?? null,
+        note: step.note ?? null,
+        rich_content_html: step.rich_content_html ?? null,
+      });
+    }
+  }
+
+  const { data: steps, error: stepsError } = await supabase
+    .from('howto_steps')
+    .insert(stepInsertRows)
+    .select('*');
+
+  if (stepsError) throw new Error(`Failed to save steps: ${stepsError.message}`);
+
+  const stepByComposite = new Map<string, string>();
+  for (const step of steps ?? []) {
+    stepByComposite.set(`${step.section_id}::${step.step_order}`, step.id as string);
+  }
+
+  const blockRows: Array<{ step_id: string; block_order: number; kind: HowToStepBlock['kind']; payload: Record<string, unknown> }> = [];
+  const imageRows: Array<{ step_id: string; display_order: number; image_url: string; thumb_url: string | null; caption: string | null; source: string | null }> = [];
+
+  for (const section of input.sections) {
+    const sectionId = sectionByOrder.get(section.section_order);
+    if (!sectionId) continue;
+
+    for (const step of section.steps) {
+      const stepId = stepByComposite.get(`${sectionId}::${step.step_order}`);
+      if (!stepId) continue;
+
+      for (const block of step.blocks) {
+        blockRows.push({
+          step_id: stepId,
+          block_order: block.block_order,
+          kind: block.kind,
+          payload: block.payload,
+        });
+      }
+
+      for (const image of step.images) {
+        imageRows.push({
+          step_id: stepId,
+          display_order: image.display_order,
+          image_url: image.image_url,
+          thumb_url: image.thumb_url ?? null,
+          caption: image.caption ?? null,
+          source: image.source ?? null,
+        });
+      }
+    }
+  }
+
+  if (blockRows.length > 0) {
+    const { error: blocksError } = await supabase.from('howto_step_blocks').insert(blockRows);
+    if (blocksError) throw new Error(`Failed to save blocks: ${blocksError.message}`);
+  }
+
+  if (imageRows.length > 0) {
+    const { error: imagesError } = await supabase.from('howto_step_images').insert(imageRows);
+    if (imagesError) throw new Error(`Failed to save images: ${imagesError.message}`);
+  }
+}
+
+export async function publishHowToGuide(input: {
+  guideId: string;
+  isActive: boolean;
+  publishStartAt?: string | null;
+  publishEndAt?: string | null;
+}): Promise<void> {
+  const { error } = await invokeExternalFunction<{ data?: unknown; error?: string }>('howto-publish', {
+    guideId: input.guideId,
+    isActive: input.isActive,
+    publishStartAt: input.publishStartAt ?? null,
+    publishEndAt: input.publishEndAt ?? null,
+  });
+
+  if (error) {
+    throw new Error(`Failed to publish how-to guide: ${error}`);
+  }
+}
+
+export async function createHowToVersionSnapshot(guideId: string): Promise<void> {
+  const { error } = await invokeExternalFunction<{ data?: unknown; error?: string }>('howto-version-snapshot', {
+    guideId,
+  });
+
+  if (error) {
+    throw new Error(`Failed to create guide snapshot: ${error}`);
+  }
+}
+
+export async function uploadHowToMedia(input: {
+  guideId: string;
+  stepId: string;
+  fileName: string;
+  contentType: string;
+  base64Data: string;
+}): Promise<{ image_url: string; thumb_url: string; path: string }> {
+  const { data, error } = await invokeExternalFunction<{ data?: { image_url: string; thumb_url: string; path: string }; error?: string }>('howto-media-upload', input);
+
+  if (error) {
+    throw new Error(`Failed to upload how-to media: ${error}`);
+  }
+
+  if (!data?.data) {
+    throw new Error(data?.error ?? 'How-to media upload returned empty response.');
+  }
+
+  return data.data;
 }
 
 // ─── Announcements ───────────────────────────────────────────────────────────

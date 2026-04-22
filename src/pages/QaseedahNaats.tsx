@@ -94,6 +94,8 @@ const EMPTY_FORM: EditorFormState = {
 
 type ParsedLineRow = {
   chapter: string;
+  chapter_arabic?: string;
+  chapter_urdu?: string;
   heading: string;
   arabic: string;
   transliteration: string;
@@ -104,16 +106,64 @@ type ParsedLineRow = {
 type ChapterDraft = {
   id: string;
   title: string;
+  title_arabic: string;
+  title_urdu: string;
   arabic: string;
   transliteration: string;
   translation: string;
   urdu_translation: string;
 };
 
+type ChorusDraft = {
+  arabic: string;
+  transliteration: string;
+  translation: string;
+  urdu_translation: string;
+};
+
+const EMPTY_CHORUS: ChorusDraft = {
+  arabic: '',
+  transliteration: '',
+  translation: '',
+  urdu_translation: '',
+};
+
+const CHORUS_MARKER = '__chorus__';
+
+function chorusHasContent(chorus: ChorusDraft): boolean {
+  return (
+    chorus.arabic.trim().length > 0 ||
+    chorus.transliteration.trim().length > 0 ||
+    chorus.translation.trim().length > 0 ||
+    chorus.urdu_translation.trim().length > 0
+  );
+}
+
+function extractChorusFromSections(sections: unknown): ChorusDraft {
+  if (!Array.isArray(sections)) return { ...EMPTY_CHORUS };
+
+  for (const rawSection of sections as ExistingSectionLike[]) {
+    if (!rawSection || typeof rawSection !== 'object') continue;
+    const chapter = typeof rawSection.chapter === 'string' ? rawSection.chapter.trim() : '';
+    if (chapter !== CHORUS_MARKER) continue;
+
+    return {
+      arabic: typeof rawSection.arabic === 'string' ? rawSection.arabic : '',
+      transliteration: typeof rawSection.transliteration === 'string' ? rawSection.transliteration : '',
+      translation: typeof rawSection.translation === 'string' ? rawSection.translation : '',
+      urdu_translation: typeof rawSection.urdu_translation === 'string' ? rawSection.urdu_translation : '',
+    };
+  }
+
+  return { ...EMPTY_CHORUS };
+}
+
 const CHAPTER_PREFIX_REGEX = /^(?:#{1,6}\s*)?(?:chapter|chap)\b\s*[:-]?\s*(.*)$/i;
 
 type ExistingSectionLike = {
   chapter?: unknown;
+  chapter_arabic?: unknown;
+  chapter_urdu?: unknown;
   heading?: unknown;
   arabic?: unknown;
   transliteration?: unknown;
@@ -221,6 +271,8 @@ function buildBulkLinesFromSections(sections: unknown): string {
       ? rawSection.chapter.trim()
       : 'Chapter 1';
 
+    if (chapter === CHORUS_MARKER) continue;
+
     if (chapter !== previousChapter) {
       lines.push(chapter);
       previousChapter = chapter;
@@ -248,6 +300,8 @@ function createChapterDraft(title: string, seed = Date.now()): ChapterDraft {
   return {
     id: `chapter-${seed}-${Math.random().toString(36).slice(2, 8)}`,
     title,
+    title_arabic: '',
+    title_urdu: '',
     arabic: '',
     transliteration: '',
     translation: '',
@@ -269,12 +323,19 @@ function buildChapterDraftsFromSections(sections: unknown): ChapterDraft[] {
       ? rawSection.chapter.trim()
       : 'Chapter 1';
 
+    if (chapterTitle === CHORUS_MARKER) continue;
+
     if (!chapterMap.has(chapterTitle)) {
       chapterMap.set(chapterTitle, createChapterDraft(chapterTitle, chapterMap.size + 1));
     }
 
     const chapter = chapterMap.get(chapterTitle);
     if (!chapter) continue;
+
+    const chapterArabicTitle = typeof rawSection.chapter_arabic === 'string' ? rawSection.chapter_arabic.trim() : '';
+    const chapterUrduTitle = typeof rawSection.chapter_urdu === 'string' ? rawSection.chapter_urdu.trim() : '';
+    if (chapterArabicTitle && !chapter.title_arabic) chapter.title_arabic = chapterArabicTitle;
+    if (chapterUrduTitle && !chapter.title_urdu) chapter.title_urdu = chapterUrduTitle;
 
     const arabic = typeof rawSection.arabic === 'string' ? rawSection.arabic.trim() : '';
     const transliteration = typeof rawSection.transliteration === 'string' ? rawSection.transliteration.trim() : '';
@@ -296,12 +357,15 @@ function buildRowsFromChapterDrafts(chapters: ChapterDraft[]): ParsedLineRow[] {
 
   for (const chapter of chapters) {
     const chapterTitle = chapter.title.trim() || 'Chapter 1';
+    const chapterArabicTitle = chapter.title_arabic.trim();
+    const chapterUrduTitle = chapter.title_urdu.trim();
     const arabicLines = chapter.arabic.split('\n').map((line) => line.trim());
     const translitLines = chapter.transliteration.split('\n').map((line) => line.trim());
     const englishLines = chapter.translation.split('\n').map((line) => line.trim());
     const urduLines = chapter.urdu_translation.split('\n').map((line) => line.trim());
 
     const lineCount = Math.max(arabicLines.length, translitLines.length, englishLines.length, urduLines.length);
+    let firstRowForChapter = true;
 
     for (let index = 0; index < lineCount; index += 1) {
       const arabic = arabicLines[index] ?? '';
@@ -313,12 +377,15 @@ function buildRowsFromChapterDrafts(chapters: ChapterDraft[]): ParsedLineRow[] {
 
       rows.push({
         chapter: chapterTitle,
+        chapter_arabic: firstRowForChapter && chapterArabicTitle ? chapterArabicTitle : undefined,
+        chapter_urdu: firstRowForChapter && chapterUrduTitle ? chapterUrduTitle : undefined,
         heading: `${chapterTitle} · Line ${rows.filter((row) => row.chapter === chapterTitle).length + 1}`,
         arabic,
         transliteration,
         translation,
         urdu_translation: urdu,
       });
+      firstRowForChapter = false;
     }
   }
 
@@ -406,6 +473,7 @@ export default function QaseedahNaats() {
   const [countMode, setCountMode] = useState<'preset' | 'custom'>('preset');
   const [composeMode, setComposeMode] = useState<EntryComposeMode>('chapters');
   const [chapterDrafts, setChapterDrafts] = useState<ChapterDraft[]>([createChapterDraft('Chapter 1')]);
+  const [chorusDraft, setChorusDraft] = useState<ChorusDraft>({ ...EMPTY_CHORUS });
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -515,6 +583,7 @@ export default function QaseedahNaats() {
     setCountMode('preset');
     setComposeMode('chapters');
     setChapterDrafts([createChapterDraft('Chapter 1')]);
+    setChorusDraft({ ...EMPTY_CHORUS });
   };
 
   const openCreate = (type: QaseedahNaatType) => {
@@ -533,6 +602,7 @@ export default function QaseedahNaats() {
     setCountMode(COUNT_PRESETS.includes('1') ? 'preset' : 'custom');
     setComposeMode('chapters');
     setChapterDrafts([createChapterDraft('Chapter 1')]);
+    setChorusDraft({ ...EMPTY_CHORUS });
     setModalOpen(true);
   };
 
@@ -545,6 +615,7 @@ export default function QaseedahNaats() {
     setCountMode(COUNT_PRESETS.includes(row.count || '1') ? 'preset' : 'custom');
     setComposeMode(Array.isArray(row.sections) && row.sections.length > 0 ? 'chapters' : 'bulk');
     setChapterDrafts(buildChapterDraftsFromSections(row.sections));
+    setChorusDraft(extractChorusFromSections(row.sections));
     setModalOpen(true);
   };
 
@@ -716,14 +787,34 @@ export default function QaseedahNaats() {
         display_order: Number(form.display_order) || 0,
         is_active: form.is_active,
         sections: structuredRows.length > 0
-          ? structuredRows.map((line) => ({
-            chapter: line.chapter,
-            heading: line.heading,
-            arabic: line.arabic,
-            transliteration: line.transliteration || undefined,
-            translation: line.translation || undefined,
-            urdu_translation: line.urdu_translation || undefined,
-          }))
+          ? (() => {
+            const chapterSections = structuredRows.map((line) => ({
+              chapter: line.chapter,
+              chapter_arabic: line.chapter_arabic,
+              chapter_urdu: line.chapter_urdu,
+              heading: line.heading,
+              arabic: line.arabic,
+              transliteration: line.transliteration || undefined,
+              translation: line.translation || undefined,
+              urdu_translation: line.urdu_translation || undefined,
+            }));
+
+            if (chorusHasContent(chorusDraft)) {
+              return [
+                {
+                  chapter: CHORUS_MARKER,
+                  heading: 'Chorus',
+                  arabic: chorusDraft.arabic.trim(),
+                  transliteration: chorusDraft.transliteration.trim() || undefined,
+                  translation: chorusDraft.translation.trim() || undefined,
+                  urdu_translation: chorusDraft.urdu_translation.trim() || undefined,
+                },
+                ...chapterSections,
+              ];
+            }
+
+            return chapterSections;
+          })()
           : editRow?.sections ?? null,
         file_url: form.file_url.trim() || null,
         description: form.description.trim() || null,
@@ -1155,6 +1246,59 @@ export default function QaseedahNaats() {
 
             {composeMode === 'chapters' ? (
               <div className="space-y-3 rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(140_25%_98%)] p-3">
+                <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Chorus (Optional)</p>
+                    <p className="text-xs text-muted-foreground">
+                      If provided, this chorus is shown at the beginning and end of every chapter (e.g. Qaseedah Burdah).
+                      Leave blank to disable.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label>Chorus — Arabic</Label>
+                      <Textarea
+                        value={chorusDraft.arabic}
+                        onChange={(event) => setChorusDraft((prev) => ({ ...prev, arabic: event.target.value }))}
+                        placeholder="مَولَايَ صَلِّ وَسَلِّمْ..."
+                        rows={4}
+                        dir="rtl"
+                        className="font-arabic text-xl leading-loose text-right w-full"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Chorus — Transliteration</Label>
+                      <Textarea
+                        value={chorusDraft.transliteration}
+                        onChange={(event) => setChorusDraft((prev) => ({ ...prev, transliteration: event.target.value }))}
+                        placeholder="Mawlāyā ṣalli wa sallim..."
+                        rows={3}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Chorus — English</Label>
+                      <Textarea
+                        value={chorusDraft.translation}
+                        onChange={(event) => setChorusDraft((prev) => ({ ...prev, translation: event.target.value }))}
+                        placeholder="O my Master, send blessings..."
+                        rows={3}
+                      />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label>Chorus — Urdu</Label>
+                      <Textarea
+                        value={chorusDraft.urdu_translation}
+                        onChange={(event) => setChorusDraft((prev) => ({ ...prev, urdu_translation: event.target.value }))}
+                        placeholder="اے میرے مولا..."
+                        rows={3}
+                        dir="rtl"
+                        className="font-urdu text-lg leading-loose text-right w-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Chapter Builder</p>
@@ -1188,13 +1332,37 @@ export default function QaseedahNaats() {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="space-y-1.5">
+                          <Label className="text-xs">Chapter Title — Arabic (optional, overrides auto-translation)</Label>
+                          <Input
+                            value={chapter.title_arabic}
+                            onChange={(event) => updateChapterDraft(chapter.id, { title_arabic: event.target.value })}
+                            placeholder="الباب الأول ..."
+                            dir="rtl"
+                            className="font-arabic text-lg text-right"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Chapter Title — Urdu (optional, overrides auto-translation)</Label>
+                          <Input
+                            value={chapter.title_urdu}
+                            onChange={(event) => updateChapterDraft(chapter.id, { title_urdu: event.target.value })}
+                            placeholder="باب اول ..."
+                            dir="rtl"
+                            className="font-urdu text-lg text-right"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-1.5 md:col-span-2">
                           <Label>Arabic (one line per verse)</Label>
                           <Textarea
                             value={chapter.arabic}
                             onChange={(event) => updateChapterDraft(chapter.id, { arabic: event.target.value })}
                             placeholder="Line 1\nLine 2\nLine 3"
-                            rows={5}
+                            rows={10}
                             dir="rtl"
+                            className="font-arabic text-xl leading-loose text-right w-full"
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -1215,7 +1383,7 @@ export default function QaseedahNaats() {
                             rows={5}
                           />
                         </div>
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 md:col-span-2">
                           <Label>Urdu (optional)</Label>
                           <Textarea
                             value={chapter.urdu_translation}
@@ -1223,6 +1391,7 @@ export default function QaseedahNaats() {
                             placeholder="Line 1\nLine 2\nLine 3"
                             rows={5}
                             dir="rtl"
+                            className="font-urdu text-lg leading-loose text-right w-full"
                           />
                         </div>
                       </div>
