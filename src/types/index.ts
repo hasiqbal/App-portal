@@ -44,6 +44,9 @@ export interface PrayerTime {
 
 export type PrayerTimeUpdate = Partial<Omit<PrayerTime, 'id' | 'created_at' | 'updated_at'>>;
 
+export type AdhkarContentType = 'adhkar' | 'quran' | 'qaseedah' | 'naat';
+export type AdhkarContentSource = 'db' | 'local' | 'api';
+
 export interface Dhikr {
   id: string;
   title: string;
@@ -61,6 +64,9 @@ export interface Dhikr {
   sections: unknown | null;
   is_active: boolean;
   file_url: string | null;
+  content_type?: AdhkarContentType | null;
+  content_source?: AdhkarContentSource | null;
+  content_key?: string | null;
   tafsir: string | null;
   description: string | null;
   created_at: string;
@@ -148,8 +154,8 @@ export interface AdhkarGroup {
   display_order: number;
   is_active: boolean;
   bg_image_url: string | null;
-  content_type: 'adhkar' | 'quran' | null;
-  content_source: 'db' | 'local' | 'api' | null;
+  content_type: AdhkarContentType | null;
+  content_source: AdhkarContentSource | null;
   content_key: string | null;
   card_icon: string | null;
   card_badge: string | null;

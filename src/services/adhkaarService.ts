@@ -14,14 +14,14 @@ import {
   updateAdhkarGroup,
   deleteAdhkarGroup,
 } from '#/lib/api';
-import type { Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload } from '#/types';
+import type { Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, AdhkarContentType } from '#/types';
 
 // ─── Adhkar (individual dhikr entries) ───────────────────────────────────────
 
 export const adhkaarService = {
   /** Fetch all adhkar, optionally filtered by prayer_time category slug. */
-  getAll: (category?: string): Promise<Dhikr[]> =>
-    fetchAdhkar(category),
+  getAll: (category?: string, options?: { contentTypes?: AdhkarContentType[] }): Promise<Dhikr[]> =>
+    fetchAdhkar(category, options),
 
   /** Create a new dhikr entry. */
   create: (data: Partial<DhikrPayload>): Promise<Dhikr> =>

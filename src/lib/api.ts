@@ -1,5 +1,5 @@
 
-import { PrayerTime, PrayerTimeUpdate, Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, Announcement, AnnouncementPayload, SunnahReminder, SunnahReminderPayload, SunnahGroup, SunnahGroupPayload } from '#/types';
+import { PrayerTime, PrayerTimeUpdate, Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, Announcement, AnnouncementPayload, SunnahReminder, SunnahReminderPayload, SunnahGroup, SunnahGroupPayload, AdhkarContentType } from '#/types';
 import { supabase, supabaseAdmin, invokeExternalFunction } from '#/lib/supabase';
 
 const ANNOUNCEMENTS_TABLE = (import.meta.env.VITE_ANNOUNCEMENTS_TABLE ?? 'announcements').trim() || 'announcements';
@@ -150,10 +150,13 @@ export async function bulkUpdatePrayerTimes(ids: string[], data: PrayerTimeUpdat
 
 // ─── Adhkar ──────────────────────────────────────────────────────────────────
 
-export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
+export async function fetchAdhkar(
+  category?: string,
+  options?: { contentTypes?: AdhkarContentType[] }
+): Promise<Dhikr[]> {
   let query = supabase
     .from('adhkar')
-    .select('id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,sections,is_active,tafsir,description,file_url,created_at,updated_at')
+    .select('id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,sections,is_active,tafsir,description,file_url,content_type,content_source,content_key,created_at,updated_at')
     .order('prayer_time', { ascending: true })
     .order('group_order', { ascending: true })
     .order('display_order', { ascending: true })
@@ -163,6 +166,10 @@ export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
     query = query.eq('prayer_time', category);
   }
 
+  if (options?.contentTypes && options.contentTypes.length > 0) {
+    query = query.in('content_type', options.contentTypes);
+  }
+
   const { data, error } = await query;
   if (error) throw new Error(`Failed to fetch adhkar: ${error.message}`);
   return (data ?? []).map((row) => ({
@@ -170,6 +177,9 @@ export async function fetchAdhkar(category?: string): Promise<Dhikr[]> {
     count: String(row.count ?? ''),
     sections: row.sections ?? null,
     file_url: row.file_url ?? null,
+    content_type: row.content_type ?? null,
+    content_source: row.content_source ?? null,
+    content_key: row.content_key ?? null,
     tafsir: row.tafsir ?? row.description ?? null,
     description: row.description ?? null,
     urdu_translation: row.urdu_translation ?? null,

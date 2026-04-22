@@ -33,6 +33,19 @@ const ALLOWED_PRAYER_TIMES = new Set([
   'general',
 ]);
 
+const ALLOWED_CONTENT_TYPES = new Set([
+  'adhkar',
+  'quran',
+  'qaseedah',
+  'naat',
+]);
+
+const ALLOWED_CONTENT_SOURCES = new Set([
+  'db',
+  'local',
+  'api',
+]);
+
 function badRequest(message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status: 400,
@@ -94,6 +107,10 @@ function normalizePayload(data: Record<string, unknown>): Record<string, unknown
 
   const prayerTime = asTrimmedStringOrNull(data.prayer_time);
   normalized.prayer_time = prayerTime;
+
+  normalized.content_type = asTrimmedStringOrNull(data.content_type);
+  normalized.content_source = asTrimmedStringOrNull(data.content_source);
+  normalized.content_key = asTrimmedStringOrNull(data.content_key);
 
   const countValue = asTrimmedStringOrNull(data.count);
   normalized.count = countValue ?? '1';
@@ -176,6 +193,14 @@ serve(async (req) => {
 
     if (typeof normalized.prayer_time !== 'string' || !ALLOWED_PRAYER_TIMES.has(normalized.prayer_time)) {
       return badRequest('Invalid prayer_time.');
+    }
+
+    if (typeof normalized.content_type === 'string' && !ALLOWED_CONTENT_TYPES.has(normalized.content_type)) {
+      return badRequest('Invalid content_type.');
+    }
+
+    if (typeof normalized.content_source === 'string' && !ALLOWED_CONTENT_SOURCES.has(normalized.content_source)) {
+      return badRequest('Invalid content_source.');
     }
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {

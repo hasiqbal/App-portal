@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   CalendarDays, BookOpen, Database, Bell, BellRing,
-  Menu, X, Home, FileSpreadsheet, Star,
+  Menu, X, Home, FileSpreadsheet, Star, FileText,
   LogOut, Settings2, Users,
 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
@@ -15,6 +15,7 @@ const ALL_NAV_ITEMS = [
   { to: '/',                  icon: Home,            label: 'Dashboard',        adminOnly: false },
   { to: '/prayer-times',      icon: CalendarDays,    label: 'Prayer Times',     adminOnly: false },
   { to: '/adhkar',            icon: BookOpen,        label: 'Adhkar',           adminOnly: false },
+  { to: '/qaseedah-naats',    icon: FileText,        label: 'Qaseedahs & Naats',  adminOnly: false },
   { to: '/announcements',     icon: Bell,            label: 'Announcements',    adminOnly: false },
   { to: '/sunnah-reminders',  icon: Star,            label: 'Sunnah Reminders', adminOnly: false },
   { to: '/notifications',     icon: BellRing,        label: 'Notifications',    adminOnly: false },

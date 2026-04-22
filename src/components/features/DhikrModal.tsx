@@ -5,7 +5,7 @@ import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Textarea } from '#/components/ui/textarea';
 import { Switch } from '#/components/ui/switch';
-import { AdhkarGroup, Dhikr, PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '#/types';
+import { AdhkarContentType, AdhkarGroup, Dhikr, PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '#/types';
 import { createAdhkarGroup, fetchAdhkar, fetchAdhkarGroups, saveDhikrViaEdge } from '#/lib/api';
 import { toast } from 'sonner';
 import { BookOpen, Loader2, ChevronDown, ChevronUp, CheckCircle2, X, ImagePlus, Trash2, ExternalLink, Copy, Languages, AlertTriangle, Maximize2, Minimize2, Eye, Bold, Italic, Underline, Type, Palette, List, ListOrdered, Strikethrough, Quote, Undo2, Redo2, Eraser } from 'lucide-react';
@@ -932,6 +932,9 @@ interface DhikrModalProps {
   open: boolean;
   row: Dhikr | null;
   presetGroup?: { name: string; prayerTime: string } | null;
+  forcedContentType?: AdhkarContentType | null;
+  defaultPrayerTime?: string;
+  titleOverride?: string;
   onClose: () => void;
   onSaved: (dhikr: Dhikr) => void;
   onGroupCreated?: (group: AdhkarGroup) => void;
@@ -962,13 +965,27 @@ const EMPTY = {
 };
 
 type FormState = typeof EMPTY;
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
-const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, onFinalized, onRevert, onUpdated }: DhikrModalProps) => {
+const DhikrModal = ({
+  open,
+  row,
+  presetGroup,
+  forcedContentType,
+  defaultPrayerTime,
+  titleOverride,
+  onClose,
+  onSaved,
+  onGroupCreated,
+  onFinalized,
+  onRevert,
+  onUpdated,
+}: DhikrModalProps) => {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
   const { translateToUrdu, translating: translatingUrdu } = useUrduTranslation();
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isEdit = !!row;
   const [existingGroups, setExistingGroups] = useState<AdhkarGroup[]>([]);
   const [groupOrderMap, setGroupOrderMap] = useState<Record<string, number | null>>({});
@@ -983,7 +1000,12 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
   const [editorTab, setEditorTab] = useState<'content' | 'translations' | 'advanced'>('content');
   const [showAdvancedTools, setShowAdvancedTools] = useState(false);
   const groupInputRef = useRef<HTMLInputElement>(null);
-  const existingGroupNames = existingGroups.map((group) => group.name).sort((left, right) => left.localeCompare(right));
+  const entryContentType: AdhkarContentType | null = forcedContentType ?? row?.content_type ?? null;
+  const scopedGroups = useMemo(() => {
+    if (!entryContentType) return existingGroups;
+    return existingGroups.filter((group) => group.content_type === entryContentType);
+  }, [entryContentType, existingGroups]);
+  const existingGroupNames = scopedGroups.map((group) => group.name).sort((left, right) => left.localeCompare(right));
 
   useEffect(() => {
     if (!open) return;
@@ -998,10 +1020,13 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
       })
       .catch((e) => console.error('Failed to load adhkar groups:', e));
 
-    fetchAdhkar()
+    fetchAdhkar(
+      undefined,
+      forcedContentType ? { contentTypes: [forcedContentType] } : undefined,
+    )
       .then((rows) => setExistingEntries(rows))
       .catch((e) => console.error('Failed to load adhkar entries:', e));
-  }, [open]);
+  }, [forcedContentType, open]);
 
   useEffect(() => {
     if (row) {
@@ -1025,7 +1050,11 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
       setEditorTab('content');
       setShowAdvancedTools(false);
     } else {
-      setForm({ ...EMPTY, ...(presetGroup ? { group_name: presetGroup.name, prayer_time: presetGroup.prayerTime } : {}) });
+      setForm({
+        ...EMPTY,
+        prayer_time: defaultPrayerTime ?? EMPTY.prayer_time,
+        ...(presetGroup ? { group_name: presetGroup.name, prayer_time: presetGroup.prayerTime } : {}),
+      });
       setShowGroupInput(false);
       setShowQuranPicker(false);
       setShowMetaSection(false);
@@ -1033,12 +1062,11 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
       setShowDescriptionEditor(false);
       setSaveMode('copy');
       setGeneratedUrdu(false);
-      setUploadingImage(false);
-      setUploadingImage(false);
+      setUploadingFile(false);
       setEditorTab('content');
       setShowAdvancedTools(false);
     }
-  }, [row, open, presetGroup]);
+  }, [defaultPrayerTime, row, open, presetGroup]);
 
   const duplicateInGroup = useMemo(() => {
     const title = form.title.trim().toLowerCase();
@@ -1052,6 +1080,36 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
 
     return duplicate ?? null;
   }, [existingEntries, form.group_name, form.title, isEdit, row?.id]);
+
+  const hasAnyLanguageText = useMemo(() => {
+    return [form.arabic, form.transliteration, form.translation, form.urdu_translation]
+      .some((value) => value.trim().length > 0);
+  }, [form.arabic, form.transliteration, form.translation, form.urdu_translation]);
+
+  const resolveUniqueTitle = (rawTitle: string): string => {
+    const trimmed = rawTitle.trim();
+    const group = form.group_name.trim().toLowerCase();
+    if (!trimmed || !group) return trimmed;
+
+    const usedTitles = new Set(
+      existingEntries
+        .filter((entry) => {
+          if (isEdit && row?.id && entry.id === row.id) return false;
+          return (entry.group_name ?? '').trim().toLowerCase() === group;
+        })
+        .map((entry) => (entry.title ?? '').trim().toLowerCase())
+    );
+
+    if (!usedTitles.has(trimmed.toLowerCase())) return trimmed;
+
+    let next = `${trimmed} (Copy)`;
+    let index = 2;
+    while (usedTitles.has(next.toLowerCase())) {
+      next = `${trimmed} (Copy ${index})`;
+      index += 1;
+    }
+    return next;
+  };
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -1084,8 +1142,8 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
 
   const isPlaceholder = !form.arabic.trim();
 
-  const buildPayload = (resolvedGroupOrder?: number) => ({
-    title: form.title.trim(),
+  const buildPayload = (resolvedGroupOrder?: number, resolvedTitle?: string) => ({
+    title: (resolvedTitle ?? form.title).trim(),
     arabic_title: form.arabic_title?.trim() || null,
     arabic: form.arabic.trim() || '',
     transliteration: form.transliteration?.trim() || null,
@@ -1100,6 +1158,8 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
     is_active: form.is_active,
     sections: form.sections,
     file_url: form.file_url?.trim() || null,
+    content_type: entryContentType,
+    content_source: entryContentType ? 'db' : null,
     tafsir: stripHtmlToText(form.tafsir ?? '') ? form.tafsir.trim() : null,
     description: form.description?.trim() || null,
   });
@@ -1108,7 +1168,10 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
     const groupName = form.group_name?.trim();
     if (!groupName) return null;
 
-    const existingGroup = existingGroups.find((group) => group.name === groupName);
+    const existingGroup = existingGroups.find((group) => (
+      group.name === groupName
+      && (entryContentType ? group.content_type === entryContentType : true)
+    ));
     if (existingGroup) return existingGroup;
 
     const maxDisplayOrder = existingGroups.reduce((maxValue, group) => Math.max(maxValue, group.display_order ?? 0), 0);
@@ -1117,6 +1180,8 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
     const createdGroup = await createAdhkarGroup({
       name: groupName,
       prayer_time: form.prayer_time,
+      content_type: entryContentType,
+      content_source: entryContentType ? 'db' : null,
       icon: '📿',
       icon_color: '#ffffff',
       icon_bg_color: '#0f766e',
@@ -1135,11 +1200,26 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
   // ── Save as New Copy: creates a new entry, original stays intact ──────────
   const handleSaveAsCopy = async () => {
     if (!form.title.trim()) { toast.error('Title is required.'); return; }
+    if (forcedContentType && !form.group_name.trim()) {
+      toast.error('Group is required before saving Qaseedahs & Naats entries.');
+      return;
+    }
+    if (forcedContentType && !hasAnyLanguageText && !form.file_url.trim()) {
+      toast.error('Add at least one language text or an attachment (PDF/image) before saving.');
+      return;
+    }
     setSaving(true);
     let tempId: string | null = null;
     try {
       const groupMeta = await ensureGroupExists();
-      const payload = buildPayload(groupMeta?.display_order ?? undefined);
+      const resolvedTitle = forcedContentType
+        ? resolveUniqueTitle(form.title)
+        : form.title.trim();
+      if (resolvedTitle !== form.title.trim()) {
+        set('title', resolvedTitle);
+        toast.info(`Title already existed in this group. Saved as "${resolvedTitle}".`);
+      }
+      const payload = buildPayload(groupMeta?.display_order ?? undefined, resolvedTitle);
       tempId = `temp-${crypto.randomUUID()}`;
       const now = new Date().toISOString();
       const optimistic: Dhikr = { id: tempId, ...payload, created_at: now, updated_at: now };
@@ -1161,10 +1241,25 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
   const handleSaveChanges = async () => {
     if (!row?.id) return;
     if (!form.title.trim()) { toast.error('Title is required.'); return; }
+    if (forcedContentType && !form.group_name.trim()) {
+      toast.error('Group is required before saving Qaseedahs & Naats entries.');
+      return;
+    }
+    if (forcedContentType && !hasAnyLanguageText && !form.file_url.trim()) {
+      toast.error('Add at least one language text or an attachment (PDF/image) before saving.');
+      return;
+    }
     setSaving(true);
     try {
       const groupMeta = await ensureGroupExists();
-      const payload = buildPayload(groupMeta?.display_order ?? undefined);
+      const resolvedTitle = forcedContentType
+        ? resolveUniqueTitle(form.title)
+        : form.title.trim();
+      if (resolvedTitle !== form.title.trim()) {
+        set('title', resolvedTitle);
+        toast.info(`Title already existed in this group. Saved as "${resolvedTitle}".`);
+      }
+      const payload = buildPayload(groupMeta?.display_order ?? undefined, resolvedTitle);
       const optimistic: Dhikr = { ...row, ...payload, updated_at: new Date().toISOString() };
       onUpdated?.(optimistic);
       onClose();
@@ -1231,7 +1326,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
               <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
                 <BookOpen size={15} className="text-[hsl(142_60%_32%)]" />
               </div>
-              {isEdit ? 'Edit Dhikr' : 'Add New Dhikr'}
+              {titleOverride ?? (isEdit ? 'Edit Dhikr' : 'Add New Dhikr')}
               {isEdit && isPlaceholder && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
                   ⏳ Placeholder
@@ -1276,7 +1371,7 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
           {duplicateInGroup && (
             <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 flex items-center gap-2">
               <AlertTriangle size={13} />
-              Possible duplicate: same title already exists in this group.
+              Same title exists in this group. Saving will auto-append a copy suffix.
             </div>
           )}
         </DialogHeader>
@@ -1591,41 +1686,61 @@ const DhikrModal = ({ open, row, presetGroup, onClose, onSaved, onGroupCreated, 
 
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <Label>Image / File URL</Label>
+                          <Label>Attachment URL (PDF or image)</Label>
                           {form.file_url && (
                             <a href={form.file_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-primary hover:underline">
-                              <ExternalLink size={11} /> Preview
+                              <ExternalLink size={11} /> Open
                             </a>
                           )}
                         </div>
                         {form.file_url && (
-                          <div className="relative w-full rounded-xl overflow-hidden border border-border bg-muted/30 flex items-center justify-center" style={{ maxHeight: 180 }}>
-                            <img src={form.file_url} alt="Attached file" className="object-contain w-full" style={{ maxHeight: 180 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                            <button type="button" onClick={() => set('file_url', '')} className="absolute top-2 right-2 p-1.5 rounded-full bg-destructive/90 text-white hover:bg-destructive transition-colors shadow" title="Remove image">
+                          <div className="relative w-full rounded-xl overflow-hidden border border-border bg-muted/30">
+                            {/\.pdf([?#].*)?$/i.test(form.file_url) ? (
+                              <div className="flex items-center justify-between gap-3 p-3">
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-700">PDF attached</p>
+                                  <p className="text-[11px] text-muted-foreground break-all">{form.file_url}</p>
+                                </div>
+                                <a href={form.file_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md border border-[hsl(142_50%_75%)] px-2.5 py-1 text-[11px] font-semibold text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]">
+                                  <ExternalLink size={11} /> Open PDF
+                                </a>
+                              </div>
+                            ) : (
+                              <div className="relative flex items-center justify-center" style={{ maxHeight: 180 }}>
+                                <img src={form.file_url} alt="Attached file" className="object-contain w-full" style={{ maxHeight: 180 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                              </div>
+                            )}
+                            <button type="button" onClick={() => set('file_url', '')} className="absolute top-2 right-2 p-1.5 rounded-full bg-destructive/90 text-white hover:bg-destructive transition-colors shadow" title="Remove attachment">
                               <Trash2 size={12} />
                             </button>
                           </div>
                         )}
                         <div className="flex gap-2">
                           <Input value={form.file_url} onChange={(e) => set('file_url', e.target.value)} placeholder="https://... or upload below" className="flex-1 text-sm" />
-                          <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] text-xs font-medium hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-50 shrink-0">
-                            {uploadingImage ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
-                            {uploadingImage ? 'Uploading…' : 'Upload'}
+                          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingFile} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] text-xs font-medium hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-50 shrink-0">
+                            {uploadingFile ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                            {uploadingFile ? 'Uploading…' : 'Upload file'}
                           </button>
-                          <input ref={imageInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,application/pdf" className="hidden"
+                          <input ref={fileInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,application/pdf" className="hidden"
                             onChange={async (e) => {
                               const file = e.target.files?.[0];
                               if (!file) return;
-                              setUploadingImage(true);
+                              if (file.size > MAX_ATTACHMENT_BYTES) {
+                                toast.error('Attachment must be 25 MB or smaller.');
+                                if (fileInputRef.current) fileInputRef.current.value = '';
+                                return;
+                              }
+                              setUploadingFile(true);
                               const ext = file.name.split('.').pop() ?? 'jpg';
-                              const path = `adhkar/${crypto.randomUUID()}.${ext}`;
+                              const folder = file.type === 'application/pdf' ? 'pdf' : 'images';
+                              const path = `adhkar/${folder}/${crypto.randomUUID()}.${ext}`;
                               const { data, error } = await supabase.storage.from('adhkar-images').upload(path, file, { contentType: file.type, upsert: false });
-                              setUploadingImage(false);
-                              if (error || !data) { toast.error('Image upload failed: ' + (error?.message ?? 'Unknown error')); return; }
+                              setUploadingFile(false);
+                              if (error || !data) { toast.error('File upload failed: ' + (error?.message ?? 'Unknown error')); return; }
                               const { data: urlData } = supabase.storage.from('adhkar-images').getPublicUrl(data.path);
                               set('file_url', urlData.publicUrl);
-                              toast.success('Image uploaded successfully.');
-                              if (imageInputRef.current) imageInputRef.current.value = '';
+                              toast.success(file.type === 'application/pdf' ? 'PDF uploaded successfully.' : 'Image uploaded successfully.');
+                              if (fileInputRef.current) fileInputRef.current.value = '';
                             }}
                           />
                         </div>

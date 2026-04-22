@@ -4,7 +4,7 @@ import { Button } from '#/components/ui/button';
 import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Textarea } from '#/components/ui/textarea';
-import { AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '#/types';
+import { AdhkarContentType, AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS, ADHKAR_PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '#/types';
 import { createAdhkarGroup, updateAdhkarGroup } from '#/lib/api';
 import { supabase, supabaseAdmin, onspaceCloud } from '#/lib/supabase';
 import { toast } from 'sonner';
@@ -118,6 +118,10 @@ interface AdhkarGroupModalProps {
   open: boolean;
   group: AdhkarGroup | null;
   existingGroups?: AdhkarGroup[];
+  forcedContentType?: AdhkarContentType | null;
+  forcedPrayerTime?: string | null;
+  allowPrayerTimeEdit?: boolean;
+  showBackgroundImage?: boolean;
   onClose: () => void;
   onSaved: (group: AdhkarGroup, oldName?: string, oldPrayerTime?: string) => void;
   onMergeInto?: (sourceGroupName: string, targetGroup: AdhkarGroup, sourceGroupId?: string) => Promise<void>;
@@ -131,7 +135,10 @@ const EMPTY = {
   icon_bg_color: '#6366f1',
   badge_text: '',
   badge_color: '#6366f1',
+  card_subtitle: '',
   description: '',
+  arabic_title: '',
+  card_reference: '',
   display_order: '0',
   bg_image_url: '',
 };
@@ -190,7 +197,18 @@ const UploadZone = ({
   </div>
 );
 
-const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, onMergeInto }: AdhkarGroupModalProps) => {
+const AdhkarGroupModal = ({
+  open,
+  group,
+  existingGroups = [],
+  forcedContentType,
+  forcedPrayerTime,
+  allowPrayerTimeEdit = true,
+  showBackgroundImage = true,
+  onClose,
+  onSaved,
+  onMergeInto,
+}: AdhkarGroupModalProps) => {
   const [form, setForm]     = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [bgColMissing, setBgColMissing] = useState(false);
@@ -207,7 +225,10 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
   const isEdit           = !!group?.id || !!group?.name;
   const originalName     = group?.name ?? '';
   const originalPrayerTime = group?.prayer_time ?? '';
-  const mergeTargets     = existingGroups.filter((g) => g.name !== originalName);
+  const scopedExistingGroups = forcedContentType
+    ? existingGroups.filter((g) => g.content_type === forcedContentType)
+    : existingGroups;
+  const mergeTargets     = scopedExistingGroups.filter((g) => g.name !== originalName);
 
   const initializedForRef = useRef<string | null>(null);
 
@@ -223,20 +244,26 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     if (group) {
       setForm({
         name:          group.name,
-        prayer_time:   group.prayer_time ?? 'after-fajr',
+        prayer_time:   forcedPrayerTime ?? group.prayer_time ?? 'after-fajr',
         icon:          group.icon ?? EMPTY.icon,
         icon_color:    group.icon_color ?? EMPTY.icon_color,
         icon_bg_color: group.icon_bg_color ?? EMPTY.icon_bg_color,
         badge_text:    group.badge_text ?? '',
         badge_color:   group.badge_color ?? EMPTY.badge_color,
+        card_subtitle: group.card_subtitle ?? '',
         description:   group.description ?? '',
+        arabic_title:  group.arabic_title ?? '',
+        card_reference: group.card_reference ?? '',
         display_order: String(group.display_order ?? 0),
         bg_image_url:  (group as AdhkarGroup & { bg_image_url?: string | null }).bg_image_url ?? '',
       });
     } else {
-      setForm(EMPTY);
+      setForm({
+        ...EMPTY,
+        prayer_time: forcedPrayerTime ?? EMPTY.prayer_time,
+      });
     }
-  }, [group, open]);
+  }, [forcedPrayerTime, group, open]);
 
   // Close name dropdown on outside click
   useEffect(() => {
@@ -315,21 +342,26 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
 
     const basePayload = {
       name:          newName,
-      prayer_time:   form.prayer_time || null,
+      prayer_time:   forcedPrayerTime ?? form.prayer_time || null,
       icon:          form.icon,
       icon_color:    form.icon_color,
       icon_bg_color: form.icon_bg_color,
       badge_text:    form.badge_text?.trim() || null,
       badge_color:   form.badge_color,
+      card_subtitle: form.card_subtitle?.trim() || null,
       description:   form.description?.trim() || null,
+      arabic_title:  form.arabic_title?.trim() || null,
+      card_reference: form.card_reference?.trim() || null,
       display_order: Number(form.display_order) || 0,
+      content_type: forcedContentType ?? group?.content_type ?? null,
+      content_source: (forcedContentType ?? group?.content_type) ? 'db' : null,
     };
 
     try {
       const hasRealId = !!group?.id && !group.id.startsWith('__');
       const isRename  = isEdit && newName !== originalName;
       const targetExisting = isRename
-        ? existingGroups.find((g) => g.name === newName && g.id !== group?.id)
+        ? scopedExistingGroups.find((g) => g.name === newName && g.id !== group?.id)
         : null;
 
       if (targetExisting && onMergeInto) {
@@ -387,6 +419,9 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
         icon_bg_color: basePayload.icon_bg_color,
         badge_text:    basePayload.badge_text ?? null,
         badge_color:   basePayload.badge_color,
+        card_subtitle: basePayload.card_subtitle ?? null,
+        arabic_title:  basePayload.arabic_title ?? null,
+        card_reference: basePayload.card_reference ?? null,
         display_order: basePayload.display_order ?? 0,
         prayer_time:   basePayload.prayer_time ?? null,
         bg_image_url:  bgUrl,
@@ -424,7 +459,10 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
     badge:   form.badge_text,
     badgeBg: form.badge_color,
     name:    form.name || 'Group Name',
+    subtitle: form.card_subtitle || null,
     desc:    form.description || 'Group description appears here.',
+    arabicTitle: form.arabic_title || null,
+    reference: form.card_reference || null,
     bgImg:   form.bg_image_url,
   };
 
@@ -465,7 +503,12 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
                   </span>
                 )}
               </div>
+              {preview.arabicTitle && (
+                <p className="text-sm text-right mt-0.5" dir="rtl" style={{ color: '#CBD5E1' }}>{preview.arabicTitle}</p>
+              )}
+              {preview.subtitle && <p className="text-xs mt-0.5" style={{ color: '#E2E8F0' }}>{preview.subtitle}</p>}
               <p className="text-sm mt-0.5" style={{ color: '#94a3b8' }}>{preview.desc}</p>
+              {preview.reference && <p className="text-[11px] mt-0.5" style={{ color: '#A7B6CC' }}>Ref: {preview.reference}</p>}
               {preview.bgImg && (
                 <span className="text-[10px] font-semibold text-white/60 flex items-center gap-1 mt-1">
                   <Image size={10} /> Background image active
@@ -528,7 +571,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
                   </div>
                 )}
               </div>
-              {isEdit && existingGroups.some((g) => g.name === form.name && g.name !== originalName) && (
+              {isEdit && scopedExistingGroups.some((g) => g.name === form.name && g.name !== originalName) && (
                 <p className="text-[11px] text-amber-600 font-medium mt-0.5">
                   ⚠ This name already exists — saving will <strong>merge</strong> "{originalName}" into "{form.name}".
                 </p>
@@ -539,6 +582,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               <select
                 value={form.prayer_time}
                 onChange={(e) => set('prayer_time', e.target.value)}
+                disabled={!allowPrayerTimeEdit || !!forcedPrayerTime}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
@@ -557,6 +601,36 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               onChange={(e) => set('description', e.target.value)}
               placeholder="Short description shown under the group title…"
               className="min-h-[60px] text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Subtitle</Label>
+              <Input
+                value={form.card_subtitle}
+                onChange={(e) => set('card_subtitle', e.target.value)}
+                placeholder="Optional short subtitle"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Arabic Title</Label>
+              <Input
+                value={form.arabic_title}
+                onChange={(e) => set('arabic_title', e.target.value)}
+                placeholder="Optional Arabic title"
+                dir="rtl"
+                className="text-right"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Reference</Label>
+            <Input
+              value={form.card_reference}
+              onChange={(e) => set('card_reference', e.target.value)}
+              placeholder="Optional reference"
             />
           </div>
 
@@ -610,6 +684,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
           </div>
 
           {/* ── Background Image section ── */}
+          {showBackgroundImage && (
           <div className="space-y-2">
             <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">
               Card Background Image
@@ -641,6 +716,7 @@ const AdhkarGroupModal = ({ open, group, existingGroups = [], onClose, onSaved, 
               hint="Islamic pattern, geometric art, masjid photo · JPG, PNG, WebP · max 10 MB"
             />
           </div>
+          )}
 
           {/* Icon background color */}
           <div className="space-y-2">

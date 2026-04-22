@@ -14,6 +14,7 @@ import CloudData from "./pages/CloudData";
 import Announcements from "./pages/Announcements";
 import ExcelConverter from "./pages/ExcelConverter";
 import SunnahReminders from "./pages/SunnahReminders";
+import QaseedahNaats from "./pages/QaseedahNaats";
 import Notifications from "./pages/Notifications";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
@@ -86,6 +87,7 @@ const AppRoutes = () => {
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/prayer-times" element={<ProtectedRoute><PrayerTimes /></ProtectedRoute>} />
         <Route path="/adhkar" element={<ProtectedRoute><Adhkar /></ProtectedRoute>} />
+        <Route path="/qaseedah-naats" element={<ProtectedRoute><QaseedahNaats /></ProtectedRoute>} />
         <Route path="/announcements" element={<ProtectedRoute><Announcements /></ProtectedRoute>} />
         <Route path="/sunnah-reminders" element={<ProtectedRoute><SunnahReminders /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
