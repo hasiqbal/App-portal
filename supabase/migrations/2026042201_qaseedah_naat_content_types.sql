@@ -6,6 +6,15 @@ declare
   check_constraint record;
 begin
   if to_regclass('public.adhkar') is not null then
+    alter table public.adhkar
+      add column if not exists content_type text;
+
+    update public.adhkar
+    set content_type = coalesce(nullif(content_type, ''), 'adhkar');
+
+    alter table public.adhkar
+      alter column content_type set not null;
+
     for check_constraint in
       select conname
       from pg_constraint
@@ -30,6 +39,15 @@ declare
   check_constraint record;
 begin
   if to_regclass('public.adhkar_groups') is not null then
+    alter table public.adhkar_groups
+      add column if not exists content_type text;
+
+    update public.adhkar_groups
+    set content_type = coalesce(nullif(content_type, ''), 'adhkar');
+
+    alter table public.adhkar_groups
+      alter column content_type set not null;
+
     for check_constraint in
       select conname
       from pg_constraint

@@ -46,6 +46,7 @@ export type PrayerTimeUpdate = Partial<Omit<PrayerTime, 'id' | 'created_at' | 'u
 
 export type AdhkarContentType = 'adhkar' | 'quran' | 'qaseedah' | 'naat';
 export type AdhkarContentSource = 'db' | 'local' | 'api';
+export type QaseedahNaatType = 'qaseedah' | 'naat';
 
 export interface Dhikr {
   id: string;
@@ -74,6 +75,52 @@ export interface Dhikr {
 }
 
 export type DhikrPayload = Omit<Dhikr, 'id' | 'created_at' | 'updated_at'>;
+
+export interface QaseedahNaatGroup {
+  id: string;
+  name: string;
+  content_type: QaseedahNaatType;
+  legacy_group_name: string | null;
+  description: string | null;
+  icon: string;
+  icon_color: string;
+  icon_bg_color: string;
+  badge_text: string | null;
+  badge_color: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type QaseedahNaatGroupPayload = Omit<QaseedahNaatGroup, 'id' | 'created_at' | 'updated_at'>;
+
+export interface QaseedahNaatEntry {
+  id: string;
+  group_id: string;
+  group_name: string;
+  content_type: QaseedahNaatType;
+  legacy_adhkar_id: string | null;
+  title: string;
+  arabic_title: string | null;
+  arabic: string;
+  transliteration: string | null;
+  translation: string | null;
+  urdu_translation: string | null;
+  reference: string | null;
+  count: string;
+  prayer_time: string;
+  display_order: number;
+  is_active: boolean;
+  sections: unknown | null;
+  file_url: string | null;
+  tafsir: string | null;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type QaseedahNaatEntryPayload = Omit<QaseedahNaatEntry, 'id' | 'group_name' | 'created_at' | 'updated_at'>;
 
 // Slug → display label mapping
 export const PRAYER_TIME_LABELS: Record<string, string> = {

@@ -169,6 +169,19 @@ export function useAuthState(): AuthState {
     }
   }, []);
 
+  const syncPortalRoleClaims = useCallback(async (role: UserRole, username: string) => {
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        portal_role: role,
+        portal_username: username,
+      },
+    });
+
+    if (error) {
+      console.warn('[Auth] Failed to sync portal role claims:', error.message);
+    }
+  }, []);
+
   // ── DB login ──────────────────────────────────────────────────────────────
   const dbLogin = useCallback(async (username: string, password: string): Promise<LocalUser> => {
     const normalised = username.trim().toLowerCase().replace(/^@+/, '').replace(/\s+/g, '_');
@@ -205,6 +218,7 @@ export function useAuthState(): AuthState {
 
       // Establish Supabase Auth session for write access
       await signIntoSupabase();
+      await syncPortalRoleClaims(data.role as UserRole, data.username);
 
       const localUser: LocalUser = {
         id:       data.id,
@@ -248,6 +262,7 @@ export function useAuthState(): AuthState {
       });
 
       await signIntoSupabase();
+      await syncPortalRoleClaims('admin', 'admin');
 
       await logActivity({
         username:     'admin',
@@ -270,7 +285,7 @@ export function useAuthState(): AuthState {
       ? ` Available: ${allUsers.map((u: { username: string }) => u.username).join(', ')}`
       : '';
     throw new Error(`Username "${normalised}" not found.${hint}`);
-  }, [signIntoSupabase]);
+  }, [signIntoSupabase, syncPortalRoleClaims]);
 
   // ── Local login ────────────────────────────────────────────────────────────
   const localLogin = useCallback((u: LocalUser) => {
@@ -291,6 +306,7 @@ export function useAuthState(): AuthState {
             setUser(parsed);
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) await signIntoSupabase();
+            await syncPortalRoleClaims(parsed.role, parsed.username);
           } else {
             localStorage.removeItem(SESSION_KEY);
             localStorage.removeItem(SESSION_TS_KEY);
@@ -303,7 +319,7 @@ export function useAuthState(): AuthState {
       setLoading(false);
     };
     restore();
-  }, [signIntoSupabase]);
+  }, [signIntoSupabase, syncPortalRoleClaims]);
 
   // ── Activity listeners ─────────────────────────────────────────────────────
   useEffect(() => {

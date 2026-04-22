@@ -342,7 +342,7 @@ const AdhkarGroupModal = ({
 
     const basePayload = {
       name:          newName,
-      prayer_time:   forcedPrayerTime ?? form.prayer_time || null,
+      prayer_time:   (forcedPrayerTime ?? form.prayer_time) || null,
       icon:          form.icon,
       icon_color:    form.icon_color,
       icon_bg_color: form.icon_bg_color,

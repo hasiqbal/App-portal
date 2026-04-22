@@ -1,5 +1,24 @@
 
-import { PrayerTime, PrayerTimeUpdate, Dhikr, DhikrPayload, AdhkarGroup, AdhkarGroupPayload, Announcement, AnnouncementPayload, SunnahReminder, SunnahReminderPayload, SunnahGroup, SunnahGroupPayload, AdhkarContentType } from '#/types';
+import {
+  PrayerTime,
+  PrayerTimeUpdate,
+  Dhikr,
+  DhikrPayload,
+  AdhkarGroup,
+  AdhkarGroupPayload,
+  Announcement,
+  AnnouncementPayload,
+  SunnahReminder,
+  SunnahReminderPayload,
+  SunnahGroup,
+  SunnahGroupPayload,
+  AdhkarContentType,
+  QaseedahNaatEntry,
+  QaseedahNaatEntryPayload,
+  QaseedahNaatGroup,
+  QaseedahNaatGroupPayload,
+  QaseedahNaatType,
+} from '#/types';
 import { supabase, supabaseAdmin, invokeExternalFunction } from '#/lib/supabase';
 
 const ANNOUNCEMENTS_TABLE = (import.meta.env.VITE_ANNOUNCEMENTS_TABLE ?? 'announcements').trim() || 'announcements';
@@ -318,6 +337,151 @@ export async function deleteAdhkarGroup(id: string): Promise<void> {
     .delete()
     .eq('id', id);
   if (error) throw new Error(`Failed to delete group: ${error.message}`);
+}
+
+// ─── Qaseedah & Naat (dedicated tables) ────────────────────────────────────
+
+type QaseedahNaatEntryDbRow = Omit<QaseedahNaatEntry, 'group_name'> & {
+  qaseedah_naat_groups?: { name: string } | Array<{ name: string }> | null;
+};
+
+function mapQaseedahNaatEntryRow(row: QaseedahNaatEntryDbRow): QaseedahNaatEntry {
+  const relatedGroup = Array.isArray(row.qaseedah_naat_groups)
+    ? row.qaseedah_naat_groups[0]
+    : row.qaseedah_naat_groups;
+
+  return {
+    ...row,
+    group_name: relatedGroup?.name ?? 'General',
+  };
+}
+
+export async function fetchQaseedahNaatGroups(options?: {
+  contentTypes?: QaseedahNaatType[];
+  onlyActive?: boolean;
+}): Promise<QaseedahNaatGroup[]> {
+  let query = supabase
+    .from('qaseedah_naat_groups')
+    .select('*')
+    .order('content_type', { ascending: true })
+    .order('display_order', { ascending: true })
+    .order('name', { ascending: true });
+
+  if (options?.contentTypes && options.contentTypes.length > 0) {
+    query = query.in('content_type', options.contentTypes);
+  }
+
+  if (options?.onlyActive) {
+    query = query.eq('is_active', true);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch qaseedah/naat groups: ${error.message}`);
+  return (data ?? []) as QaseedahNaatGroup[];
+}
+
+export async function createQaseedahNaatGroup(
+  data: Partial<QaseedahNaatGroupPayload>
+): Promise<QaseedahNaatGroup> {
+  const { data: rows, error } = await supabase
+    .from('qaseedah_naat_groups')
+    .insert(data)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create qaseedah/naat group: ${error.message}`);
+  return rows as QaseedahNaatGroup;
+}
+
+export async function updateQaseedahNaatGroup(
+  id: string,
+  data: Partial<QaseedahNaatGroupPayload>
+): Promise<QaseedahNaatGroup> {
+  const { data: rows, error } = await supabase
+    .from('qaseedah_naat_groups')
+    .update(data)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update qaseedah/naat group: ${error.message}`);
+  return rows as QaseedahNaatGroup;
+}
+
+export async function deleteQaseedahNaatGroup(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('qaseedah_naat_groups')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to delete qaseedah/naat group: ${error.message}`);
+}
+
+export async function fetchQaseedahNaatEntries(options?: {
+  contentTypes?: QaseedahNaatType[];
+  groupIds?: string[];
+  onlyActive?: boolean;
+}): Promise<QaseedahNaatEntry[]> {
+  let query = supabase
+    .from('qaseedah_naat_entries')
+    .select('id,group_id,content_type,legacy_adhkar_id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,display_order,is_active,sections,file_url,tafsir,description,created_at,updated_at,qaseedah_naat_groups(name)')
+    .order('content_type', { ascending: true })
+    .order('display_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (options?.contentTypes && options.contentTypes.length > 0) {
+    query = query.in('content_type', options.contentTypes);
+  }
+
+  if (options?.groupIds && options.groupIds.length > 0) {
+    query = query.in('group_id', options.groupIds);
+  }
+
+  if (options?.onlyActive) {
+    query = query.eq('is_active', true);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch qaseedah/naat entries: ${error.message}`);
+
+  return (data ?? []).map((row) => mapQaseedahNaatEntryRow(row as QaseedahNaatEntryDbRow));
+}
+
+export async function createQaseedahNaatEntry(
+  data: Partial<QaseedahNaatEntryPayload>
+): Promise<QaseedahNaatEntry> {
+  const { data: rows, error } = await supabase
+    .from('qaseedah_naat_entries')
+    .insert(data)
+    .select('id,group_id,content_type,legacy_adhkar_id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,display_order,is_active,sections,file_url,tafsir,description,created_at,updated_at,qaseedah_naat_groups(name)')
+    .single();
+
+  if (error) throw new Error(`Failed to create qaseedah/naat entry: ${error.message}`);
+  return mapQaseedahNaatEntryRow(rows as QaseedahNaatEntryDbRow);
+}
+
+export async function updateQaseedahNaatEntry(
+  id: string,
+  data: Partial<QaseedahNaatEntryPayload>
+): Promise<QaseedahNaatEntry> {
+  const { data: rows, error } = await supabase
+    .from('qaseedah_naat_entries')
+    .update(data)
+    .eq('id', id)
+    .select('id,group_id,content_type,legacy_adhkar_id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,display_order,is_active,sections,file_url,tafsir,description,created_at,updated_at,qaseedah_naat_groups(name)')
+    .single();
+
+  if (error) throw new Error(`Failed to update qaseedah/naat entry: ${error.message}`);
+  return mapQaseedahNaatEntryRow(rows as QaseedahNaatEntryDbRow);
+}
+
+export async function deleteQaseedahNaatEntry(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('qaseedah_naat_entries')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to delete qaseedah/naat entry: ${error.message}`);
 }
 
 // ─── Announcements ───────────────────────────────────────────────────────────
