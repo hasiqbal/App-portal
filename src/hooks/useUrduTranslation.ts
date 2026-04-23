@@ -51,9 +51,12 @@ export function useUrduTranslation() {
     return '';
   };
 
-  const translateToUrdu = async (text: string): Promise<string | null> => {
+  const translateToUrdu = async (text: string, options?: { silent?: boolean }): Promise<string | null> => {
+    const silent = options?.silent === true;
     if (!text.trim()) {
-      toast.error('No text to translate.');
+      if (!silent) {
+        toast.error('No text to translate.');
+      }
       return null;
     }
     setTranslating(true);
@@ -67,13 +70,17 @@ export function useUrduTranslation() {
         try {
           const fallbackUrdu = await fallbackTranslateToUrdu(text.trim());
           if (fallbackUrdu) {
-            toast.warning(`Primary translator unavailable. Used fallback translator.`);
+            if (!silent) {
+              toast.warning('Primary translator unavailable. Used fallback translator.');
+            }
             return fallbackUrdu;
           }
         } catch {
           // Fall through to normal error toast.
         }
-        toast.error(`Translation failed: ${msg}`);
+        if (!silent) {
+          toast.error(`Translation failed: ${msg}`);
+        }
         return null;
       }
 
@@ -82,13 +89,17 @@ export function useUrduTranslation() {
         try {
           const fallbackUrdu = await fallbackTranslateToUrdu(text.trim());
           if (fallbackUrdu) {
-            toast.warning('Primary translator returned empty text. Used fallback translator.');
+            if (!silent) {
+              toast.warning('Primary translator returned empty text. Used fallback translator.');
+            }
             return fallbackUrdu;
           }
         } catch {
           // Fall through to normal error toast.
         }
-        toast.error('Empty translation returned.');
+        if (!silent) {
+          toast.error('Empty translation returned.');
+        }
         return null;
       }
       return urdu;
@@ -96,13 +107,17 @@ export function useUrduTranslation() {
       try {
         const fallbackUrdu = await fallbackTranslateToUrdu(text.trim());
         if (fallbackUrdu) {
-          toast.warning('Primary translator error. Used fallback translator.');
+          if (!silent) {
+            toast.warning('Primary translator error. Used fallback translator.');
+          }
           return fallbackUrdu;
         }
       } catch {
         // Fall through to normal error toast.
       }
-      toast.error(`Translation error: ${err instanceof Error ? err.message : 'Unknown'}`);
+      if (!silent) {
+        toast.error(`Translation error: ${err instanceof Error ? err.message : 'Unknown'}`);
+      }
       return null;
     } finally {
       setTranslating(false);

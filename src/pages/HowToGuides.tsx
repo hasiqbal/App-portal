@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Camera, Eye, EyeOff, FolderTree, GripVertical, Languages, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react';
 import { HowToGuidePreview } from '#/components/features/howto/HowToGuidePreview';
@@ -12,9 +12,12 @@ import { Switch } from '#/components/ui/switch';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '#/components/ui/dialog';
 import {
   createHowToDemoGuide,
+  createLinkedUrduHowToGroupCopy,
   createHowToVersionSnapshot,
   createHowToGroup,
   createHowToGuide,
+  duplicateHowToGroupEntriesFromEnglish,
+  duplicateHowToGuideFromEnglish,
   deleteHowToGroup,
   deleteHowToGuide,
   fetchHowToGuideTree,
@@ -22,10 +25,14 @@ import {
   fetchHowToGuides,
   publishHowToGuide,
   saveHowToGuideTree,
+  syncEnglishGroupToLinkedUrdu,
+  syncEnglishGuideToLinkedUrdu,
+  syncEnglishGuideTreeToLinkedUrdu,
   uploadHowToMedia,
   updateHowToGroup,
   updateHowToGuide,
 } from '#/lib/api';
+import { useUrduTranslation } from '#/hooks/useUrduTranslation';
 import { usePermissions } from '#/hooks/usePermissions';
 import type { HowToGroup, HowToGuide, HowToLanguage } from '#/types';
 import type { PreviewGuideBlock } from '#/components/features/howto/guidePreviewUtils';
@@ -33,12 +40,23 @@ import { toast } from 'sonner';
 
 type GroupForm = {
   name: string;
+  urdu_name: string;
   slug: string;
   icon: string;
   color: string;
   display_order: string;
   is_active: boolean;
 };
+
+type EditingLanguage = 'en' | 'ur';
+
+type GuideFilterState = {
+  search: string;
+  selectedGroupFilter: string;
+  selectedStatusFilter: 'all' | 'live' | 'draft';
+};
+
+type DuplicateMode = 'single' | 'all';
 
 type GuideForm = {
   group_id: string;
@@ -86,11 +104,18 @@ const GUIDES_KEY = ['howto-guides'];
 
 const EMPTY_GROUP_FORM: GroupForm = {
   name: '',
+  urdu_name: '',
   slug: '',
   icon: 'menu-book',
   color: '#2e7d32',
   display_order: '0',
   is_active: true,
+};
+
+const EMPTY_GUIDE_FILTERS: GuideFilterState = {
+  search: '',
+  selectedGroupFilter: 'all',
+  selectedStatusFilter: 'all',
 };
 
 const EMPTY_GUIDE_FORM: GuideForm = {
@@ -138,16 +163,58 @@ function parsePreviewBlocks(blocks: BlockDraft[]): PreviewGuideBlock[] {
   return blocks.map((block) => ({ kind: block.kind, ...block.payload } as PreviewGuideBlock));
 }
 
+function getHowToGroupDisplayName(group: HowToGroup | null | undefined, language: EditingLanguage): string {
+  if (!group) return 'Unassigned Group';
+  if (language === 'ur' && group.urdu_name?.trim()) return group.urdu_name.trim();
+  return group.name;
+}
+
+const NON_TRANSLATABLE_PAYLOAD_KEYS = new Set([
+  'arabic',
+  'transliteration',
+  'image_url',
+  'thumb_url',
+  'source',
+  'url',
+  'uri',
+  'slug',
+  'icon',
+  'color',
+  'variant',
+  'repeat',
+]);
+
+function containsArabicScript(value: string): boolean {
+  return /[\u0600-\u06FF]/.test(value);
+}
+
+function containsLatinScript(value: string): boolean {
+  return /[A-Za-z]/.test(value);
+}
+
 export default function HowToGuidesPage() {
   const queryClient = useQueryClient();
   const { canEdit, canDelete, role } = usePermissions();
+  const { translateToUrdu } = useUrduTranslation();
 
-  const [search, setSearch] = useState('');
-  const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('all');
-  const [selectedLanguageFilter, setSelectedLanguageFilter] = useState<'all' | HowToLanguage>('all');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'live' | 'draft'>('all');
+  const [activeEditingLanguage, setActiveEditingLanguage] = useState<EditingLanguage>('en');
+  const [filtersByLanguage, setFiltersByLanguage] = useState<Record<EditingLanguage, GuideFilterState>>({
+    en: { ...EMPTY_GUIDE_FILTERS },
+    ur: { ...EMPTY_GUIDE_FILTERS },
+  });
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [duplicateSourceGroupId, setDuplicateSourceGroupId] = useState('');
+  const [duplicateSourceGuideId, setDuplicateSourceGuideId] = useState('');
+  const [duplicateMode, setDuplicateMode] = useState<DuplicateMode>('single');
+  const [duplicateIntoNewUrduGroup, setDuplicateIntoNewUrduGroup] = useState(false);
+  const [duplicateTargetGroupName, setDuplicateTargetGroupName] = useState('');
+  const [duplicateTargetGroupUrduName, setDuplicateTargetGroupUrduName] = useState('');
+  const [duplicatePublishNow, setDuplicatePublishNow] = useState(false);
+  const [duplicatePublishMode, setDuplicatePublishMode] = useState<DuplicateMode>('single');
+  const [duplicatePublishSingleGuideId, setDuplicatePublishSingleGuideId] = useState('');
+  const [duplicatingGuide, setDuplicatingGuide] = useState(false);
   const [editingGroup, setEditingGroup] = useState<HowToGroup | null>(null);
   const [editingGuide, setEditingGuide] = useState<HowToGuide | null>(null);
   const [treeGuide, setTreeGuide] = useState<HowToGuide | null>(null);
@@ -166,6 +233,7 @@ export default function HowToGuidesPage() {
   const [guideForm, setGuideForm] = useState<GuideForm>(EMPTY_GUIDE_FORM);
   const [saving, setSaving] = useState(false);
   const [creatingDemo, setCreatingDemo] = useState(false);
+  const [autoTranslatingTree, setAutoTranslatingTree] = useState(false);
 
   const { data: groups = [], isLoading: groupsLoading, refetch: refetchGroups } = useQuery({
     queryKey: GROUPS_KEY,
@@ -192,31 +260,68 @@ export default function HowToGuidesPage() {
   }, [guides]);
 
   const [showMobilePreview, setShowMobilePreview] = useState(false);
+  const urduTranslationCacheRef = useRef<Map<string, string>>(new Map());
+  const urduTranslationInflightRef = useRef<Map<string, Promise<string>>>(new Map());
+  const urduLabelsBackfillStartedRef = useRef(false);
+  const urduLabelsBackfillRunningRef = useRef(false);
 
-  const availableGuideLanguages = useMemo<HowToLanguage[]>(() => (
-    Array.from(new Set(guides.map((guide) => guide.language))).sort() as HowToLanguage[]
-  ), [guides]);
+  const activeFilters = filtersByLanguage[activeEditingLanguage];
+  const englishGuides = useMemo(() => guides.filter((guide) => guide.language === 'en'), [guides]);
+  const englishGroupMap = useMemo(() => {
+    const counts = new Map<string, number>();
+    englishGuides.forEach((guide) => {
+      counts.set(guide.group_id, (counts.get(guide.group_id) ?? 0) + 1);
+    });
+    return counts;
+  }, [englishGuides]);
+
+  const englishGroups = useMemo(
+    () => groups.filter((group) => (englishGroupMap.get(group.id) ?? 0) > 0),
+    [englishGroupMap, groups],
+  );
+
+  const englishGuidesInSelectedGroup = useMemo(
+    () => englishGuides.filter((guide) => guide.group_id === duplicateSourceGroupId),
+    [duplicateSourceGroupId, englishGuides],
+  );
+
+  const setActiveFilters = (updater: (current: GuideFilterState) => GuideFilterState) => {
+    setFiltersByLanguage((prev) => ({
+      ...prev,
+      [activeEditingLanguage]: updater(prev[activeEditingLanguage]),
+    }));
+  };
+
+  const guidesInActiveLanguage = useMemo(
+    () => guides.filter((guide) => guide.language === activeEditingLanguage),
+    [guides, activeEditingLanguage],
+  );
+
+  const publishedInActiveLanguageCount = useMemo(
+    () => guidesInActiveLanguage.filter((guide) => guide.is_active).length,
+    [guidesInActiveLanguage],
+  );
 
   const filteredGuides = useMemo(() => {
-    const needle = search.trim().toLowerCase();
+    const needle = activeFilters.search.trim().toLowerCase();
 
     return guides.filter((guide) => {
-      const groupName = groupMap.get(guide.group_id)?.name ?? '';
+      const groupName = getHowToGroupDisplayName(groupMap.get(guide.group_id), activeEditingLanguage).toLowerCase();
       const matchesSearch = !needle || (
         guide.title.toLowerCase().includes(needle) ||
         (guide.subtitle ?? '').toLowerCase().includes(needle) ||
         guide.slug.toLowerCase().includes(needle) ||
-        groupName.toLowerCase().includes(needle)
+        groupName.includes(needle)
       );
 
-      const matchesGroup = selectedGroupFilter === 'all' || guide.group_id === selectedGroupFilter;
-      const matchesLanguage = selectedLanguageFilter === 'all' || guide.language === selectedLanguageFilter;
-      const matchesStatus = selectedStatusFilter === 'all'
-        || (selectedStatusFilter === 'live' ? guide.is_active : !guide.is_active);
+      const matchesGroup = activeFilters.selectedGroupFilter === 'all' || guide.group_id === activeFilters.selectedGroupFilter;
+      const matchesLanguage = guide.language === activeEditingLanguage;
+      const matchesStatus = activeFilters.selectedStatusFilter === 'all'
+        || (activeFilters.selectedStatusFilter === 'live' ? guide.is_active : !guide.is_active);
 
       return matchesSearch && matchesGroup && matchesLanguage && matchesStatus;
     });
-  }, [guides, groupMap, search, selectedGroupFilter, selectedLanguageFilter, selectedStatusFilter]);
+  }, [activeEditingLanguage, activeFilters.search, activeFilters.selectedGroupFilter, activeFilters.selectedStatusFilter, guides, groupMap]);
 
   const groupedFilteredGuides = useMemo<Array<{ group: HowToGroup | null; guides: HowToGuide[] }>>(() => {
     const sortGuides = (left: HowToGuide, right: HowToGuide) => {
@@ -252,17 +357,13 @@ export default function HowToGuidesPage() {
   }, [filteredGuides, groups, groupMap]);
 
   const hasActiveGuideFilters = (
-    search.trim().length > 0
-    || selectedGroupFilter !== 'all'
-    || selectedLanguageFilter !== 'all'
-    || selectedStatusFilter !== 'all'
+    activeFilters.search.trim().length > 0
+    || activeFilters.selectedGroupFilter !== 'all'
+    || activeFilters.selectedStatusFilter !== 'all'
   );
 
   const clearGuideFilters = () => {
-    setSearch('');
-    setSelectedGroupFilter('all');
-    setSelectedLanguageFilter('all');
-    setSelectedStatusFilter('all');
+    setActiveFilters(() => ({ ...EMPTY_GUIDE_FILTERS }));
   };
 
   const openCreateGroup = () => {
@@ -275,6 +376,7 @@ export default function HowToGuidesPage() {
     setEditingGroup(group);
     setGroupForm({
       name: group.name,
+      urdu_name: group.urdu_name ?? '',
       slug: group.slug,
       icon: group.icon ?? 'menu-book',
       color: group.color ?? '#2e7d32',
@@ -289,9 +391,32 @@ export default function HowToGuidesPage() {
     setShowGuideAdvanced(false);
     setGuideForm({
       ...EMPTY_GUIDE_FORM,
-      group_id: groups[0]?.id ?? '',
+      language: activeEditingLanguage,
+      group_id: activeFilters.selectedGroupFilter !== 'all' ? activeFilters.selectedGroupFilter : (groups[0]?.id ?? ''),
     });
     setGuideDialogOpen(true);
+  };
+
+  const openDuplicateGuide = () => {
+    if (englishGuides.length === 0) {
+      toast.error('Create an English guide first, then duplicate it into Urdu.');
+      return;
+    }
+
+    const preferredGroupId = activeFilters.selectedGroupFilter !== 'all' ? activeFilters.selectedGroupFilter : '';
+    const initialGroupId = englishGroupMap.has(preferredGroupId) ? preferredGroupId : (englishGroups[0]?.id ?? '');
+    const initialGuideId = englishGuides.find((guide) => guide.group_id === initialGroupId)?.id ?? englishGuides[0]?.id ?? '';
+
+    setDuplicateMode('single');
+    setDuplicateSourceGroupId(initialGroupId);
+    setDuplicateSourceGuideId(initialGuideId);
+    setDuplicateIntoNewUrduGroup(false);
+    setDuplicateTargetGroupName('');
+    setDuplicateTargetGroupUrduName('');
+    setDuplicatePublishNow(false);
+    setDuplicatePublishMode('single');
+    setDuplicatePublishSingleGuideId(initialGuideId);
+    setDuplicateDialogOpen(true);
   };
 
   const openEditGuide = (guide: HowToGuide) => {
@@ -580,7 +705,7 @@ export default function HowToGuidesPage() {
     setSaving(true);
 
     try {
-      await saveHowToGuideTree(treeGuide.id, {
+      const treePayload = {
         guideIntro: treeGuideIntro.trim() || null,
         guideNotes: parseGuideNotesText(treeGuideNotesText),
         sections: treeSections.map((section, sectionIndex) => ({
@@ -606,7 +731,19 @@ export default function HowToGuidesPage() {
             })),
           })),
         })),
-      });
+      };
+
+      await saveHowToGuideTree(treeGuide.id, treePayload);
+
+      if (treeGuide.language === 'en') {
+        const shouldMirror = window.confirm('Also mirror this English tree content to linked Urdu guides?');
+        if (shouldMirror) {
+          const mirrored = await syncEnglishGuideTreeToLinkedUrdu(treeGuide.id, treePayload);
+          if (mirrored > 0) {
+            toast.success(`Updated tree for ${mirrored} linked Urdu ${mirrored === 1 ? 'guide' : 'guides'}.`);
+          }
+        }
+      }
 
       toast.success('Guide tree saved.');
       await openTreeEditor(treeGuide);
@@ -616,6 +753,280 @@ export default function HowToGuidesPage() {
       setSaving(false);
     }
   };
+
+  const ARABIC_RUN_REGEX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]+(?:\s+[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]+)*/g;
+
+  const normalizeTranslationKey = (value: string): string => value.trim().replace(/\s+/g, ' ');
+
+  const translateFragmentWithCache = async (fragment: string): Promise<string> => {
+    const normalized = normalizeTranslationKey(fragment);
+    if (!normalized) return fragment;
+
+    const hasLatin = /[A-Za-z]/.test(normalized);
+    if (!hasLatin) return fragment;
+
+    const cached = urduTranslationCacheRef.current.get(normalized);
+    if (cached) return cached;
+
+    const inflight = urduTranslationInflightRef.current.get(normalized);
+    if (inflight) return inflight;
+
+    const request = (async () => {
+      const translated = await translateToUrdu(normalized, { silent: true });
+      const resolved = translated?.trim() || fragment;
+      urduTranslationCacheRef.current.set(normalized, resolved);
+      urduTranslationInflightRef.current.delete(normalized);
+      return resolved;
+    })();
+
+    urduTranslationInflightRef.current.set(normalized, request);
+    return request;
+  };
+
+  const translateLineForUrdu = async (line: string): Promise<string> => {
+    if (!line.trim()) return line;
+
+    if (!containsArabicScript(line)) {
+      return translateFragmentWithCache(line);
+    }
+
+    if (!/[A-Za-z]/.test(line)) {
+      return line;
+    }
+
+    const arabicRuns: string[] = [];
+    const placeholderText = line.replace(ARABIC_RUN_REGEX, (run) => {
+      const token = `__AR_SEG_${arabicRuns.length}__`;
+      arabicRuns.push(run);
+      return token;
+    });
+
+    let translated = await translateFragmentWithCache(placeholderText);
+    arabicRuns.forEach((run, index) => {
+      translated = translated.replaceAll(`__AR_SEG_${index}__`, run);
+    });
+
+    return translated;
+  };
+
+  const translateTextForUrdu = async (value: string): Promise<string> => {
+    const trimmed = value.trim();
+    if (!trimmed) return value;
+
+    const lines = value.split('\n');
+    const translatedLines = await Promise.all(lines.map((line) => translateLineForUrdu(line)));
+    return translatedLines.join('\n');
+  };
+
+  const translatePayloadValue = async (value: unknown, key?: string): Promise<unknown> => {
+    if (typeof value === 'string') {
+      if (key && NON_TRANSLATABLE_PAYLOAD_KEYS.has(key)) return value;
+      return translateTextForUrdu(value);
+    }
+
+    if (Array.isArray(value)) {
+      const nextItems = await Promise.all(value.map((item) => translatePayloadValue(item, key)));
+      return nextItems;
+    }
+
+    if (value && typeof value === 'object') {
+      const entries = await Promise.all(
+        Object.entries(value as Record<string, unknown>).map(async ([entryKey, entryValue]) => {
+          if (NON_TRANSLATABLE_PAYLOAD_KEYS.has(entryKey)) {
+            return [entryKey, entryValue] as const;
+          }
+          const nextValue = await translatePayloadValue(entryValue, entryKey);
+          return [entryKey, nextValue] as const;
+        }),
+      );
+      return Object.fromEntries(entries);
+    }
+
+    return value;
+  };
+
+  const autoTranslateUrduTree = async () => {
+    if (!treeGuide || treeGuide.language !== 'ur') return;
+
+    const confirmed = window.confirm('Auto-translate current guide content to Urdu? This will overwrite current text fields in the open tree editor.');
+    if (!confirmed) return;
+
+    setAutoTranslatingTree(true);
+    try {
+      const translatedIntro = await translateTextForUrdu(treeGuideIntro);
+      const translatedNotes = await Promise.all(parseGuideNotesText(treeGuideNotesText).map((note) => translateTextForUrdu(note)));
+
+      const translatedSections: SectionDraft[] = [];
+      for (const section of treeSections) {
+        const translatedHeading = await translateTextForUrdu(section.heading);
+        const translatedSteps: StepDraft[] = [];
+
+        for (const step of section.steps) {
+          const translatedBlocks: BlockDraft[] = [];
+          for (const block of step.blocks) {
+            const translatedPayload = await translatePayloadValue(block.payload);
+            translatedBlocks.push({
+              ...block,
+              payload: translatedPayload as Record<string, unknown>,
+            });
+          }
+
+          const translatedImages: ImageDraft[] = [];
+          for (const image of step.images) {
+            translatedImages.push({
+              ...image,
+              caption: await translateTextForUrdu(image.caption),
+            });
+          }
+
+          translatedSteps.push({
+            ...step,
+            title: await translateTextForUrdu(step.title),
+            detail: await translateTextForUrdu(step.detail),
+            note: await translateTextForUrdu(step.note),
+            blocks: translatedBlocks,
+            images: translatedImages,
+          });
+        }
+
+        translatedSections.push({
+          ...section,
+          heading: translatedHeading,
+          steps: translatedSteps,
+        });
+      }
+
+      setTreeGuideIntro(translatedIntro);
+      setTreeGuideNotesText(translatedNotes.join('\n\n'));
+      setTreeSections(translatedSections);
+      toast.success('Urdu auto-translation completed. Please review and adjust wording before publishing.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to auto-translate this guide.');
+    } finally {
+      setAutoTranslatingTree(false);
+    }
+  };
+
+  const autoTranslatePersistedUrduGuide = async (guideId: string) => {
+    const tree = await fetchHowToGuideTree(guideId);
+    if (!tree) return;
+
+    const translatedIntro = tree.guide.intro ? await translateTextForUrdu(tree.guide.intro) : null;
+    const translatedNotes = await Promise.all((tree.guide.notes ?? []).map((note) => translateTextForUrdu(note)));
+
+    const translatedSections = await Promise.all(
+      (tree.sections ?? []).map(async (sectionEntry, sectionIndex) => ({
+        heading: await translateTextForUrdu(sectionEntry.section.heading),
+        section_order: sectionIndex,
+        steps: await Promise.all(sectionEntry.steps.map(async (stepEntry, stepIndex) => ({
+          step_order: stepIndex,
+          title: await translateTextForUrdu(stepEntry.step.title),
+          detail: stepEntry.step.detail ? await translateTextForUrdu(stepEntry.step.detail) : null,
+          note: stepEntry.step.note ? await translateTextForUrdu(stepEntry.step.note) : null,
+          rich_content_html: stepEntry.step.rich_content_html ?? null,
+          blocks: await Promise.all(stepEntry.blocks.map(async (blockEntry, blockIndex) => ({
+            block_order: blockIndex,
+            kind: blockEntry.kind,
+            payload: await translatePayloadValue(blockEntry.payload) as Record<string, unknown>,
+          }))),
+          images: await Promise.all(stepEntry.images.map(async (imageEntry, imageIndex) => ({
+            display_order: imageIndex,
+            image_url: imageEntry.image_url,
+            thumb_url: imageEntry.thumb_url,
+            caption: imageEntry.caption ? await translateTextForUrdu(imageEntry.caption) : null,
+            source: imageEntry.source,
+          }))),
+        }))),
+      })),
+    );
+
+    await saveHowToGuideTree(guideId, {
+      guideIntro: translatedIntro,
+      guideNotes: translatedNotes,
+      sections: translatedSections,
+    });
+  };
+
+  const autoTranslatePersistedUrduGuideMetadata = async (guide: HowToGuide) => {
+    const [translatedTitle, translatedSubtitle, translatedIntro] = await Promise.all([
+      translateTextForUrdu(guide.title),
+      guide.subtitle ? translateTextForUrdu(guide.subtitle) : Promise.resolve(''),
+      guide.intro ? translateTextForUrdu(guide.intro) : Promise.resolve(''),
+    ]);
+
+    await updateHowToGuide(guide.id, {
+      title: translatedTitle || guide.title,
+      subtitle: translatedSubtitle || guide.subtitle || null,
+      intro: translatedIntro || guide.intro || null,
+    });
+  };
+
+  const backfillExistingUrduLabels = useCallback(async () => {
+    if (urduLabelsBackfillRunningRef.current) return;
+    urduLabelsBackfillRunningRef.current = true;
+
+    try {
+      const urGuides = guides.filter((guide) => guide.language === 'ur');
+      if (urGuides.length === 0) return;
+
+      let updatedGroups = 0;
+      let updatedGuides = 0;
+
+      const urGuideGroupIds = new Set(urGuides.map((guide) => guide.group_id));
+      for (const group of groups) {
+        if (!urGuideGroupIds.has(group.id)) continue;
+
+        const currentUrduName = (group.urdu_name ?? '').trim();
+        const shouldTranslateGroupName = currentUrduName.length === 0 || containsLatinScript(currentUrduName);
+        if (!shouldTranslateGroupName) continue;
+
+        const translatedGroupName = await translateTextForUrdu(group.name);
+        const nextGroupUrduName = translatedGroupName.trim();
+        if (!nextGroupUrduName || nextGroupUrduName === currentUrduName) continue;
+
+        await updateHowToGroup(group.id, { urdu_name: nextGroupUrduName });
+        updatedGroups += 1;
+      }
+
+      for (const guide of urGuides) {
+        const nextPayload: Partial<HowToGuide> = {};
+
+        if (containsLatinScript(guide.title)) {
+          const translatedTitle = await translateTextForUrdu(guide.title);
+          const nextTitle = translatedTitle.trim();
+          if (nextTitle && nextTitle !== guide.title) {
+            nextPayload.title = nextTitle;
+          }
+        }
+
+        if ((guide.subtitle ?? '').trim().length > 0 && containsLatinScript(guide.subtitle ?? '')) {
+          const translatedSubtitle = await translateTextForUrdu(guide.subtitle ?? '');
+          const nextSubtitle = translatedSubtitle.trim();
+          if (nextSubtitle && nextSubtitle !== (guide.subtitle ?? '')) {
+            nextPayload.subtitle = nextSubtitle;
+          }
+        }
+
+        if (Object.keys(nextPayload).length === 0) continue;
+
+        await updateHowToGuide(guide.id, nextPayload);
+        updatedGuides += 1;
+      }
+
+      if (updatedGroups > 0 || updatedGuides > 0) {
+        await queryClient.invalidateQueries({ queryKey: GROUPS_KEY });
+        await queryClient.invalidateQueries({ queryKey: GUIDES_KEY });
+        toast.success(`Updated Urdu labels (${updatedGroups} group${updatedGroups === 1 ? '' : 's'}, ${updatedGuides} guide${updatedGuides === 1 ? '' : 's'}).`);
+      }
+    } catch (error) {
+      urduLabelsBackfillStartedRef.current = false;
+      toast.error(error instanceof Error ? error.message : 'Failed to update Urdu labels.');
+    } finally {
+      urduLabelsBackfillRunningRef.current = false;
+    }
+  // translateTextForUrdu is component-local and intentionally used as current closure here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guides, groups, queryClient]);
 
   const publishGuide = async (guide: HowToGuide) => {
     try {
@@ -651,6 +1062,7 @@ export default function HowToGuidesPage() {
     try {
       const payload = {
         name: groupForm.name.trim(),
+        urdu_name: groupForm.urdu_name.trim() || null,
         slug: normalizeSlug(groupForm.slug || groupForm.name),
         icon: groupForm.icon.trim() || null,
         color: groupForm.color.trim() || null,
@@ -660,6 +1072,15 @@ export default function HowToGuidesPage() {
 
       if (editingGroup) {
         await updateHowToGroup(editingGroup.id, payload);
+        if (!editingGroup.source_group_id) {
+          const shouldMirror = window.confirm('Also apply these English group changes to linked Urdu group copies?');
+          if (shouldMirror) {
+            const mirrored = await syncEnglishGroupToLinkedUrdu(editingGroup.id, payload);
+            if (mirrored > 0) {
+              toast.success(`Updated ${mirrored} linked Urdu ${mirrored === 1 ? 'group' : 'groups'}.`);
+            }
+          }
+        }
         toast.success('Group updated.');
       } else {
         await createHowToGroup(payload);
@@ -684,6 +1105,10 @@ export default function HowToGuidesPage() {
       toast.error('Select a group.');
       return;
     }
+    if (!editingGuide && activeEditingLanguage === 'ur') {
+      toast.error('Use Duplicate from English to create Urdu guides.');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -704,6 +1129,15 @@ export default function HowToGuidesPage() {
 
       if (editingGuide) {
         await updateHowToGuide(editingGuide.id, payload);
+        if (editingGuide.language === 'en') {
+          const shouldMirror = window.confirm('Also mirror these English guide field changes to linked Urdu guides?');
+          if (shouldMirror) {
+            const mirrored = await syncEnglishGuideToLinkedUrdu(editingGuide.id, payload);
+            if (mirrored > 0) {
+              toast.success(`Updated ${mirrored} linked Urdu ${mirrored === 1 ? 'guide' : 'guides'}.`);
+            }
+          }
+        }
         toast.success('Guide updated.');
       } else {
         await createHowToGuide(payload);
@@ -716,6 +1150,103 @@ export default function HowToGuidesPage() {
       toast.error(error instanceof Error ? error.message : 'Failed to save guide.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const duplicateGuideFromEnglish = async () => {
+    if (!duplicateSourceGroupId) {
+      toast.error('Select an English group first.');
+      return;
+    }
+
+    if (duplicateMode === 'single' && !duplicateSourceGuideId) {
+      toast.error('Select an English guide to duplicate.');
+      return;
+    }
+
+    if (duplicateIntoNewUrduGroup && !duplicateTargetGroupName.trim()) {
+      toast.error('Enter a name for the new Urdu group copy.');
+      return;
+    }
+
+    setDuplicatingGuide(true);
+    try {
+      const targetGroupId = duplicateIntoNewUrduGroup
+        ? (await createLinkedUrduHowToGroupCopy({
+          sourceGroupId: duplicateSourceGroupId,
+          targetUrduGroupName: duplicateTargetGroupName,
+          targetUrduGroupUrduName: duplicateTargetGroupUrduName,
+        })).id
+        : duplicateSourceGroupId;
+
+      const duplicateResult = duplicateMode === 'all'
+        ? await duplicateHowToGroupEntriesFromEnglish({
+          sourceGroupId: duplicateSourceGroupId,
+          sourceGuideIds: englishGuides
+            .filter((guide) => guide.group_id === duplicateSourceGroupId)
+            .map((guide) => guide.id),
+          targetGroupId,
+          createTargetUrduGroup: false,
+        })
+        : {
+          targetGroupId,
+          guides: [await duplicateHowToGuideFromEnglish(duplicateSourceGuideId, { targetGroupId })],
+        };
+
+      const duplicatedGuides = duplicateResult.guides;
+
+      if (duplicatedGuides.length === 0) {
+        toast.error('No new Urdu guides were duplicated. Matching Urdu copies may already exist in the target group.');
+        return;
+      }
+
+      await Promise.all(
+        duplicatedGuides.map(async (duplicatedGuide) => {
+          await autoTranslatePersistedUrduGuideMetadata(duplicatedGuide);
+          await autoTranslatePersistedUrduGuide(duplicatedGuide.id);
+        }),
+      );
+
+      if (duplicatePublishNow) {
+        let guidesToPublish: HowToGuide[] = [];
+        if (duplicatePublishMode === 'all') {
+          guidesToPublish = duplicatedGuides;
+        } else {
+          const targetGuide = duplicatedGuides.find((guide) => guide.source_guide_id === duplicatePublishSingleGuideId) ?? duplicatedGuides[0];
+          if (targetGuide) guidesToPublish = [targetGuide];
+        }
+
+        for (const guideToPublish of guidesToPublish) {
+          await publishHowToGuide({ guideId: guideToPublish.id, isActive: true });
+        }
+      }
+
+      await queryClient.invalidateQueries({ queryKey: GROUPS_KEY });
+      await queryClient.invalidateQueries({ queryKey: GUIDES_KEY });
+      setDuplicateDialogOpen(false);
+      setActiveEditingLanguage('ur');
+      setFiltersByLanguage((prev) => ({
+        ...prev,
+        ur: {
+          search: '',
+          selectedGroupFilter: duplicateResult.targetGroupId,
+          selectedStatusFilter: 'all',
+        },
+      }));
+      if (duplicatedGuides.length === 1) {
+        toast.success(duplicatePublishNow ? 'Urdu guide duplicated, translated, and published.' : 'Urdu guide duplicated and translated.');
+        await openTreeEditor(duplicatedGuides[0]);
+      } else {
+        toast.success(
+          duplicatePublishNow
+            ? `${duplicatedGuides.length} Urdu guides duplicated, translated, and published.`
+            : `${duplicatedGuides.length} Urdu guides duplicated and translated.`,
+        );
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to duplicate guide.');
+    } finally {
+      setDuplicatingGuide(false);
     }
   };
 
@@ -742,6 +1273,16 @@ export default function HowToGuidesPage() {
       toast.error(error instanceof Error ? error.message : 'Failed to delete group.');
     }
   };
+
+  useEffect(() => {
+    if (activeEditingLanguage !== 'ur') return;
+    if (groupsLoading || guidesLoading) return;
+    if (urduLabelsBackfillStartedRef.current) return;
+    if (!guides.some((guide) => guide.language === 'ur')) return;
+
+    urduLabelsBackfillStartedRef.current = true;
+    void backfillExistingUrduLabels();
+  }, [activeEditingLanguage, groupsLoading, guidesLoading, guides, backfillExistingUrduLabels]);
 
   const removeGuide = async (guide: HowToGuide) => {
     if (!canDelete) return;
@@ -788,7 +1329,7 @@ export default function HowToGuidesPage() {
               </div>
               <div className="min-w-0">
                 <h1 className="text-lg sm:text-xl font-bold leading-tight truncate">How-To Guides</h1>
-                <p className="text-[11px] sm:text-xs text-white/80 mt-0.5">Author parent groups and step-by-step guides that render in the app</p>
+                <p className="text-[11px] sm:text-xs text-white/80 mt-0.5">Author parent groups and step-by-step guides for English and Urdu app content</p>
                 <p className="text-[10px] mt-1 text-white/70">Signed in as <span className="font-medium text-white">{role ?? 'guest'}</span></p>
               </div>
             </div>
@@ -806,8 +1347,14 @@ export default function HowToGuidesPage() {
               <Button size="sm" onClick={openCreateGroup} disabled={!canEdit} className="gap-2 bg-white text-[hsl(142_60%_28%)] hover:bg-white/90">
                 <Plus size={14} /> Add Group
               </Button>
-              <Button size="sm" variant="outline" onClick={openCreateGuide} disabled={!canEdit || groups.length === 0} className="gap-2 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white">
-                <BookOpen size={14} /> Add Guide
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={activeEditingLanguage === 'ur' ? openDuplicateGuide : openCreateGuide}
+                disabled={!canEdit || groups.length === 0 || (activeEditingLanguage === 'ur' && englishGuides.length === 0)}
+                className="gap-2 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white"
+              >
+                <BookOpen size={14} /> {activeEditingLanguage === 'ur' ? 'Duplicate Entries' : 'Add Guide'}
               </Button>
             </div>
           </div>
@@ -823,15 +1370,15 @@ export default function HowToGuidesPage() {
             </div>
             <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 shadow-sm">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">
-                <BookOpen size={14} /> Guides
+                <BookOpen size={14} /> Guides ({activeEditingLanguage.toUpperCase()})
               </div>
-              <p className="mt-1 text-2xl font-bold text-[hsl(150_30%_15%)]">{guides.length}</p>
+              <p className="mt-1 text-2xl font-bold text-[hsl(150_30%_15%)]">{guidesInActiveLanguage.length}</p>
             </div>
             <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 shadow-sm">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">
-                <Sparkles size={14} /> Published
+                <Sparkles size={14} /> Published ({activeEditingLanguage.toUpperCase()})
               </div>
-              <p className="mt-1 text-2xl font-bold text-[hsl(150_30%_15%)]">{guides.filter((g) => g.is_active).length}</p>
+              <p className="mt-1 text-2xl font-bold text-[hsl(150_30%_15%)]">{publishedInActiveLanguageCount}</p>
             </div>
           </div>
 
@@ -844,40 +1391,69 @@ export default function HowToGuidesPage() {
                 <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Quick start</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   <span className="font-medium text-[hsl(150_30%_25%)]">1.</span> Create a group &nbsp;·&nbsp;
-                  <span className="font-medium text-[hsl(150_30%_25%)]">2.</span> Add a guide &nbsp;·&nbsp;
+                  <span className="font-medium text-[hsl(150_30%_25%)]">2.</span> {activeEditingLanguage === 'ur' ? 'Duplicate an English guide' : 'Add a guide'} &nbsp;·&nbsp;
                   <span className="font-medium text-[hsl(150_30%_25%)]">3.</span> Open the tree editor and add sections, steps, and content blocks.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-2"
-                    onClick={() => void createDemoGuide()}
-                    disabled={!canEdit || creatingDemo}
-                  >
-                    <Plus size={14} /> {creatingDemo ? 'Creating demo…' : 'Create Demo Guide'}
-                  </Button>
+                  {activeEditingLanguage === 'en' ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => void createDemoGuide()}
+                      disabled={!canEdit || creatingDemo}
+                    >
+                      <Plus size={14} /> {creatingDemo ? 'Creating demo…' : 'Create Demo Guide'}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={openDuplicateGuide}
+                      disabled={!canEdit || englishGuides.length === 0}
+                    >
+                      <Plus size={14} /> Duplicate from English
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
           <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 shadow-sm space-y-3">
+            <div className="inline-flex w-full max-w-sm rounded-xl border border-[hsl(140_20%_86%)] bg-[hsl(140_30%_98%)] p-1">
+              <button
+                type="button"
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${activeEditingLanguage === 'en' ? 'bg-white text-[hsl(142_60%_28%)] shadow-sm' : 'text-[hsl(142_20%_38%)] hover:text-[hsl(142_40%_30%)]'}`}
+                onClick={() => setActiveEditingLanguage('en')}
+              >
+                English
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${activeEditingLanguage === 'ur' ? 'bg-white text-[hsl(142_60%_28%)] shadow-sm' : 'text-[hsl(142_20%_38%)] hover:text-[hsl(142_40%_30%)]'}`}
+                onClick={() => setActiveEditingLanguage('ur')}
+              >
+                Urdu
+              </button>
+            </div>
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="howto-search" className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">Guide Filters</Label>
               <Button type="button" size="sm" variant="ghost" className="h-8" onClick={clearGuideFilters} disabled={!hasActiveGuideFilters}>
                 Clear
               </Button>
             </div>
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_170px_170px]">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_170px]">
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="howto-search"
                   className="h-10 pl-9 text-sm"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  value={activeFilters.search}
+                  onChange={(event) => setActiveFilters((prev) => ({ ...prev, search: event.target.value }))}
                   placeholder="Search by title, slug, or group…"
                 />
               </div>
@@ -886,28 +1462,13 @@ export default function HowToGuidesPage() {
                 <Label htmlFor="howto-group-filter" className="text-[11px] text-muted-foreground">Group</Label>
                 <select
                   id="howto-group-filter"
-                  value={selectedGroupFilter}
-                  onChange={(event) => setSelectedGroupFilter(event.target.value)}
+                  value={activeFilters.selectedGroupFilter}
+                  onChange={(event) => setActiveFilters((prev) => ({ ...prev, selectedGroupFilter: event.target.value }))}
                   className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="all">All groups</option>
                   {groups.map((group) => (
-                    <option key={group.id} value={group.id}>{group.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <Label htmlFor="howto-language-filter" className="text-[11px] text-muted-foreground">Language</Label>
-                <select
-                  id="howto-language-filter"
-                  value={selectedLanguageFilter}
-                  onChange={(event) => setSelectedLanguageFilter(event.target.value as 'all' | HowToLanguage)}
-                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="all">All</option>
-                  {availableGuideLanguages.map((language) => (
-                    <option key={language} value={language}>{language.toUpperCase()}</option>
+                    <option key={group.id} value={group.id}>{getHowToGroupDisplayName(group, activeEditingLanguage)}</option>
                   ))}
                 </select>
               </div>
@@ -916,8 +1477,8 @@ export default function HowToGuidesPage() {
                 <Label htmlFor="howto-status-filter" className="text-[11px] text-muted-foreground">Status</Label>
                 <select
                   id="howto-status-filter"
-                  value={selectedStatusFilter}
-                  onChange={(event) => setSelectedStatusFilter(event.target.value as 'all' | 'live' | 'draft')}
+                  value={activeFilters.selectedStatusFilter}
+                  onChange={(event) => setActiveFilters((prev) => ({ ...prev, selectedStatusFilter: event.target.value as 'all' | 'live' | 'draft' }))}
                   className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="all">All</option>
@@ -944,6 +1505,7 @@ export default function HowToGuidesPage() {
                 {groups.map((group) => {
                   const color = group.color || '#2e7d32';
                   const count = guideCountByGroup.get(group.id) ?? 0;
+                  const groupLabel = getHowToGroupDisplayName(group, activeEditingLanguage);
                   return (
                     <div key={group.id} className="px-3 sm:px-4 py-3 flex items-center justify-between gap-3 hover:bg-[hsl(140_30%_99%)] transition-colors">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -952,10 +1514,10 @@ export default function HowToGuidesPage() {
                           style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
                           aria-hidden
                         >
-                          {group.name.charAt(0).toUpperCase()}
+                          {(groupLabel || group.name).charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-[hsl(150_30%_15%)] truncate">{group.name}</p>
+                          <p className="text-sm font-semibold text-[hsl(150_30%_15%)] truncate">{groupLabel}</p>
                           <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono">{group.slug}</span>
                             <span className="text-[hsl(140_20%_80%)]">•</span>
@@ -993,18 +1555,24 @@ export default function HowToGuidesPage() {
               <header className="px-4 py-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(140_30%_97%)] to-white flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <BookOpen size={16} className="text-[hsl(142_60%_32%)]" />
-                  <h2 className="text-sm font-semibold text-[hsl(150_30%_15%)]">Guides</h2>
+                  <h2 className="text-sm font-semibold text-[hsl(150_30%_15%)]">Guides ({activeEditingLanguage.toUpperCase()})</h2>
                   <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-[hsl(142_50%_92%)] text-[hsl(142_60%_28%)] font-semibold">{filteredGuides.length}</span>
                 </div>
-                <Button size="sm" variant="ghost" className="h-8 gap-1 text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]" onClick={openCreateGuide} disabled={!canEdit || groups.length === 0}>
-                  <Plus size={14} /> New
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1 text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]"
+                  onClick={activeEditingLanguage === 'ur' ? openDuplicateGuide : openCreateGuide}
+                  disabled={!canEdit || groups.length === 0 || (activeEditingLanguage === 'ur' && englishGuides.length === 0)}
+                >
+                  <Plus size={14} /> {activeEditingLanguage === 'ur' ? 'Duplicate Entries' : 'New'}
                 </Button>
               </header>
               <div className="divide-y divide-[hsl(140_20%_94%)]">
                 {groupedFilteredGuides.map((groupedEntry, groupedIndex) => {
                   const parentGroup = groupedEntry.group;
                   const parentColor = parentGroup?.color || '#2e7d32';
-                  const parentName = parentGroup?.name ?? 'Unassigned Group';
+                  const parentName = getHowToGroupDisplayName(parentGroup, activeEditingLanguage);
 
                   return (
                     <div key={parentGroup?.id ?? `unknown-group-${groupedIndex}`}>
@@ -1082,7 +1650,11 @@ export default function HowToGuidesPage() {
                   <div className="px-4 py-8 text-center">
                     <BookOpen size={28} className="mx-auto text-[hsl(140_20%_70%)]" />
                     <p className="mt-2 text-sm font-medium text-[hsl(150_30%_25%)]">No guides match</p>
-                    <p className="text-xs text-muted-foreground">Adjust filters, clear search, or add a new guide.</p>
+                    <p className="text-xs text-muted-foreground">
+                      {activeEditingLanguage === 'ur'
+                        ? 'Adjust filters, clear search, or duplicate an English guide.'
+                        : 'Adjust filters, clear search, or add a new guide.'}
+                    </p>
                   </div>
                 ) : null}
               </div>
@@ -1100,6 +1672,10 @@ export default function HowToGuidesPage() {
             <div>
               <Label>Name</Label>
               <Input value={groupForm.name} onChange={(event) => setGroupForm((prev) => ({ ...prev, name: event.target.value, slug: prev.slug || normalizeSlug(event.target.value) }))} placeholder="e.g. Prayer essentials" />
+            </div>
+            <div>
+              <Label>Urdu Name</Label>
+              <Input value={groupForm.urdu_name} onChange={(event) => setGroupForm((prev) => ({ ...prev, urdu_name: event.target.value }))} placeholder="e.g. نماز کے بنیادی امور" />
             </div>
             <div>
               <Label>Slug</Label>
@@ -1131,12 +1707,199 @@ export default function HowToGuidesPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Duplicate English Entries to Urdu</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-1">
+            <div>
+              <Label>English Group</Label>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm mt-1"
+                value={duplicateSourceGroupId}
+                onChange={(event) => {
+                  const nextGroupId = event.target.value;
+                  setDuplicateSourceGroupId(nextGroupId);
+                  const firstGuideId = englishGuides.find((guide) => guide.group_id === nextGroupId)?.id ?? '';
+                  setDuplicateSourceGuideId(firstGuideId);
+                  setDuplicatePublishSingleGuideId(firstGuideId);
+                }}
+              >
+                {englishGroups.map((group) => {
+                  const count = englishGroupMap.get(group.id) ?? 0;
+                  return (
+                    <option key={group.id} value={group.id}>
+                      {group.name} ({count} {count === 1 ? 'guide' : 'guides'})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div className="rounded-md border p-2 space-y-2">
+              <Label className="text-xs">Duplicate Scope</Label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold border ${duplicateMode === 'single' ? 'border-[hsl(142_60%_32%)] bg-[hsl(142_50%_95%)] text-[hsl(142_60%_24%)]' : 'border-input bg-white text-muted-foreground'}`}
+                  onClick={() => {
+                    setDuplicateMode('single');
+                    setDuplicatePublishMode('single');
+                  }}
+                >
+                  Single Guide
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold border ${duplicateMode === 'all' ? 'border-[hsl(142_60%_32%)] bg-[hsl(142_50%_95%)] text-[hsl(142_60%_24%)]' : 'border-input bg-white text-muted-foreground'}`}
+                  onClick={() => setDuplicateMode('all')}
+                >
+                  All Guides in Group
+                </button>
+              </div>
+            </div>
+
+            {duplicateMode === 'single' ? (
+              <div>
+                <Label>English Guide</Label>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm mt-1"
+                  value={duplicateSourceGuideId}
+                  onChange={(event) => {
+                    const guideId = event.target.value;
+                    setDuplicateSourceGuideId(guideId);
+                    setDuplicatePublishSingleGuideId(guideId);
+                  }}
+                >
+                  {englishGuidesInSelectedGroup.map((guide) => (
+                    <option key={guide.id} value={guide.id}>
+                      {guide.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+              <Label className="text-xs">Create new Urdu group copy</Label>
+              <Switch
+                checked={duplicateIntoNewUrduGroup}
+                onCheckedChange={(checked) => {
+                  setDuplicateIntoNewUrduGroup(checked);
+                  if (checked) {
+                    const sourceGroup = englishGroups.find((group) => group.id === duplicateSourceGroupId);
+                    if (sourceGroup) {
+                      if (!duplicateTargetGroupName.trim()) {
+                        setDuplicateTargetGroupName(`${sourceGroup.name} Urdu`);
+                      }
+                      if (!duplicateTargetGroupUrduName.trim()) {
+                        setDuplicateTargetGroupUrduName(sourceGroup.urdu_name ?? sourceGroup.name);
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
+
+            {duplicateIntoNewUrduGroup ? (
+              <div className="grid gap-3 rounded-md border p-3">
+                <div>
+                  <Label>New Urdu Group Name</Label>
+                  <Input
+                    className="mt-1"
+                    value={duplicateTargetGroupName}
+                    onChange={(event) => setDuplicateTargetGroupName(event.target.value)}
+                    placeholder="e.g. Prayer Essentials Urdu"
+                  />
+                </div>
+                <div>
+                  <Label>New Urdu Group Urdu Name</Label>
+                  <Input
+                    className="mt-1"
+                    value={duplicateTargetGroupUrduName}
+                    onChange={(event) => setDuplicateTargetGroupUrduName(event.target.value)}
+                    placeholder="e.g. نماز کے بنیادی امور"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+              <Label className="text-xs">Make duplicate live now</Label>
+              <Switch checked={duplicatePublishNow} onCheckedChange={setDuplicatePublishNow} />
+            </div>
+
+            {duplicatePublishNow ? (
+              <div className="grid gap-3 rounded-md border p-3">
+                <Label className="text-xs">Publish Scope</Label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold border ${duplicatePublishMode === 'single' ? 'border-[hsl(142_60%_32%)] bg-[hsl(142_50%_95%)] text-[hsl(142_60%_24%)]' : 'border-input bg-white text-muted-foreground'}`}
+                    onClick={() => setDuplicatePublishMode('single')}
+                  >
+                    Single Guide
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold border ${duplicatePublishMode === 'all' ? 'border-[hsl(142_60%_32%)] bg-[hsl(142_50%_95%)] text-[hsl(142_60%_24%)]' : 'border-input bg-white text-muted-foreground'}`}
+                    onClick={() => setDuplicatePublishMode('all')}
+                    disabled={duplicateMode === 'single'}
+                  >
+                    All Duplicated
+                  </button>
+                </div>
+
+                {duplicatePublishMode === 'single' ? (
+                  <div>
+                    <Label>Guide To Publish</Label>
+                    <select
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm mt-1"
+                      value={duplicatePublishSingleGuideId}
+                      onChange={(event) => setDuplicatePublishSingleGuideId(event.target.value)}
+                    >
+                      {englishGuidesInSelectedGroup.map((guide) => (
+                        <option key={guide.id} value={guide.id}>
+                          {guide.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <p className="text-xs text-muted-foreground">
+              {duplicateMode === 'all'
+                ? 'This creates draft Urdu copies for every English guide in the selected group.'
+                : 'This creates a draft Urdu copy with the same structure, sections, steps, blocks, and images.'}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDuplicateDialogOpen(false)} disabled={duplicatingGuide}>Cancel</Button>
+            <Button
+              onClick={() => void duplicateGuideFromEnglish()}
+              disabled={
+                duplicatingGuide
+                || !duplicateSourceGroupId
+                || (duplicateMode === 'single' && !duplicateSourceGuideId)
+                || (duplicateIntoNewUrduGroup && !duplicateTargetGroupName.trim())
+                || !canEdit
+              }
+            >
+              {duplicatingGuide ? 'Duplicating...' : 'Duplicate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={guideDialogOpen} onOpenChange={setGuideDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingGuide ? 'Edit Guide' : 'Create Guide'}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-3 py-1">
+          <div className="grid gap-3 py-1 overflow-y-auto pr-1">
             <div>
               <Label>Group</Label>
               <select
@@ -1146,7 +1909,7 @@ export default function HowToGuidesPage() {
               >
                 <option value="">Select group</option>
                 {groups.map((group) => (
-                  <option key={group.id} value={group.id}>{group.name}</option>
+                  <option key={group.id} value={group.id}>{getHowToGroupDisplayName(group, guideForm.language as EditingLanguage)}</option>
                 ))}
               </select>
             </div>
@@ -1161,11 +1924,12 @@ export default function HowToGuidesPage() {
                   className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm mt-1"
                   value={guideForm.language}
                   onChange={(event) => setGuideForm((prev) => ({ ...prev, language: event.target.value as HowToLanguage }))}
+                  disabled
                 >
                   <option value="en">English</option>
                   <option value="ur">Urdu</option>
-                  <option value="ar">Arabic</option>
                 </select>
+                <p className="mt-1 text-[11px] text-muted-foreground">Language is fixed per guide.</p>
               </div>
             </div>
             <div>
@@ -1228,7 +1992,7 @@ export default function HowToGuidesPage() {
               <Switch checked={guideForm.is_active} onCheckedChange={(checked) => setGuideForm((prev) => ({ ...prev, is_active: checked }))} />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-3 border-t bg-background">
             <Button variant="outline" onClick={() => setGuideDialogOpen(false)} disabled={saving}>Cancel</Button>
             <Button onClick={() => void saveGuide()} disabled={saving || !canEdit}>{saving ? 'Saving...' : 'Save Guide'}</Button>
           </DialogFooter>
@@ -1236,7 +2000,7 @@ export default function HowToGuidesPage() {
       </Dialog>
 
       <Dialog open={treeDialogOpen} onOpenChange={setTreeDialogOpen}>
-        <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-auto sm:max-h-[92vh] overflow-hidden p-0 rounded-none sm:rounded-lg">
+        <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-[92vh] sm:max-h-[92vh] overflow-hidden p-0 rounded-none sm:rounded-lg flex flex-col">
           <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] text-white">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-xl bg-white/15 ring-1 ring-white/30 flex items-center justify-center shrink-0">
@@ -1259,20 +2023,33 @@ export default function HowToGuidesPage() {
             </div>
           </DialogHeader>
 
-          {treeLoading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading guide tree…</p>
-          ) : (
-            <div className="grid lg:grid-cols-[minmax(0,1fr)_440px] h-[calc(100dvh-128px)] sm:h-auto sm:max-h-[calc(92vh-140px)] overflow-hidden">
-              <div className={`${showMobilePreview ? 'hidden' : 'block'} lg:block overflow-y-auto px-4 sm:px-6 py-4 space-y-4 border-r border-[hsl(140_20%_92%)]`}>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {treeLoading ? (
+              <p className="p-6 text-sm text-muted-foreground">Loading guide tree…</p>
+            ) : (
+              <div className="grid lg:grid-cols-[minmax(0,1fr)_440px] h-full min-h-0 overflow-hidden">
+                <div className={`${showMobilePreview ? 'hidden' : 'block'} lg:block min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 border-r border-[hsl(140_20%_92%)]`}>
               <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-gradient-to-br from-[hsl(140_40%_97%)] to-white p-4 space-y-3 shadow-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-[hsl(142_50%_92%)] flex items-center justify-center">
-                    <Sparkles size={14} className="text-[hsl(142_60%_32%)]" />
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-[hsl(142_50%_92%)] flex items-center justify-center">
+                      <Sparkles size={14} className="text-[hsl(142_60%_32%)]" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Guide-level content</p>
+                      <p className="text-[11px] text-muted-foreground">Renders at the top of the guide, before the first section.</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Guide-level content</p>
-                    <p className="text-[11px] text-muted-foreground">Renders at the top of the guide, before the first section.</p>
-                  </div>
+                  {treeGuide?.language === 'ur' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void autoTranslateUrduTree()}
+                      disabled={!canEdit || autoTranslatingTree || treeLoading}
+                    >
+                      {autoTranslatingTree ? 'Translating...' : 'Auto-translate Urdu'}
+                    </Button>
+                  ) : null}
                 </div>
                 <div>
                   <Label>Guide Introduction</Label>
@@ -1766,7 +2543,7 @@ export default function HowToGuidesPage() {
               ) : null}
               </div>
 
-              <aside className={`${showMobilePreview ? 'block' : 'hidden'} lg:block overflow-y-auto bg-gradient-to-b from-[hsl(140_30%_98%)] to-white`}>
+                <aside className={`${showMobilePreview ? 'block' : 'hidden'} lg:block min-h-0 overflow-y-auto bg-gradient-to-b from-[hsl(140_30%_98%)] to-white`}>
                 <div className="sticky top-0 z-10 border-b border-[hsl(140_20%_92%)] bg-white/95 backdrop-blur px-4 py-2 flex items-center gap-2">
                   <Eye size={14} className="text-[hsl(142_60%_32%)]" />
                   <div>
@@ -1798,9 +2575,10 @@ export default function HowToGuidesPage() {
                     }))}
                   />
                 </div>
-              </aside>
-            </div>
-          )}
+                </aside>
+              </div>
+            )}
+          </div>
 
           <DialogFooter className="px-4 sm:px-6 py-3 border-t border-[hsl(140_20%_92%)] bg-white gap-2">
             <Button variant="outline" onClick={() => setTreeDialogOpen(false)} disabled={saving} className="flex-1 sm:flex-none">Close</Button>

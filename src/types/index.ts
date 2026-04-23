@@ -129,6 +129,8 @@ export interface HowToGroup {
   id: string;
   slug: string;
   name: string;
+  urdu_name: string | null;
+  source_group_id: string | null;
   icon: string | null;
   color: string | null;
   display_order: number;
@@ -143,6 +145,7 @@ export interface HowToGuide {
   id: string;
   group_id: string;
   slug: string;
+  source_guide_id: string | null;
   title: string;
   subtitle: string | null;
   intro: string | null;

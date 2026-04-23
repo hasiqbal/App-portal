@@ -80,6 +80,78 @@ function joinNameList(value: unknown): string | null {
   return names.length > 0 ? names.join(', ') : null;
 }
 
+function normalizeHowToGuideSlug(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+
+  return normalized.length > 0 ? normalized : 'guide';
+}
+
+function normalizeHowToGroupSlug(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+
+  return normalized.length > 0 ? normalized : 'howto-group';
+}
+
+async function ensureUniqueHowToGuideSlug(baseSlug: string): Promise<string> {
+  const normalizedBase = normalizeHowToGuideSlug(baseSlug);
+  let candidate = normalizedBase;
+  let suffix = 1;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('howto_guides')
+      .select('id')
+      .eq('slug', candidate)
+      .limit(1);
+
+    if (error) {
+      throw new Error(`Failed checking guide slug: ${error.message}`);
+    }
+
+    if (!data || data.length === 0) {
+      return candidate;
+    }
+
+    suffix += 1;
+    candidate = `${normalizedBase}-${suffix}`;
+  }
+}
+
+async function ensureUniqueHowToGroupSlug(baseSlug: string): Promise<string> {
+  const normalizedBase = normalizeHowToGroupSlug(baseSlug);
+  let candidate = normalizedBase;
+  let suffix = 1;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('howto_groups')
+      .select('id')
+      .eq('slug', candidate)
+      .limit(1);
+
+    if (error) {
+      throw new Error(`Failed checking group slug: ${error.message}`);
+    }
+
+    if (!data || data.length === 0) {
+      return candidate;
+    }
+
+    suffix += 1;
+    candidate = `${normalizedBase}-${suffix}`;
+  }
+}
+
 function mapAnnouncementFromDb(row: AnnouncementDbRow): Announcement {
   const legacyUrduTitle = (row as Record<string, unknown>)['Urdu title'];
   const resolvedUrduTitle = typeof legacyUrduTitle === 'string'
@@ -817,6 +889,290 @@ export async function fetchHowToGuideTree(guideId: string): Promise<HowToGuideTr
       })),
     })),
   };
+}
+
+export async function duplicateHowToGuideFromEnglish(
+  sourceGuideId: string,
+  options?: {
+    targetGroupId?: string;
+  },
+): Promise<HowToGuide> {
+  const sourceTree = await fetchHowToGuideTree(sourceGuideId);
+  if (!sourceTree) {
+    throw new Error('Source guide not found.');
+  }
+
+  if (sourceTree.guide.language !== 'en') {
+    throw new Error('Only English guides can be duplicated into Urdu.');
+  }
+
+  const targetGroupId = options?.targetGroupId ?? sourceTree.guide.group_id;
+  const { data: existingUrduCopy, error: existingUrduCopyError } = await supabase
+    .from('howto_guides')
+    .select('id, title, slug')
+    .eq('language', 'ur')
+    .eq('source_guide_id', sourceTree.guide.id)
+    .eq('group_id', targetGroupId)
+    .maybeSingle();
+
+  if (existingUrduCopyError) {
+    throw new Error(`Failed to check existing Urdu guide copy: ${existingUrduCopyError.message}`);
+  }
+
+  if (existingUrduCopy) {
+    throw new Error(`Urdu copy already exists in target group (${String(existingUrduCopy.slug)}).`);
+  }
+
+  const nextSlug = await ensureUniqueHowToGuideSlug(`${sourceTree.guide.slug}-ur`);
+  const guideNotes = Array.isArray(sourceTree.guide.notes) ? sourceTree.guide.notes : [];
+
+  const { data: duplicatedGuide, error: duplicateError } = await supabase
+    .from('howto_guides')
+    .insert({
+      group_id: targetGroupId,
+      slug: nextSlug,
+      source_guide_id: sourceTree.guide.id,
+      title: sourceTree.guide.title,
+      subtitle: sourceTree.guide.subtitle,
+      intro: sourceTree.guide.intro,
+      notes: guideNotes,
+      language: 'ur',
+      icon: sourceTree.guide.icon,
+      color: sourceTree.guide.color,
+      display_order: sourceTree.guide.display_order,
+      is_active: false,
+      publish_start_at: null,
+      publish_end_at: null,
+    })
+    .select('*')
+    .single();
+
+  if (duplicateError || !duplicatedGuide) {
+    throw new Error(`Failed to duplicate guide: ${duplicateError?.message ?? 'Unknown error'}`);
+  }
+
+  try {
+    await saveHowToGuideTree(duplicatedGuide.id as string, {
+      guideIntro: sourceTree.guide.intro ?? null,
+      guideNotes,
+      sections: sourceTree.sections.map((sectionEntry, sectionIndex) => ({
+        heading: sectionEntry.section.heading,
+        section_order: sectionIndex,
+        steps: sectionEntry.steps.map((stepEntry, stepIndex) => ({
+          step_order: stepIndex,
+          title: stepEntry.step.title,
+          detail: stepEntry.step.detail ?? null,
+          note: stepEntry.step.note ?? null,
+          rich_content_html: stepEntry.step.rich_content_html ?? null,
+          blocks: stepEntry.blocks.map((blockEntry, blockIndex) => ({
+            block_order: blockIndex,
+            kind: blockEntry.kind,
+            payload: (blockEntry.payload ?? {}) as Record<string, unknown>,
+          })),
+          images: stepEntry.images.map((imageEntry, imageIndex) => ({
+            display_order: imageIndex,
+            image_url: imageEntry.image_url,
+            thumb_url: imageEntry.thumb_url,
+            caption: imageEntry.caption,
+            source: imageEntry.source,
+          })),
+        })),
+      })),
+    });
+  } catch (error) {
+    await supabase.from('howto_guides').delete().eq('id', duplicatedGuide.id as string);
+    throw error;
+  }
+
+  return duplicatedGuide as HowToGuide;
+}
+
+export async function createLinkedUrduHowToGroupCopy(input: {
+  sourceGroupId: string;
+  targetUrduGroupName?: string;
+  targetUrduGroupUrduName?: string;
+}): Promise<HowToGroup> {
+  const { data: sourceGroup, error: sourceGroupError } = await supabase
+    .from('howto_groups')
+    .select('*')
+    .eq('id', input.sourceGroupId)
+    .maybeSingle();
+
+  if (sourceGroupError) {
+    throw new Error(`Failed to load source group: ${sourceGroupError.message}`);
+  }
+
+  if (!sourceGroup) {
+    throw new Error('Source group not found.');
+  }
+
+  const newGroupSlug = await ensureUniqueHowToGroupSlug(`${String(sourceGroup.slug)}-ur`);
+  const newGroupName = input.targetUrduGroupName?.trim() || `${String(sourceGroup.name)} Urdu`;
+  const newGroupUrduName = input.targetUrduGroupUrduName?.trim() || String(sourceGroup.urdu_name ?? sourceGroup.name ?? '');
+
+  const { data: createdGroup, error: createdGroupError } = await supabase
+    .from('howto_groups')
+    .insert({
+      slug: newGroupSlug,
+      name: newGroupName,
+      urdu_name: newGroupUrduName || null,
+      source_group_id: sourceGroup.id,
+      icon: sourceGroup.icon,
+      color: sourceGroup.color,
+      display_order: sourceGroup.display_order,
+      is_active: sourceGroup.is_active,
+    })
+    .select('*')
+    .single();
+
+  if (createdGroupError || !createdGroup) {
+    throw new Error(`Failed to create Urdu group copy: ${createdGroupError?.message ?? 'Unknown error'}`);
+  }
+
+  return createdGroup as HowToGroup;
+}
+
+export async function duplicateHowToGroupEntriesFromEnglish(input: {
+  sourceGroupId: string;
+  sourceGuideIds?: string[];
+  targetGroupId?: string;
+  createTargetUrduGroup?: boolean;
+  targetUrduGroupName?: string;
+  targetUrduGroupUrduName?: string;
+}): Promise<{ guides: HowToGuide[]; targetGroupId: string }> {
+  let targetGroupId = input.targetGroupId ?? input.sourceGroupId;
+
+  if (input.createTargetUrduGroup) {
+    const createdGroup = await createLinkedUrduHowToGroupCopy({
+      sourceGroupId: input.sourceGroupId,
+      targetUrduGroupName: input.targetUrduGroupName,
+      targetUrduGroupUrduName: input.targetUrduGroupUrduName,
+    });
+    targetGroupId = String(createdGroup.id);
+  }
+
+  let guideIds = (input.sourceGuideIds ?? []).filter((id) => id.trim().length > 0);
+
+  if (guideIds.length === 0) {
+    const { data, error } = await supabase
+      .from('howto_guides')
+      .select('id')
+      .eq('group_id', input.sourceGroupId)
+      .eq('language', 'en')
+      .order('display_order', { ascending: true })
+      .order('title', { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to load source guides: ${error.message}`);
+    }
+
+    guideIds = (data ?? []).map((row) => String(row.id));
+  }
+
+  const duplicated: HowToGuide[] = [];
+  for (const guideId of guideIds) {
+    try {
+      const nextGuide = await duplicateHowToGuideFromEnglish(guideId, { targetGroupId });
+      duplicated.push(nextGuide);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown duplication error';
+      if (message.startsWith('Urdu copy already exists in target group')) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return { guides: duplicated, targetGroupId };
+}
+
+export async function syncEnglishGuideToLinkedUrdu(sourceGuideId: string, payload: Partial<HowToGuidePayload>): Promise<number> {
+  const { data: linked, error: linkedError } = await supabase
+    .from('howto_guides')
+    .select('id')
+    .eq('language', 'ur')
+    .eq('source_guide_id', sourceGuideId);
+
+  if (linkedError) {
+    throw new Error(`Failed to load linked Urdu guides: ${linkedError.message}`);
+  }
+
+  const linkedIds = (linked ?? []).map((row) => String(row.id));
+  if (linkedIds.length === 0) return 0;
+
+  const mirrorPayload: Partial<HowToGuidePayload> = { ...payload };
+  delete mirrorPayload.slug;
+  delete mirrorPayload.language;
+  delete mirrorPayload.group_id;
+  delete mirrorPayload.source_guide_id;
+
+  if (Object.keys(mirrorPayload).length === 0) {
+    return linkedIds.length;
+  }
+
+  const { error: updateError } = await supabase
+    .from('howto_guides')
+    .update(mirrorPayload)
+    .in('id', linkedIds);
+
+  if (updateError) {
+    throw new Error(`Failed to mirror guide metadata to Urdu: ${updateError.message}`);
+  }
+
+  return linkedIds.length;
+}
+
+export async function syncEnglishGuideTreeToLinkedUrdu(sourceGuideId: string, input: HowToTreeSaveInput): Promise<number> {
+  const { data: linked, error: linkedError } = await supabase
+    .from('howto_guides')
+    .select('id')
+    .eq('language', 'ur')
+    .eq('source_guide_id', sourceGuideId);
+
+  if (linkedError) {
+    throw new Error(`Failed to load linked Urdu guides: ${linkedError.message}`);
+  }
+
+  const linkedIds = (linked ?? []).map((row) => String(row.id));
+  for (const urduGuideId of linkedIds) {
+    await saveHowToGuideTree(urduGuideId, input);
+  }
+
+  return linkedIds.length;
+}
+
+export async function syncEnglishGroupToLinkedUrdu(sourceGroupId: string, payload: Partial<HowToGroupPayload>): Promise<number> {
+  const { data: linked, error: linkedError } = await supabase
+    .from('howto_groups')
+    .select('id')
+    .eq('source_group_id', sourceGroupId);
+
+  if (linkedError) {
+    throw new Error(`Failed to load linked Urdu groups: ${linkedError.message}`);
+  }
+
+  const linkedIds = (linked ?? []).map((row) => String(row.id));
+  if (linkedIds.length === 0) return 0;
+
+  const mirrorPayload: Partial<HowToGroupPayload> = { ...payload };
+  delete mirrorPayload.slug;
+  delete mirrorPayload.urdu_name;
+  delete mirrorPayload.source_group_id;
+
+  if (Object.keys(mirrorPayload).length === 0) {
+    return linkedIds.length;
+  }
+
+  const { error: updateError } = await supabase
+    .from('howto_groups')
+    .update(mirrorPayload)
+    .in('id', linkedIds);
+
+  if (updateError) {
+    throw new Error(`Failed to mirror group updates to Urdu groups: ${updateError.message}`);
+  }
+
+  return linkedIds.length;
 }
 
 export type HowToTreeSaveInput = {
