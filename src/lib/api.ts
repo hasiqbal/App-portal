@@ -183,23 +183,37 @@ export async function fetchAdhkar(
   category?: string,
   options?: { contentTypes?: AdhkarContentType[] }
 ): Promise<Dhikr[]> {
-  let query = supabase
-    .from('adhkar')
-    .select('id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,sections,is_active,tafsir,description,file_url,content_type,content_source,content_key,created_at,updated_at')
-    .order('prayer_time', { ascending: true })
-    .order('group_order', { ascending: true })
-    .order('display_order', { ascending: true })
-    .order('created_at', { ascending: true });
+  const baseSelect = 'id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,sections,is_active,tafsir,description,file_url,content_type,created_at,updated_at';
+  const extendedSelect = `${baseSelect},content_source,content_key`;
 
-  if (category) {
-    query = query.eq('prayer_time', category);
+  const buildQuery = (selectClause: string) => {
+    let query = supabase
+      .from('adhkar')
+      .select(selectClause)
+      .order('prayer_time', { ascending: true })
+      .order('group_order', { ascending: true })
+      .order('display_order', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (category) {
+      query = query.eq('prayer_time', category);
+    }
+
+    if (options?.contentTypes && options.contentTypes.length > 0) {
+      query = query.in('content_type', options.contentTypes);
+    }
+
+    return query;
+  };
+
+  let { data, error } = await buildQuery(extendedSelect);
+
+  if (error && /content_source|content_key/i.test(error.message)) {
+    const fallback = await buildQuery(baseSelect);
+    data = fallback.data;
+    error = fallback.error;
   }
 
-  if (options?.contentTypes && options.contentTypes.length > 0) {
-    query = query.in('content_type', options.contentTypes);
-  }
-
-  const { data, error } = await query;
   if (error) throw new Error(`Failed to fetch adhkar: ${error.message}`);
   return (data ?? []).map((row) => ({
     ...row,
@@ -537,7 +551,25 @@ export async function updateHowToGroup(id: string, data: Partial<HowToGroupPaylo
   return rows as HowToGroup;
 }
 
-export async function deleteHowToGroup(id: string): Promise<void> {
+export async function deleteHowToGroup(
+  id: string,
+  options?: {
+    deleteGuides?: boolean;
+  },
+): Promise<void> {
+  const shouldDeleteGuides = options?.deleteGuides === true;
+
+  if (shouldDeleteGuides) {
+    const { error: guidesDeleteError } = await supabase
+      .from('howto_guides')
+      .delete()
+      .eq('group_id', id);
+
+    if (guidesDeleteError) {
+      throw new Error(`Failed to delete guides in this group: ${guidesDeleteError.message}`);
+    }
+  }
+
   const { error } = await supabase
     .from('howto_groups')
     .delete()
@@ -624,6 +656,7 @@ export async function createHowToDemoGuide(language: HowToLanguage = 'en'): Prom
       title: guideTitle,
       subtitle: 'Portal demo entry',
       intro: 'This is a one-click demo guide created from the portal.',
+      notes: ['Demo guide note. Edit or remove this in the tree editor.'],
       language,
       icon: 'menu-book',
       color: '#2e7d32',
@@ -787,6 +820,8 @@ export async function fetchHowToGuideTree(guideId: string): Promise<HowToGuideTr
 }
 
 export type HowToTreeSaveInput = {
+  guideIntro: string | null;
+  guideNotes: string[];
   sections: Array<{
     heading: string;
     section_order: number;
@@ -813,6 +848,13 @@ export type HowToTreeSaveInput = {
 };
 
 export async function saveHowToGuideTree(guideId: string, input: HowToTreeSaveInput): Promise<void> {
+  const { error: guideUpdateError } = await supabase
+    .from('howto_guides')
+    .update({ intro: input.guideIntro, notes: input.guideNotes })
+    .eq('id', guideId);
+
+  if (guideUpdateError) throw new Error(`Failed to save guide notes: ${guideUpdateError.message}`);
+
   const existing = await fetchHowToGuideTree(guideId);
   if (existing) {
     const sectionIds = existing.sections.map((item) => item.section.id);

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import * as HardcodedGuidesModule from '../../JMN-app/howtoguides/index.ts';
-import type { GuideBlock, HowToGuide, HowToStep } from '../../JMN-app/howtoguides/types.ts';
+import type { GuideBlock, HowToGuide } from '../../JMN-app/howtoguides/types.ts';
 
 const HOW_TO_GUIDES = (
   (HardcodedGuidesModule as { HOW_TO_GUIDES?: HowToGuide[] }).HOW_TO_GUIDES
@@ -48,34 +48,6 @@ function toDbBlock(block: GuideBlock): { kind: 'text' | 'action' | 'note' | 'rec
   return {
     kind,
     payload: rest,
-  };
-}
-
-function withGuideNotesAsSection(guide: HowToGuide): HowToGuide {
-  if (!guide.notes || guide.notes.length === 0) return guide;
-
-  const noteSteps: HowToStep[] = guide.notes.map((note, index) => ({
-    step: index + 1,
-    title: `Note ${index + 1}`,
-    detail: note,
-    blocks: [
-      {
-        kind: 'note',
-        variant: 'note',
-        text: note,
-      },
-    ],
-  }));
-
-  return {
-    ...guide,
-    sections: [
-      ...guide.sections,
-      {
-        heading: 'General Notes',
-        steps: noteSteps,
-      },
-    ],
   };
 }
 
@@ -134,7 +106,7 @@ async function main() {
   const guideCounterByGroup = new Map<string, number>();
 
   for (const rawGuide of HOW_TO_GUIDES) {
-    const guide = withGuideNotesAsSection(rawGuide);
+    const guide = rawGuide;
     const groupName = guide.parentGroup || 'General';
     const groupId = groupIdByName.get(groupName);
 
@@ -162,6 +134,7 @@ async function main() {
           title: guide.title,
           subtitle: guide.subtitle || null,
           intro: guide.intro || null,
+          notes: guide.notes ?? [],
           language,
           icon: guide.icon || 'menu-book',
           color: guide.color || '#2e7d32',

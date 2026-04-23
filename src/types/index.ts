@@ -146,6 +146,7 @@ export interface HowToGuide {
   title: string;
   subtitle: string | null;
   intro: string | null;
+  notes: string[];
   language: HowToLanguage;
   icon: string | null;
   color: string | null;
@@ -158,6 +159,8 @@ export interface HowToGuide {
 }
 
 export type HowToGuidePayload = Omit<HowToGuide, 'id' | 'created_at' | 'updated_at'>;
+
+export type HowToGuideNote = string;
 
 export interface HowToSection {
   id: string;

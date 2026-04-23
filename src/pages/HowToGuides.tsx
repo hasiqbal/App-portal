@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, FolderTree, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { BookOpen, Camera, Eye, EyeOff, FolderTree, GripVertical, Languages, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react';
+import { HowToGuidePreview } from '#/components/features/howto/HowToGuidePreview';
+import { BlockEditor, blockKindDefaults, blockKindMeta, type BlockDraft, type BlockKind } from '#/components/features/howto/BlockEditor';
 import Sidebar from '#/components/layout/Sidebar';
 import { Button } from '#/components/ui/button';
 import { Input } from '#/components/ui/input';
@@ -26,6 +28,7 @@ import {
 } from '#/lib/api';
 import { usePermissions } from '#/hooks/usePermissions';
 import type { HowToGroup, HowToGuide, HowToLanguage } from '#/types';
+import type { PreviewGuideBlock } from '#/components/features/howto/guidePreviewUtils';
 import { toast } from 'sonner';
 
 type GroupForm = {
@@ -50,12 +53,6 @@ type GuideForm = {
   is_active: boolean;
   publish_start_at: string;
   publish_end_at: string;
-};
-
-type BlockDraft = {
-  block_order: number;
-  kind: 'text' | 'action' | 'note' | 'recitation';
-  payloadJson: string;
 };
 
 type ImageDraft = {
@@ -130,11 +127,25 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   return next;
 }
 
+function parseGuideNotesText(value: string): string[] {
+  return value
+    .split(/\n\s*\n+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function parsePreviewBlocks(blocks: BlockDraft[]): PreviewGuideBlock[] {
+  return blocks.map((block) => ({ kind: block.kind, ...block.payload } as PreviewGuideBlock));
+}
+
 export default function HowToGuidesPage() {
   const queryClient = useQueryClient();
   const { canEdit, canDelete, role } = usePermissions();
 
   const [search, setSearch] = useState('');
+  const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('all');
+  const [selectedLanguageFilter, setSelectedLanguageFilter] = useState<'all' | HowToLanguage>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'live' | 'draft'>('all');
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<HowToGroup | null>(null);
@@ -142,6 +153,8 @@ export default function HowToGuidesPage() {
   const [treeGuide, setTreeGuide] = useState<HowToGuide | null>(null);
   const [treeDialogOpen, setTreeDialogOpen] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
+  const [treeGuideIntro, setTreeGuideIntro] = useState('');
+  const [treeGuideNotesText, setTreeGuideNotesText] = useState('');
   const [treeSections, setTreeSections] = useState<SectionDraft[]>([]);
   const [uploadingByStepKey, setUploadingByStepKey] = useState<Record<string, boolean>>({});
   const [draggingSectionIndex, setDraggingSectionIndex] = useState<number | null>(null);
@@ -170,19 +183,87 @@ export default function HowToGuidesPage() {
     return map;
   }, [groups]);
 
+  const guideCountByGroup = useMemo(() => {
+    const counts = new Map<string, number>();
+    guides.forEach((guide) => {
+      counts.set(guide.group_id, (counts.get(guide.group_id) ?? 0) + 1);
+    });
+    return counts;
+  }, [guides]);
+
+  const [showMobilePreview, setShowMobilePreview] = useState(false);
+
+  const availableGuideLanguages = useMemo<HowToLanguage[]>(() => (
+    Array.from(new Set(guides.map((guide) => guide.language))).sort() as HowToLanguage[]
+  ), [guides]);
+
   const filteredGuides = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) return guides;
+
     return guides.filter((guide) => {
       const groupName = groupMap.get(guide.group_id)?.name ?? '';
-      return (
+      const matchesSearch = !needle || (
         guide.title.toLowerCase().includes(needle) ||
         (guide.subtitle ?? '').toLowerCase().includes(needle) ||
         guide.slug.toLowerCase().includes(needle) ||
         groupName.toLowerCase().includes(needle)
       );
+
+      const matchesGroup = selectedGroupFilter === 'all' || guide.group_id === selectedGroupFilter;
+      const matchesLanguage = selectedLanguageFilter === 'all' || guide.language === selectedLanguageFilter;
+      const matchesStatus = selectedStatusFilter === 'all'
+        || (selectedStatusFilter === 'live' ? guide.is_active : !guide.is_active);
+
+      return matchesSearch && matchesGroup && matchesLanguage && matchesStatus;
     });
-  }, [guides, groupMap, search]);
+  }, [guides, groupMap, search, selectedGroupFilter, selectedLanguageFilter, selectedStatusFilter]);
+
+  const groupedFilteredGuides = useMemo<Array<{ group: HowToGroup | null; guides: HowToGuide[] }>>(() => {
+    const sortGuides = (left: HowToGuide, right: HowToGuide) => {
+      const orderDiff = (left.display_order ?? 0) - (right.display_order ?? 0);
+      if (orderDiff !== 0) return orderDiff;
+      return left.title.localeCompare(right.title);
+    };
+
+    const guidesByGroupId = new Map<string, HowToGuide[]>();
+    filteredGuides.forEach((guide) => {
+      const list = guidesByGroupId.get(guide.group_id) ?? [];
+      list.push(guide);
+      guidesByGroupId.set(guide.group_id, list);
+    });
+
+    const grouped = groups
+      .map((group) => ({
+        group,
+        guides: (guidesByGroupId.get(group.id) ?? []).sort(sortGuides),
+      }))
+      .filter((entry) => entry.guides.length > 0);
+
+    const orphanGuides = Array.from(guidesByGroupId.entries())
+      .filter(([groupId]) => !groupMap.has(groupId))
+      .flatMap(([, guideList]) => guideList)
+      .sort(sortGuides);
+
+    if (orphanGuides.length > 0) {
+      grouped.push({ group: null, guides: orphanGuides });
+    }
+
+    return grouped;
+  }, [filteredGuides, groups, groupMap]);
+
+  const hasActiveGuideFilters = (
+    search.trim().length > 0
+    || selectedGroupFilter !== 'all'
+    || selectedLanguageFilter !== 'all'
+    || selectedStatusFilter !== 'all'
+  );
+
+  const clearGuideFilters = () => {
+    setSearch('');
+    setSelectedGroupFilter('all');
+    setSelectedLanguageFilter('all');
+    setSelectedStatusFilter('all');
+  };
 
   const openCreateGroup = () => {
     setEditingGroup(null);
@@ -240,6 +321,8 @@ export default function HowToGuidesPage() {
 
     try {
       const tree = await fetchHowToGuideTree(guide.id);
+      setTreeGuideIntro(tree?.guide.intro ?? '');
+      setTreeGuideNotesText((tree?.guide.notes ?? []).join('\n\n'));
       const nextSections: SectionDraft[] = (tree?.sections ?? []).map((item, sectionIndex) => ({
         section_order: item.section.section_order ?? sectionIndex,
         heading: item.section.heading,
@@ -254,7 +337,7 @@ export default function HowToGuidesPage() {
           blocks: stepItem.blocks.map((block, blockIndex) => ({
             block_order: block.block_order ?? blockIndex,
             kind: block.kind,
-            payloadJson: JSON.stringify(block.payload ?? {}, null, 2),
+            payload: (block.payload ?? {}) as Record<string, unknown>,
           })),
           images: stepItem.images.map((image, imageIndex) => ({
             display_order: image.display_order ?? imageIndex,
@@ -269,6 +352,8 @@ export default function HowToGuidesPage() {
       setTreeSections(nextSections);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load guide tree.');
+      setTreeGuideIntro('');
+      setTreeGuideNotesText('');
       setTreeSections([]);
     } finally {
       setTreeLoading(false);
@@ -418,14 +503,7 @@ export default function HowToGuidesPage() {
     }));
   };
 
-  const addTemplateBlock = (sectionIndex: number, stepIndex: number, kind: BlockDraft['kind']) => {
-    const payloadByKind: Record<BlockDraft['kind'], string> = {
-      text: '{\n  "text": ""\n}',
-      action: '{\n  "label": "Action",\n  "text": ""\n}',
-      note: '{\n  "variant": "note",\n  "text": ""\n}',
-      recitation: '{\n  "label": "Recite:",\n  "arabic": [""],\n  "transliteration": [""],\n  "meaning": [""]\n}',
-    };
-
+  const addTemplateBlock = (sectionIndex: number, stepIndex: number, kind: BlockKind) => {
     updateStepDraft(sectionIndex, stepIndex, (step) => ({
       ...step,
       blocks: [
@@ -433,7 +511,7 @@ export default function HowToGuidesPage() {
         {
           block_order: step.blocks.length,
           kind,
-          payloadJson: payloadByKind[kind],
+          payload: blockKindDefaults(kind),
         },
       ],
     }));
@@ -503,6 +581,8 @@ export default function HowToGuidesPage() {
 
     try {
       await saveHowToGuideTree(treeGuide.id, {
+        guideIntro: treeGuideIntro.trim() || null,
+        guideNotes: parseGuideNotesText(treeGuideNotesText),
         sections: treeSections.map((section, sectionIndex) => ({
           heading: section.heading,
           section_order: sectionIndex,
@@ -515,13 +595,7 @@ export default function HowToGuidesPage() {
             blocks: step.blocks.map((block, blockIndex) => ({
               block_order: blockIndex,
               kind: block.kind,
-              payload: (() => {
-                try {
-                  return JSON.parse(block.payloadJson || '{}') as Record<string, unknown>;
-                } catch {
-                  throw new Error(`Invalid JSON payload in section ${sectionIndex + 1}, step ${stepIndex + 1}.`);
-                }
-              })(),
+              payload: block.payload ?? {},
             })),
             images: step.images.map((image, imageIndex) => ({
               display_order: imageIndex,
@@ -647,14 +721,23 @@ export default function HowToGuidesPage() {
 
   const removeGroup = async (group: HowToGroup) => {
     if (!canDelete) return;
-    const confirmed = window.confirm(`Delete group "${group.name}"? This fails if guides still exist in it.`);
+    const guideCount = guideCountByGroup.get(group.id) ?? 0;
+    const confirmed = window.confirm(
+      guideCount > 0
+        ? `Delete group "${group.name}" and its ${guideCount} ${guideCount === 1 ? 'guide' : 'guides'}? This cannot be undone.`
+        : `Delete group "${group.name}"? This cannot be undone.`,
+    );
     if (!confirmed) return;
 
     try {
-      await deleteHowToGroup(group.id);
+      await deleteHowToGroup(group.id, { deleteGuides: true });
       await queryClient.invalidateQueries({ queryKey: GROUPS_KEY });
       await queryClient.invalidateQueries({ queryKey: GUIDES_KEY });
-      toast.success('Group deleted.');
+      toast.success(
+        guideCount > 0
+          ? `Group deleted with ${guideCount} ${guideCount === 1 ? 'guide' : 'guides'}.`
+          : 'Group deleted.',
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to delete group.');
     }
@@ -691,123 +774,317 @@ export default function HowToGuidesPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-gradient-to-br from-[hsl(140_30%_97%)] via-[hsl(160_30%_97%)] to-[hsl(180_25%_97%)]">
       <Sidebar />
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
-        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
-                <FolderTree size={20} className="text-[hsl(142_60%_32%)]" />
+        <div className="relative overflow-hidden border-b border-[hsl(140_20%_88%)] bg-gradient-to-br from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] px-4 sm:px-8 pt-6 pb-6 text-white">
+          <div className="absolute inset-0 opacity-[0.12] pointer-events-none"
+            style={{ backgroundImage: 'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.6) 0, transparent 40%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.4) 0, transparent 40%)' }}
+          />
+          <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-white/15 ring-1 ring-white/30 backdrop-blur flex items-center justify-center shrink-0">
+                <FolderTree size={22} className="text-white" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">How-To Guides</h1>
-                <p className="text-xs text-muted-foreground mt-0.5">Manage parent-child guides for the app</p>
-                <p className="text-[11px] mt-1 text-muted-foreground">Role: {role ?? 'guest'}</p>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-bold leading-tight truncate">How-To Guides</h1>
+                <p className="text-[11px] sm:text-xs text-white/80 mt-0.5">Author parent groups and step-by-step guides that render in the app</p>
+                <p className="text-[10px] mt-1 text-white/70">Signed in as <span className="font-medium text-white">{role ?? 'guest'}</span></p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <Button variant="outline" size="sm" onClick={() => { void refetchGroups(); void refetchGuides(); }} disabled={groupsLoading || guidesLoading} className="gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { void refetchGroups(); void refetchGuides(); }}
+                disabled={groupsLoading || guidesLoading}
+                className="gap-2 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white"
+              >
                 <RefreshCw size={14} className={groupsLoading || guidesLoading ? 'animate-spin' : ''} /> Refresh
               </Button>
-              <Button size="sm" onClick={openCreateGroup} disabled={!canEdit} className="gap-2" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+              <Button size="sm" onClick={openCreateGroup} disabled={!canEdit} className="gap-2 bg-white text-[hsl(142_60%_28%)] hover:bg-white/90">
                 <Plus size={14} /> Add Group
               </Button>
-              <Button size="sm" variant="outline" onClick={openCreateGuide} disabled={!canEdit || groups.length === 0} className="gap-2 border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]">
+              <Button size="sm" variant="outline" onClick={openCreateGuide} disabled={!canEdit || groups.length === 0} className="gap-2 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white">
                 <BookOpen size={14} /> Add Guide
               </Button>
             </div>
           </div>
         </div>
 
-        <div className="px-4 sm:px-8 py-5 space-y-5">
-          <div className="rounded-xl border border-[hsl(140_20%_86%)] bg-white p-4">
-            <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Quick Start</p>
-            <p className="text-xs text-muted-foreground mt-1">1) Create Group  2) Create Guide  3) Open Tree and add sections/steps/content.</p>
-            <div className="mt-3">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="gap-2"
-                onClick={() => void createDemoGuide()}
-                disabled={!canEdit || creatingDemo}
-              >
-                <Plus size={14} /> {creatingDemo ? 'Creating demo...' : 'Create Demo Guide'}
-              </Button>
+        <div className="px-3 sm:px-8 py-4 sm:py-6 space-y-4 sm:space-y-5">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">
+                <FolderTree size={14} /> Groups
+              </div>
+              <p className="mt-1 text-2xl font-bold text-[hsl(150_30%_15%)]">{groups.length}</p>
+            </div>
+            <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">
+                <BookOpen size={14} /> Guides
+              </div>
+              <p className="mt-1 text-2xl font-bold text-[hsl(150_30%_15%)]">{guides.length}</p>
+            </div>
+            <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">
+                <Sparkles size={14} /> Published
+              </div>
+              <p className="mt-1 text-2xl font-bold text-[hsl(150_30%_15%)]">{guides.filter((g) => g.is_active).length}</p>
             </div>
           </div>
 
-          <div className="rounded-xl border border-[hsl(140_20%_86%)] bg-white p-4">
-            <Label htmlFor="howto-search" className="text-[11px] text-muted-foreground">Search guides</Label>
-            <Input id="howto-search" className="mt-1 h-9 text-sm max-w-md" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search title, slug, or group..." />
+          <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-gradient-to-br from-[hsl(140_40%_97%)] to-white px-4 py-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[hsl(142_50%_92%)] ring-1 ring-[hsl(142_50%_80%)] flex items-center justify-center shrink-0">
+                <Sparkles size={16} className="text-[hsl(142_60%_32%)]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Quick start</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  <span className="font-medium text-[hsl(150_30%_25%)]">1.</span> Create a group &nbsp;·&nbsp;
+                  <span className="font-medium text-[hsl(150_30%_25%)]">2.</span> Add a guide &nbsp;·&nbsp;
+                  <span className="font-medium text-[hsl(150_30%_25%)]">3.</span> Open the tree editor and add sections, steps, and content blocks.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => void createDemoGuide()}
+                    disabled={!canEdit || creatingDemo}
+                  >
+                    <Plus size={14} /> {creatingDemo ? 'Creating demo…' : 'Create Demo Guide'}
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-2">
-            <section className="rounded-2xl border border-[hsl(140_20%_86%)] bg-white overflow-hidden">
-              <header className="px-4 py-3 border-b border-[hsl(140_20%_92%)] bg-[hsl(140_20%_99%)]">
-                <h2 className="text-sm font-semibold text-[hsl(150_30%_15%)]">Parent Groups ({groups.length})</h2>
+          <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 shadow-sm space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="howto-search" className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">Guide Filters</Label>
+              <Button type="button" size="sm" variant="ghost" className="h-8" onClick={clearGuideFilters} disabled={!hasActiveGuideFilters}>
+                Clear
+              </Button>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_170px_170px]">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="howto-search"
+                  className="h-10 pl-9 text-sm"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search by title, slug, or group…"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="howto-group-filter" className="text-[11px] text-muted-foreground">Group</Label>
+                <select
+                  id="howto-group-filter"
+                  value={selectedGroupFilter}
+                  onChange={(event) => setSelectedGroupFilter(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="all">All groups</option>
+                  {groups.map((group) => (
+                    <option key={group.id} value={group.id}>{group.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label htmlFor="howto-language-filter" className="text-[11px] text-muted-foreground">Language</Label>
+                <select
+                  id="howto-language-filter"
+                  value={selectedLanguageFilter}
+                  onChange={(event) => setSelectedLanguageFilter(event.target.value as 'all' | HowToLanguage)}
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="all">All</option>
+                  {availableGuideLanguages.map((language) => (
+                    <option key={language} value={language}>{language.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label htmlFor="howto-status-filter" className="text-[11px] text-muted-foreground">Status</Label>
+                <select
+                  id="howto-status-filter"
+                  value={selectedStatusFilter}
+                  onChange={(event) => setSelectedStatusFilter(event.target.value as 'all' | 'live' | 'draft')}
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="all">All</option>
+                  <option value="live">Live</option>
+                  <option value="draft">Draft</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+            <section className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white overflow-hidden shadow-sm">
+              <header className="px-4 py-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(140_30%_97%)] to-white flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FolderTree size={16} className="text-[hsl(142_60%_32%)]" />
+                  <h2 className="text-sm font-semibold text-[hsl(150_30%_15%)]">Parent Groups</h2>
+                  <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-[hsl(142_50%_92%)] text-[hsl(142_60%_28%)] font-semibold">{groups.length}</span>
+                </div>
+                <Button size="sm" variant="ghost" className="h-8 gap-1 text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]" onClick={openCreateGroup} disabled={!canEdit}>
+                  <Plus size={14} /> New
+                </Button>
               </header>
-              <div className="divide-y">
-                {groups.map((group) => (
-                  <div key={group.id} className="px-4 py-3 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">{group.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">slug: {group.slug} · order: {group.display_order}</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button className="p-1.5 rounded hover:bg-secondary/60" onClick={() => openEditGroup(group)} disabled={!canEdit} title="Edit group">
-                        <Pencil size={14} />
-                      </button>
-                      {canDelete ? (
-                        <button className="p-1.5 rounded hover:bg-destructive/10" onClick={() => void removeGroup(group)} title="Delete group">
-                          <Trash2 size={14} />
+              <div className="divide-y divide-[hsl(140_20%_94%)]">
+                {groups.map((group) => {
+                  const color = group.color || '#2e7d32';
+                  const count = guideCountByGroup.get(group.id) ?? 0;
+                  return (
+                    <div key={group.id} className="px-3 sm:px-4 py-3 flex items-center justify-between gap-3 hover:bg-[hsl(140_30%_99%)] transition-colors">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div
+                          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-sm ring-1 ring-black/5"
+                          style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
+                          aria-hidden
+                        >
+                          {group.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[hsl(150_30%_15%)] truncate">{group.name}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono">{group.slug}</span>
+                            <span className="text-[hsl(140_20%_80%)]">•</span>
+                            <span>{count} {count === 1 ? 'guide' : 'guides'}</span>
+                            {!group.is_active ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold">Hidden</span>
+                            ) : null}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button className="p-2 rounded-lg hover:bg-[hsl(142_50%_92%)] text-[hsl(142_40%_30%)] disabled:opacity-40" onClick={() => openEditGroup(group)} disabled={!canEdit} title="Edit group" aria-label="Edit group">
+                          <Pencil size={15} />
                         </button>
-                      ) : null}
+                        {canDelete ? (
+                          <button className="p-2 rounded-lg hover:bg-rose-50 text-rose-600" onClick={() => void removeGroup(group)} title="Delete group" aria-label="Delete group">
+                            <Trash2 size={15} />
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
+                  );
+                })}
+                {groups.length === 0 ? (
+                  <div className="px-4 py-8 text-center">
+                    <FolderTree size={28} className="mx-auto text-[hsl(140_20%_70%)]" />
+                    <p className="mt-2 text-sm font-medium text-[hsl(150_30%_25%)]">No groups yet</p>
+                    <p className="text-xs text-muted-foreground">Create a group to organise your guides.</p>
                   </div>
-                ))}
-                {groups.length === 0 ? <p className="px-4 py-5 text-xs text-muted-foreground">No groups yet.</p> : null}
+                ) : null}
               </div>
             </section>
 
-            <section className="rounded-2xl border border-[hsl(140_20%_86%)] bg-white overflow-hidden">
-              <header className="px-4 py-3 border-b border-[hsl(140_20%_92%)] bg-[hsl(140_20%_99%)]">
-                <h2 className="text-sm font-semibold text-[hsl(150_30%_15%)]">Guides ({filteredGuides.length})</h2>
+            <section className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white overflow-hidden shadow-sm">
+              <header className="px-4 py-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(140_30%_97%)] to-white flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <BookOpen size={16} className="text-[hsl(142_60%_32%)]" />
+                  <h2 className="text-sm font-semibold text-[hsl(150_30%_15%)]">Guides</h2>
+                  <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-[hsl(142_50%_92%)] text-[hsl(142_60%_28%)] font-semibold">{filteredGuides.length}</span>
+                </div>
+                <Button size="sm" variant="ghost" className="h-8 gap-1 text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]" onClick={openCreateGuide} disabled={!canEdit || groups.length === 0}>
+                  <Plus size={14} /> New
+                </Button>
               </header>
-              <div className="divide-y">
-                {filteredGuides.map((guide) => (
-                  <div key={guide.id} className="px-4 py-3 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">{guide.title}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {groupMap.get(guide.group_id)?.name ?? 'Unknown group'} · {guide.language.toUpperCase()} · order: {guide.display_order}
-                      </p>
-                      <p className="text-xs text-muted-foreground">slug: {guide.slug}</p>
+              <div className="divide-y divide-[hsl(140_20%_94%)]">
+                {groupedFilteredGuides.map((groupedEntry, groupedIndex) => {
+                  const parentGroup = groupedEntry.group;
+                  const parentColor = parentGroup?.color || '#2e7d32';
+                  const parentName = parentGroup?.name ?? 'Unassigned Group';
+
+                  return (
+                    <div key={parentGroup?.id ?? `unknown-group-${groupedIndex}`}>
+                      <div className="px-3 sm:px-4 py-2.5 border-b border-[hsl(140_20%_92%)] bg-[hsl(140_30%_98%)] flex items-center gap-2">
+                        <div
+                          className="w-6 h-6 rounded-md flex items-center justify-center text-white font-bold text-[10px] ring-1 ring-black/5"
+                          style={{ background: `linear-gradient(135deg, ${parentColor}, ${parentColor}cc)` }}
+                          aria-hidden
+                        >
+                          {parentName.charAt(0).toUpperCase()}
+                        </div>
+                        <p className="text-xs font-semibold text-[hsl(150_30%_18%)] truncate">{parentName}</p>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[hsl(142_50%_92%)] text-[hsl(142_60%_28%)] font-semibold">
+                          {groupedEntry.guides.length} {groupedEntry.guides.length === 1 ? 'guide' : 'guides'}
+                        </span>
+                      </div>
+
+                      <div className="divide-y divide-[hsl(140_20%_94%)]">
+                        {groupedEntry.guides.map((guide) => {
+                          const color = guide.color || parentGroup?.color || '#2e7d32';
+                          return (
+                            <div key={guide.id} className="px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 hover:bg-[hsl(140_30%_99%)] transition-colors">
+                              <div className="flex items-start gap-3 min-w-0 flex-1">
+                                <div
+                                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-sm ring-1 ring-black/5"
+                                  style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
+                                  aria-hidden
+                                >
+                                  {guide.title.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-sm font-semibold text-[hsl(150_30%_15%)] truncate">{guide.title}</p>
+                                    {guide.is_active ? (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Live</span>
+                                    ) : (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">Draft</span>
+                                    )}
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-[hsl(210_30%_94%)] text-[hsl(210_40%_30%)] font-semibold uppercase">
+                                      <Languages size={10} /> {guide.language}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                                    <span className="font-mono">{guide.slug}</span>
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-0.5 shrink-0 flex-wrap justify-end">
+                                <button className="p-2 rounded-lg hover:bg-[hsl(142_50%_92%)] text-[hsl(142_40%_30%)] disabled:opacity-40" onClick={() => void openTreeEditor(guide)} disabled={!canEdit} title="Edit guide tree" aria-label="Edit guide tree">
+                                  <FolderTree size={15} />
+                                </button>
+                                <button className="p-2 rounded-lg hover:bg-[hsl(142_50%_92%)] text-[hsl(142_40%_30%)] disabled:opacity-40" onClick={() => void publishGuide(guide)} disabled={!canEdit} title={guide.is_active ? 'Unpublish' : 'Publish'} aria-label={guide.is_active ? 'Unpublish' : 'Publish'}>
+                                  <Upload size={15} />
+                                </button>
+                                <button className="p-2 rounded-lg hover:bg-[hsl(142_50%_92%)] text-[hsl(142_40%_30%)] disabled:opacity-40" onClick={() => void snapshotGuide(guide)} disabled={!canEdit} title="Create snapshot" aria-label="Create snapshot">
+                                  <Camera size={15} />
+                                </button>
+                                <button className="p-2 rounded-lg hover:bg-[hsl(142_50%_92%)] text-[hsl(142_40%_30%)] disabled:opacity-40" onClick={() => openEditGuide(guide)} disabled={!canEdit} title="Edit guide" aria-label="Edit guide">
+                                  <Pencil size={15} />
+                                </button>
+                                {canDelete ? (
+                                  <button className="p-2 rounded-lg hover:bg-rose-50 text-rose-600" onClick={() => void removeGuide(guide)} title="Delete guide" aria-label="Delete guide">
+                                    <Trash2 size={15} />
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button className="p-1.5 rounded hover:bg-secondary/60" onClick={() => void openTreeEditor(guide)} disabled={!canEdit} title="Edit guide tree">
-                        <FolderTree size={14} />
-                      </button>
-                      <button className="p-1.5 rounded hover:bg-secondary/60" onClick={() => void publishGuide(guide)} disabled={!canEdit} title={guide.is_active ? 'Unpublish' : 'Publish'}>
-                        <BookOpen size={14} />
-                      </button>
-                      <button className="p-1.5 rounded hover:bg-secondary/60" onClick={() => void snapshotGuide(guide)} disabled={!canEdit} title="Create snapshot">
-                        <RefreshCw size={14} />
-                      </button>
-                      <button className="p-1.5 rounded hover:bg-secondary/60" onClick={() => openEditGuide(guide)} disabled={!canEdit} title="Edit guide">
-                        <Pencil size={14} />
-                      </button>
-                      {canDelete ? (
-                        <button className="p-1.5 rounded hover:bg-destructive/10" onClick={() => void removeGuide(guide)} title="Delete guide">
-                          <Trash2 size={14} />
-                        </button>
-                      ) : null}
-                    </div>
+                  );
+                })}
+                {filteredGuides.length === 0 ? (
+                  <div className="px-4 py-8 text-center">
+                    <BookOpen size={28} className="mx-auto text-[hsl(140_20%_70%)]" />
+                    <p className="mt-2 text-sm font-medium text-[hsl(150_30%_25%)]">No guides match</p>
+                    <p className="text-xs text-muted-foreground">Adjust filters, clear search, or add a new guide.</p>
                   </div>
-                ))}
-                {filteredGuides.length === 0 ? <p className="px-4 py-5 text-xs text-muted-foreground">No guides match your filters.</p> : null}
+                ) : null}
               </div>
             </section>
           </div>
@@ -822,7 +1099,7 @@ export default function HowToGuidesPage() {
           <div className="grid gap-3 py-1">
             <div>
               <Label>Name</Label>
-              <Input value={groupForm.name} onChange={(event) => setGroupForm((prev) => ({ ...prev, name: event.target.value, slug: prev.slug || normalizeSlug(event.target.value) }))} />
+              <Input value={groupForm.name} onChange={(event) => setGroupForm((prev) => ({ ...prev, name: event.target.value, slug: prev.slug || normalizeSlug(event.target.value) }))} placeholder="e.g. Prayer essentials" />
             </div>
             <div>
               <Label>Slug</Label>
@@ -916,7 +1193,7 @@ export default function HowToGuidesPage() {
 
             {showGuideAdvanced ? (
               <>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <Label>Slug</Label>
                     <Input value={guideForm.slug} onChange={(event) => setGuideForm((prev) => ({ ...prev, slug: normalizeSlug(event.target.value) }))} />
@@ -930,7 +1207,7 @@ export default function HowToGuidesPage() {
                     <Input value={guideForm.color} onChange={(event) => setGuideForm((prev) => ({ ...prev, color: event.target.value }))} />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <Label>Display Order</Label>
                     <Input type="number" value={guideForm.display_order} onChange={(event) => setGuideForm((prev) => ({ ...prev, display_order: event.target.value }))} />
@@ -959,70 +1236,141 @@ export default function HowToGuidesPage() {
       </Dialog>
 
       <Dialog open={treeDialogOpen} onOpenChange={setTreeDialogOpen}>
-        <DialogContent className="w-[96vw] max-w-[96vw] max-h-[88vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Guide Tree Editor: {treeGuide?.title ?? ''}</DialogTitle>
+        <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-auto sm:max-h-[92vh] overflow-hidden p-0 rounded-none sm:rounded-lg">
+          <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] text-white">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-white/15 ring-1 ring-white/30 flex items-center justify-center shrink-0">
+                <FolderTree size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="text-sm sm:text-base text-white truncate">{treeGuide?.title ?? 'Guide'}</DialogTitle>
+                <p className="text-[11px] text-white/85 mt-1 leading-snug hidden sm:block">
+                  <b>Sections</b> → <b>Steps</b> → typed <b>Blocks</b> (Text · Action · Note · Recitation) plus images. Live preview on the right mirrors the app.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="lg:hidden gap-1 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white h-8"
+                onClick={() => setShowMobilePreview((value) => !value)}
+              >
+                {showMobilePreview ? <EyeOff size={14} /> : <Eye size={14} />} {showMobilePreview ? 'Editor' : 'Preview'}
+              </Button>
+            </div>
           </DialogHeader>
 
           {treeLoading ? (
-            <p className="text-sm text-muted-foreground">Loading guide tree...</p>
+            <p className="p-6 text-sm text-muted-foreground">Loading guide tree…</p>
           ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">Sections {'->'} Steps {'->'} Blocks/Images</p>
-                <Button size="sm" variant="outline" onClick={addSection} disabled={!canEdit}>Add Section</Button>
+            <div className="grid lg:grid-cols-[minmax(0,1fr)_440px] h-[calc(100dvh-128px)] sm:h-auto sm:max-h-[calc(92vh-140px)] overflow-hidden">
+              <div className={`${showMobilePreview ? 'hidden' : 'block'} lg:block overflow-y-auto px-4 sm:px-6 py-4 space-y-4 border-r border-[hsl(140_20%_92%)]`}>
+              <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-gradient-to-br from-[hsl(140_40%_97%)] to-white p-4 space-y-3 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-[hsl(142_50%_92%)] flex items-center justify-center">
+                    <Sparkles size={14} className="text-[hsl(142_60%_32%)]" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Guide-level content</p>
+                    <p className="text-[11px] text-muted-foreground">Renders at the top of the guide, before the first section.</p>
+                  </div>
+                </div>
+                <div>
+                  <Label>Guide Introduction</Label>
+                  <Textarea
+                    rows={6}
+                    className="mt-1 min-h-[140px]"
+                    value={treeGuideIntro}
+                    onChange={(event) => setTreeGuideIntro(event.target.value)}
+                    placeholder={'Write the full introduction exactly as it should appear in the app.\n\nUse paragraphs, references, and bullet-style lines where needed.'}
+                  />
+                </div>
+                <div>
+                  <Label>Guide Notes</Label>
+                  <Textarea
+                    rows={5}
+                    className="mt-1 min-h-[120px]"
+                    value={treeGuideNotesText}
+                    onChange={(event) => setTreeGuideNotesText(event.target.value)}
+                    placeholder={'One guide note per paragraph.\n\nExample note one.\n\nExample note two.'}
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">Separate each guide-level note with a blank line.</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Sections</p>
+                  <p className="text-[11px] text-muted-foreground">Sections → Steps → Blocks / Images</p>
+                </div>
+                <Button size="sm" onClick={addSection} disabled={!canEdit} className="gap-1 bg-[hsl(142_60%_32%)] text-white hover:bg-[hsl(142_60%_28%)]">
+                  <Plus size={14} /> Add Section
+                </Button>
               </div>
 
               {treeSections.map((section, sectionIndex) => (
                 <div
                   key={`section-${sectionIndex}`}
-                  className="rounded-xl border border-[hsl(140_20%_86%)] p-3 space-y-3"
+                  className="rounded-2xl border border-[hsl(140_20%_86%)] bg-white overflow-hidden shadow-sm"
                   draggable={canEdit}
                   onDragStart={() => setDraggingSectionIndex(sectionIndex)}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={() => handleDropSection(sectionIndex)}
                   onDragEnd={() => setDraggingSectionIndex(null)}
                 >
-                  <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
-                    <div>
-                      <Label>Section Heading</Label>
-                      <Input
-                        value={section.heading}
-                        onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => idx === sectionIndex ? { ...item, heading: event.target.value } : item))}
-                      />
-                      <p className="mt-1 text-[11px] text-muted-foreground">Use clear section headings for long guides (for example: obligations, method, notes, references).</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" disabled={sectionIndex === 0 || !canEdit} onClick={() => moveSection(sectionIndex, sectionIndex - 1)}>Up</Button>
-                      <Button size="sm" variant="outline" disabled={sectionIndex === treeSections.length - 1 || !canEdit} onClick={() => moveSection(sectionIndex, sectionIndex + 1)}>Down</Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
+                  <div className="px-3 sm:px-4 py-3 bg-gradient-to-r from-[hsl(142_55%_28%)] to-[hsl(168_48%_36%)] text-white flex items-center gap-2">
+                    <span className="cursor-grab text-white/70 hover:text-white" title="Drag to reorder section">
+                      <GripVertical size={16} />
+                    </span>
+                    <span className="w-6 h-6 rounded-full bg-white/20 ring-1 ring-white/30 flex items-center justify-center text-xs font-bold">{sectionIndex + 1}</span>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/90">Section</p>
+                    <div className="ml-auto flex items-center gap-1">
+                      <button className="h-8 w-8 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 flex items-center justify-center text-white" disabled={sectionIndex === 0 || !canEdit} onClick={() => moveSection(sectionIndex, sectionIndex - 1)} title="Move up" aria-label="Move section up">↑</button>
+                      <button className="h-8 w-8 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 flex items-center justify-center text-white" disabled={sectionIndex === treeSections.length - 1 || !canEdit} onClick={() => moveSection(sectionIndex, sectionIndex + 1)} title="Move down" aria-label="Move section down">↓</button>
+                      <button
+                        className="h-8 px-2 rounded-lg bg-rose-500/80 hover:bg-rose-500 disabled:opacity-40 flex items-center gap-1 text-white text-xs font-medium"
                         onClick={() => setTreeSections((prev) => prev.filter((_, idx) => idx !== sectionIndex))}
                         disabled={!canEdit}
                       >
-                        Remove Section
-                      </Button>
+                        <Trash2 size={13} />
+                        <span className="hidden sm:inline">Remove</span>
+                      </button>
                     </div>
+                  </div>
+
+                  <div className="p-3 sm:p-4 space-y-4">
+                  <div>
+                    <Label>Section Heading</Label>
+                    <Input
+                      value={section.heading}
+                      onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => idx === sectionIndex ? { ...item, heading: event.target.value } : item))}
+                      placeholder="e.g. The method, Important notes, References"
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">Clear section headings help users scan long guides.</p>
                   </div>
 
                   <div className="space-y-3">
                     {section.steps.map((step, stepIndex) => (
                       <div
                         key={`step-${sectionIndex}-${stepIndex}`}
-                        className="rounded-lg border p-3 space-y-3 bg-[hsl(140_30%_99%)]"
+                        className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(140_30%_99%)] overflow-hidden"
                         draggable={canEdit}
                         onDragStart={() => setDraggingStepRef({ sectionIndex, stepIndex })}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={() => handleDropStep(sectionIndex, stepIndex)}
                         onDragEnd={() => setDraggingStepRef(null)}
                       >
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs text-muted-foreground">Step {stepIndex + 1}</p>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
+                        <div className="px-3 py-2 bg-white border-b border-[hsl(140_20%_90%)] flex items-center gap-2">
+                          <span className="cursor-grab text-[hsl(140_20%_60%)] hover:text-[hsl(140_20%_40%)]" title="Drag to reorder step">
+                            <GripVertical size={14} />
+                          </span>
+                          <span className="w-6 h-6 rounded-full bg-[hsl(142_50%_92%)] text-[hsl(142_60%_28%)] flex items-center justify-center text-[11px] font-bold">{stepIndex + 1}</span>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(142_30%_30%)]">Step</p>
+                          {step.title ? (
+                            <p className="text-xs text-[hsl(150_30%_25%)] truncate hidden sm:block">· {step.title}</p>
+                          ) : null}
+                          <div className="ml-auto flex items-center gap-1">
+                            <button
+                              className="h-7 px-2 rounded-md bg-white border border-[hsl(140_20%_85%)] text-[11px] text-[hsl(142_40%_30%)] hover:bg-[hsl(142_50%_95%)]"
                               onClick={() => setTreeSections((prev) => prev.map((item, idx) => {
                                 if (idx !== sectionIndex) return item;
                                 return {
@@ -1035,169 +1383,108 @@ export default function HowToGuidesPage() {
                               }))}
                             >
                               {step.collapsed ? 'Expand' : 'Collapse'}
-                            </Button>
-                            <Button size="sm" variant="outline" disabled={stepIndex === 0 || !canEdit} onClick={() => moveStep(sectionIndex, stepIndex, stepIndex - 1)}>Up</Button>
-                            <Button size="sm" variant="outline" disabled={stepIndex === section.steps.length - 1 || !canEdit} onClick={() => moveStep(sectionIndex, stepIndex, stepIndex + 1)}>Down</Button>
+                            </button>
+                            <button className="h-7 w-7 rounded-md bg-white border border-[hsl(140_20%_85%)] text-[hsl(142_40%_30%)] hover:bg-[hsl(142_50%_95%)] disabled:opacity-40 flex items-center justify-center" disabled={stepIndex === 0 || !canEdit} onClick={() => moveStep(sectionIndex, stepIndex, stepIndex - 1)} aria-label="Move step up">↑</button>
+                            <button className="h-7 w-7 rounded-md bg-white border border-[hsl(140_20%_85%)] text-[hsl(142_40%_30%)] hover:bg-[hsl(142_50%_95%)] disabled:opacity-40 flex items-center justify-center" disabled={stepIndex === section.steps.length - 1 || !canEdit} onClick={() => moveStep(sectionIndex, stepIndex, stepIndex + 1)} aria-label="Move step down">↓</button>
                           </div>
                         </div>
+
+                        <div className="p-3 space-y-3">
 
                         {step.collapsed ? (
                           <p className="text-xs text-muted-foreground">{step.title || `Step ${stepIndex + 1}`} - collapsed</p>
                         ) : (
                           <>
 
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label>Step Title</Label>
-                            <Input
-                              value={step.title}
-                              onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
-                                if (idx !== sectionIndex) return item;
-                                return {
-                                  ...item,
-                                  steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, title: event.target.value } : stepItem),
-                                };
-                              }))}
-                            />
-                          </div>
-                          <div>
-                            <Label>Step Note</Label>
-                            <Textarea
-                              rows={2}
-                              className="min-h-[68px]"
-                              value={step.note}
-                              onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
-                                if (idx !== sectionIndex) return item;
-                                return {
-                                  ...item,
-                                  steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, note: event.target.value } : stepItem),
-                                };
-                              }))}
-                            />
-                          </div>
-                        </div>
-
                         <div>
-                          <Label>Step Detail</Label>
-                          <div className="mt-1 mb-2 flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => appendStepDetailTemplate(sectionIndex, stepIndex, 'Section Title\n-------------')}
-                            >
-                              Insert Section Title
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => appendStepDetailTemplate(sectionIndex, stepIndex, '- Point one\n- Point two\n- Point three')}
-                            >
-                              Insert Bullet List
-                            </Button>
-                          </div>
-                          <Textarea
-                            rows={8}
-                            className="min-h-[180px]"
-                            value={step.detail}
+                          <Label>Step Title</Label>
+                          <Input
+                            value={step.title}
                             onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
                               if (idx !== sectionIndex) return item;
                               return {
                                 ...item,
-                                steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, detail: event.target.value } : stepItem),
+                                steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, title: event.target.value } : stepItem),
                               };
                             }))}
+                            placeholder="A short, action-oriented step title."
                           />
-                          <p className="mt-1 text-[11px] text-muted-foreground">This field is ideal for detailed instructions, references, and long-form text.</p>
-                        </div>
-
-                        <div>
-                          <Label>Rich HTML (optional)</Label>
-                          <Textarea
-                            rows={8}
-                            className="min-h-[180px] font-mono text-xs"
-                            value={step.rich_content_html}
-                            onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
-                              if (idx !== sectionIndex) return item;
-                              return {
-                                ...item,
-                                steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, rich_content_html: event.target.value } : stepItem),
-                              };
-                            }))}
-                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">The large heading rendered at the top of the step card in the app.</p>
                         </div>
 
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label>Blocks</Label>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button size="sm" variant="outline" onClick={() => addTemplateBlock(sectionIndex, stepIndex, 'text')}>Add Text</Button>
-                              <Button size="sm" variant="outline" onClick={() => addTemplateBlock(sectionIndex, stepIndex, 'note')}>Add Note</Button>
-                              <Button size="sm" variant="outline" onClick={() => addTemplateBlock(sectionIndex, stepIndex, 'recitation')}>Add Recitation</Button>
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div>
+                              <Label>Step Content</Label>
+                              <p className="text-[11px] text-muted-foreground">Build the step from structured blocks. Each block maps 1:1 to a rendered component in the app.</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[11px] text-muted-foreground mr-1">Insert:</span>
+                              {(['text', 'action', 'note', 'recitation'] as BlockKind[]).map((kind) => {
+                                const meta = blockKindMeta(kind);
+                                return (
+                                  <Button
+                                    key={kind}
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => addTemplateBlock(sectionIndex, stepIndex, kind)}
+                                    disabled={!canEdit}
+                                    title={meta.hint}
+                                  >
+                                    + {meta.title}
+                                  </Button>
+                                );
+                              })}
                             </div>
                           </div>
+
+                          {step.blocks.length === 0 ? (
+                            <div className="rounded-md border border-dashed border-[hsl(140_20%_80%)] bg-[hsl(140_30%_99%)] px-4 py-6 text-center">
+                              <p className="text-sm text-muted-foreground">No blocks yet.</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Use the "Insert" buttons above. <b>Text</b> for prose, <b>Action</b> for "do this" instructions, <b>Note</b> for coloured callouts, <b>Recitation</b> for Arabic + transliteration + meaning.
+                              </p>
+                            </div>
+                          ) : null}
+
                           {step.blocks.map((block, blockIndex) => (
                             <div
                               key={`block-${sectionIndex}-${stepIndex}-${blockIndex}`}
-                              className="rounded-md border p-2 space-y-2 bg-white"
                               draggable={canEdit}
                               onDragStart={() => setDraggingBlockRef({ sectionIndex, stepIndex, blockIndex })}
                               onDragOver={(event) => event.preventDefault()}
                               onDrop={() => handleDropBlock(sectionIndex, stepIndex, blockIndex)}
                               onDragEnd={() => setDraggingBlockRef(null)}
                             >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs text-muted-foreground">Block {blockIndex + 1}</span>
-                                <div className="flex items-center gap-2">
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <span className="text-[11px] text-muted-foreground">Block {blockIndex + 1} of {step.blocks.length}</span>
+                                <div className="flex items-center gap-1">
                                   <Button size="sm" variant="outline" disabled={blockIndex === 0 || !canEdit} onClick={() => moveBlock(sectionIndex, stepIndex, blockIndex, blockIndex - 1)}>Up</Button>
                                   <Button size="sm" variant="outline" disabled={blockIndex === step.blocks.length - 1 || !canEdit} onClick={() => moveBlock(sectionIndex, stepIndex, blockIndex, blockIndex + 1)}>Down</Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-rose-700 hover:bg-rose-50"
+                                    onClick={() => setTreeSections((prev) => prev.map((item, idx) => {
+                                      if (idx !== sectionIndex) return item;
+                                      return {
+                                        ...item,
+                                        steps: item.steps.map((stepItem, stepIdx) => {
+                                          if (stepIdx !== stepIndex) return stepItem;
+                                          return { ...stepItem, blocks: stepItem.blocks.filter((_, innerIndex) => innerIndex !== blockIndex) };
+                                        }),
+                                      };
+                                    }))}
+                                    disabled={!canEdit}
+                                  >
+                                    Remove
+                                  </Button>
                                 </div>
                               </div>
-                              <div className="grid grid-cols-[140px_1fr_auto] gap-2 items-center">
-                                <select
-                                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                                  value={block.kind}
-                                  onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
-                                    if (idx !== sectionIndex) return item;
-                                    return {
-                                      ...item,
-                                      steps: item.steps.map((stepItem, stepIdx) => {
-                                        if (stepIdx !== stepIndex) return stepItem;
-                                        return {
-                                          ...stepItem,
-                                          blocks: stepItem.blocks.map((blockItem, innerIndex) => innerIndex === blockIndex ? { ...blockItem, kind: event.target.value as BlockDraft['kind'] } : blockItem),
-                                        };
-                                      }),
-                                    };
-                                  }))}
-                                >
-                                  <option value="text">Text</option>
-                                  <option value="action">Action</option>
-                                  <option value="note">Note</option>
-                                  <option value="recitation">Recitation</option>
-                                </select>
-                                <span className="text-xs text-muted-foreground">Payload JSON</span>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => setTreeSections((prev) => prev.map((item, idx) => {
-                                    if (idx !== sectionIndex) return item;
-                                    return {
-                                      ...item,
-                                      steps: item.steps.map((stepItem, stepIdx) => {
-                                        if (stepIdx !== stepIndex) return stepItem;
-                                        return { ...stepItem, blocks: stepItem.blocks.filter((_, innerIndex) => innerIndex !== blockIndex) };
-                                      }),
-                                    };
-                                  }))}
-                                >
-                                  Remove
-                                </Button>
-                              </div>
-                              <Textarea
-                                rows={7}
-                                className="min-h-[160px] font-mono text-xs"
-                                value={block.payloadJson}
-                                onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
+                              <BlockEditor
+                                block={block}
+                                disabled={!canEdit}
+                                onChange={(next) => setTreeSections((prev) => prev.map((item, idx) => {
                                   if (idx !== sectionIndex) return item;
                                   return {
                                     ...item,
@@ -1205,7 +1492,7 @@ export default function HowToGuidesPage() {
                                       if (stepIdx !== stepIndex) return stepItem;
                                       return {
                                         ...stepItem,
-                                        blocks: stepItem.blocks.map((blockItem, innerIndex) => innerIndex === blockIndex ? { ...blockItem, payloadJson: event.target.value } : blockItem),
+                                        blocks: stepItem.blocks.map((blockItem, innerIndex) => innerIndex === blockIndex ? next : blockItem),
                                       };
                                     }),
                                   };
@@ -1214,6 +1501,83 @@ export default function HowToGuidesPage() {
                             </div>
                           ))}
                         </div>
+
+                        <details className="rounded-md border border-[hsl(140_20%_90%)] bg-white">
+                          <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-[hsl(150_30%_20%)]">
+                            Advanced: legacy free-text fields (optional)
+                          </summary>
+                          <div className="px-3 pb-3 pt-1 space-y-3">
+                            <p className="text-[11px] text-muted-foreground">
+                              Prefer structured blocks above. These fields still render in the app but are harder to format consistently. Use them only when you need to migrate long-form text or inject raw HTML.
+                            </p>
+                            <div>
+                              <Label>Step Note (legacy)</Label>
+                              <Textarea
+                                rows={2}
+                                className="mt-1 min-h-[60px]"
+                                value={step.note}
+                                onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
+                                  if (idx !== sectionIndex) return item;
+                                  return {
+                                    ...item,
+                                    steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, note: event.target.value } : stepItem),
+                                  };
+                                }))}
+                                placeholder='Prefer a "Highlighted note" block instead.'
+                              />
+                            </div>
+                            <div>
+                              <Label>Step Detail (legacy free-text)</Label>
+                              <div className="mt-1 mb-2 flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => appendStepDetailTemplate(sectionIndex, stepIndex, 'Section Title\n-------------')}
+                                  disabled={!canEdit}
+                                >
+                                  Insert Section Title
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => appendStepDetailTemplate(sectionIndex, stepIndex, '- Point one\n- Point two\n- Point three')}
+                                  disabled={!canEdit}
+                                >
+                                  Insert Bullet List
+                                </Button>
+                              </div>
+                              <Textarea
+                                rows={6}
+                                className="min-h-[140px]"
+                                value={step.detail}
+                                onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
+                                  if (idx !== sectionIndex) return item;
+                                  return {
+                                    ...item,
+                                    steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, detail: event.target.value } : stepItem),
+                                  };
+                                }))}
+                                placeholder="Long-form prose. Will be parsed into text/note/recitation blocks at render time."
+                              />
+                            </div>
+                            <div>
+                              <Label>Rich HTML (advanced)</Label>
+                              <Textarea
+                                rows={6}
+                                className="min-h-[140px] font-mono text-xs"
+                                value={step.rich_content_html}
+                                onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
+                                  if (idx !== sectionIndex) return item;
+                                  return {
+                                    ...item,
+                                    steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, rich_content_html: event.target.value } : stepItem),
+                                  };
+                                }))}
+                                placeholder="<p>Raw HTML rendered as-is. Only use if structured blocks can't express your layout.</p>"
+                              />
+                            </div>
+                          </div>
+                        </details>
 
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
@@ -1376,27 +1740,78 @@ export default function HowToGuidesPage() {
                               if (idx !== sectionIndex) return item;
                               return { ...item, steps: item.steps.filter((_, stepIdx) => stepIdx !== stepIndex) };
                             }))}
+                            className="gap-1"
                           >
-                            Remove Step
+                            <Trash2 size={13} /> Remove Step
                           </Button>
+                        </div>
                         </div>
                       </div>
                     ))}
 
-                    <Button size="sm" variant="outline" onClick={() => addStep(sectionIndex)} disabled={!canEdit}>Add Step</Button>
+                    <Button size="sm" variant="outline" onClick={() => addStep(sectionIndex)} disabled={!canEdit} className="gap-1 w-full sm:w-auto border-dashed">
+                      <Plus size={14} /> Add Step
+                    </Button>
+                  </div>
                   </div>
                 </div>
               ))}
 
               {treeSections.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No sections yet. Add your first section.</p>
+                <div className="rounded-2xl border border-dashed border-[hsl(140_20%_80%)] bg-white px-4 py-8 text-center">
+                  <FolderTree size={28} className="mx-auto text-[hsl(140_20%_70%)]" />
+                  <p className="mt-2 text-sm font-medium text-[hsl(150_30%_25%)]">No sections yet</p>
+                  <p className="text-xs text-muted-foreground">Add your first section to start building the guide.</p>
+                </div>
               ) : null}
+              </div>
+
+              <aside className={`${showMobilePreview ? 'block' : 'hidden'} lg:block overflow-y-auto bg-gradient-to-b from-[hsl(140_30%_98%)] to-white`}>
+                <div className="sticky top-0 z-10 border-b border-[hsl(140_20%_92%)] bg-white/95 backdrop-blur px-4 py-2 flex items-center gap-2">
+                  <Eye size={14} className="text-[hsl(142_60%_32%)]" />
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Live preview</p>
+                    <p className="text-[10px] text-muted-foreground">Mirrors how the app renders this guide.</p>
+                  </div>
+                </div>
+                <div className="p-3 sm:p-4">
+                  <HowToGuidePreview
+                    title={treeGuide?.title ?? ''}
+                    subtitle={treeGuide?.subtitle ?? ''}
+                    intro={treeGuideIntro}
+                    notes={parseGuideNotesText(treeGuideNotesText)}
+                    accentColor={treeGuide?.color ?? '#2e7d32'}
+                    sections={treeSections.map((section) => ({
+                      heading: section.heading,
+                      steps: section.steps.map((step, stepIndex) => ({
+                        step: stepIndex + 1,
+                        title: step.title,
+                        detail: step.detail,
+                        note: step.note,
+                        blocks: parsePreviewBlocks(step.blocks),
+                        images: step.images.map((image) => ({
+                          image_url: image.image_url,
+                          caption: image.caption || undefined,
+                          source: image.source || undefined,
+                        })),
+                      })),
+                    }))}
+                  />
+                </div>
+              </aside>
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTreeDialogOpen(false)} disabled={saving}>Close</Button>
-            <Button onClick={() => void saveTree()} disabled={saving || !canEdit || treeLoading}>{saving ? 'Saving...' : 'Save Tree'}</Button>
+          <DialogFooter className="px-4 sm:px-6 py-3 border-t border-[hsl(140_20%_92%)] bg-white gap-2">
+            <Button variant="outline" onClick={() => setTreeDialogOpen(false)} disabled={saving} className="flex-1 sm:flex-none">Close</Button>
+            <Button
+              onClick={() => void saveTree()}
+              disabled={saving || !canEdit || treeLoading}
+              className="flex-1 sm:flex-none gap-1 bg-[hsl(142_60%_32%)] text-white hover:bg-[hsl(142_60%_28%)]"
+            >
+              {saving ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {saving ? 'Saving…' : 'Save Tree'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

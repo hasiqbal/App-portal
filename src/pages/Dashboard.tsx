@@ -11,7 +11,7 @@ import masjidPhoto from '#/assets/masjid-photo.png';
 import { supabaseAdmin } from '#/lib/supabase';
 import masjidLogo from '#/assets/masjid-logo.png';
 import { fetchEidPrayers, EidPrayer, EidType } from '#/components/features/EidTimesModal';
-import { isBST } from '#/lib/dateUtils';
+import { isBST, gregorianToHijri } from '#/lib/dateUtils';
 import { PrayerTime } from '#/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -639,27 +639,15 @@ const StatCard = ({
 
 // ─── Hijri Date Display ───────────────────────────────────────────────────────
 
-const HIJRI_MONTHS = [
-  'Muharram', 'Safar', "Rabi' al-Awwal", "Rabi' al-Akhir",
-  'Jumada al-Ula', 'Jumada al-Akhira', 'Rajab', "Sha'ban",
-  'Ramadan', 'Shawwal', "Dhu al-Qi'dah", 'Dhu al-Hijjah',
-];
-
-function getSimpleHijriDate(offsetDays = 0): string {
-  // Simple approximate Hijri date for display purposes
-  // Based on epoch difference; accurate within ±1 day
-  const gregorianDate = new Date();
-  // Apply offset by shifting the date used for calculation
-  gregorianDate.setDate(gregorianDate.getDate() + offsetDays);
-  const epochDiff = 1948438.5; // Julian day of Hijri epoch
-  const jd = gregorianDate.getTime() / 86400000 + 2440587.5;
-  const daysSinceEpoch = jd - epochDiff;
-  const yearsSinceEpoch = daysSinceEpoch / 354.367;
-  const hijriYear = Math.floor(yearsSinceEpoch) + 1;
-  const daysInYear = (yearsSinceEpoch - Math.floor(yearsSinceEpoch)) * 354.367;
-  const monthIdx = Math.min(Math.floor(daysInYear / 29.5), 11);
-  const hijriDay = Math.floor(daysInYear % 29.5) + 1;
-  return `${hijriDay} ${HIJRI_MONTHS[monthIdx]} ${hijriYear} AH`;
+function getFallbackHijriDate(offsetDays = 0): string {
+  const shifted = new Date();
+  shifted.setDate(shifted.getDate() + offsetDays);
+  const hijri = gregorianToHijri(
+    shifted.getFullYear(),
+    shifted.getMonth() + 1,
+    shifted.getDate()
+  );
+  return `${hijri.full} AH`;
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -794,8 +782,8 @@ const Dashboard = () => {
       color: r.color,
     }));
 
-  const hijriDate = getSimpleHijriDate(hijriOffset);
-  const todayEidType = detectEidTypeFromHijriDate(todayHijriDate);
+  const hijriDate = todayHijriDate ?? getFallbackHijriDate(hijriOffset);
+  const todayEidType = detectEidTypeFromHijriDate(hijriDate);
   const todayEidConfig = todayEidType ? DASH_EID_CONFIG[todayEidType] : null;
   const todayEidTimes = todayEidType
     ? eidPrayers
