@@ -1,5 +1,7 @@
 import { parseDetailToBlocks, transliterationFromText, type GuideNoteVariant, type PreviewGuideBlock } from './guidePreviewUtils';
 
+type PreviewLanguage = 'en' | 'ur';
+
 type PreviewImage = {
   image_url: string;
   caption?: string;
@@ -44,7 +46,7 @@ const NOTE_STYLES: Record<GuideNoteVariant, string> = {
   key: 'border-yellow-300 bg-yellow-50 text-yellow-800',
 };
 
-function renderBlock(block: PreviewGuideBlock, index: number) {
+function renderBlock(block: PreviewGuideBlock, index: number, previewLanguage: PreviewLanguage) {
   if (block.kind === 'recitation') {
     return (
       <div key={`block-${index}`} className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
@@ -91,7 +93,7 @@ function renderBlock(block: PreviewGuideBlock, index: number) {
     );
   }
 
-  const autoTransliteration = transliterationFromText(block.text);
+  const autoTransliteration = previewLanguage === 'en' ? transliterationFromText(block.text) : null;
   return (
     <div key={`block-${index}`} className="space-y-1">
       <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">{block.text}</p>
@@ -106,6 +108,7 @@ export function HowToGuidePreview({
   intro,
   notes,
   accentColor,
+  previewLanguage = 'en',
   sections,
 }: {
   title: string;
@@ -113,6 +116,7 @@ export function HowToGuidePreview({
   intro?: string;
   notes?: string[];
   accentColor?: string;
+  previewLanguage?: PreviewLanguage;
   sections: PreviewSection[];
 }) {
   return (
@@ -162,7 +166,7 @@ export function HowToGuidePreview({
                       <div className="min-w-0 flex-1 space-y-3">
                         <h5 className="text-sm font-semibold text-slate-900">{step.title}</h5>
                         <div className="space-y-3">
-                          {resolvedBlocks.map((block, blockIndex) => renderBlock(block, blockIndex))}
+                          {resolvedBlocks.map((block, blockIndex) => renderBlock(block, blockIndex, previewLanguage))}
                         </div>
                         {step.note ? (
                           <div className="rounded-lg border-l-4 bg-slate-50 p-3 text-sm leading-6 text-slate-700" style={{ borderLeftColor: `${accentColor || '#2e7d32'}` }}>

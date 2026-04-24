@@ -8,6 +8,10 @@ import {
   AdhkarGroupPayload,
   Announcement,
   AnnouncementPayload,
+  DonationFrequency,
+  DonationOption,
+  DonationOptionAudit,
+  DonationOptionPayload,
   SunnahReminder,
   SunnahReminderPayload,
   SunnahGroup,
@@ -78,6 +82,66 @@ function normalizeNameList(value: unknown): string[] {
 function joinNameList(value: unknown): string | null {
   const names = normalizeNameList(value);
   return names.length > 0 ? names.join(', ') : null;
+}
+
+function normalizeClockTo24Hour(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const twentyFour = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (twentyFour) {
+    const hour = Number(twentyFour[1]);
+    const minute = Number(twentyFour[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    }
+  }
+
+  const twelveHour = trimmed.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+  if (!twelveHour) return null;
+
+  const hour12 = Number(twelveHour[1]);
+  const minute = Number(twelveHour[2]);
+  const suffix = twelveHour[3].toUpperCase();
+  if (hour12 < 1 || hour12 > 12 || minute < 0 || minute > 59) return null;
+
+  const hour24 = suffix === 'PM' ? (hour12 % 12) + 12 : (hour12 % 12);
+  return `${String(hour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function extractAnnouncementTimeParts(value: string): { primaryTime: string | null; richTimeText: string | null } {
+  const richTimeText = value.trim();
+  if (!richTimeText) return { primaryTime: null, richTimeText: null };
+
+  const firstEntry = richTimeText
+    .split(/\s*\|\s*|\n+/)
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0)
+    ?? '';
+
+  const rangeMatch = firstEntry.match(/^(.*?)\s*[-\u2013]\s*(.*?)$/);
+  const primaryCandidate = (rangeMatch?.[1] ?? firstEntry).trim();
+  let primaryTime = normalizeClockTo24Hour(primaryCandidate);
+
+  if (!primaryTime) {
+    const embeddedMatch = firstEntry.match(/(\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?)/);
+    if (embeddedMatch) {
+      primaryTime = normalizeClockTo24Hour(embeddedMatch[1]);
+    }
+  }
+
+  return { primaryTime, richTimeText };
+}
+
+function isMissingColumnError(errorMessage: string, column: string): boolean {
+  const lower = errorMessage.toLowerCase();
+  if (!lower.includes(column.toLowerCase())) return false;
+  return (
+    lower.includes('does not exist')
+    || lower.includes('schema cache')
+    || lower.includes('could not find')
+    || lower.includes('not found')
+  );
 }
 
 function normalizeHowToGuideSlug(value: string): string {
@@ -170,7 +234,7 @@ function mapAnnouncementFromDb(row: AnnouncementDbRow): Announcement {
     urdu_title: resolvedUrduTitle,
     lead_names: joinNameList(row.lead_names ?? row.guests ?? row.guest_speakers ?? row.teacher_name),
     urdu_lead_names: joinNameList(resolvedUrduGuests),
-    start_time: row.start_time ?? row.time ?? row.event_time ?? null,
+    start_time: row.start_time ?? row.event_time ?? row.time ?? null,
     urdu_body: row.urdu_body ?? row.urdu_translation ?? null,
   };
 }
@@ -202,7 +266,17 @@ function mapAnnouncementPayloadToDb(data: Partial<AnnouncementPayload>): Record<
   }
 
   if (start_time !== undefined) {
-    mapped[ANNOUNCEMENTS_TIME_COLUMN] = start_time;
+    const value = typeof start_time === 'string' ? start_time.trim() : '';
+    if (!value) {
+      mapped[ANNOUNCEMENTS_TIME_COLUMN] = null;
+      mapped.event_time = null;
+    } else {
+      const { primaryTime, richTimeText } = extractAnnouncementTimeParts(value);
+      mapped[ANNOUNCEMENTS_TIME_COLUMN] = primaryTime;
+      if (richTimeText && richTimeText !== primaryTime) {
+        mapped.event_time = richTimeText;
+      }
+    }
   }
 
   return mapped;
@@ -1386,23 +1460,41 @@ export async function fetchAnnouncements(): Promise<Announcement[]> {
 
 export async function createAnnouncement(data: Partial<AnnouncementPayload>): Promise<Announcement> {
   const payload = { is_active: true, ...mapAnnouncementPayloadToDb(data) };
-  const { data: rows, error } = await supabase
+  const insertQuery = (rowPayload: Record<string, unknown>) => supabase
     .from(ANNOUNCEMENTS_TABLE)
-    .insert(payload)
+    .insert(rowPayload)
     .select()
     .single();
+
+  let { data: rows, error } = await insertQuery(payload);
+
+  if (error && 'event_time' in payload && isMissingColumnError(error.message, 'event_time')) {
+    const retryPayload = { ...payload };
+    delete retryPayload.event_time;
+    ({ data: rows, error } = await insertQuery(retryPayload));
+  }
+
   if (error) throw new Error(`Failed to create announcement: ${error.message}`);
   return mapAnnouncementFromDb(rows as AnnouncementDbRow);
 }
 
 export async function updateAnnouncement(id: string, data: Partial<AnnouncementPayload>): Promise<Announcement> {
   const payload = mapAnnouncementPayloadToDb(data);
-  const { data: rows, error } = await supabase
+  const updateQuery = (rowPayload: Record<string, unknown>) => supabase
     .from(ANNOUNCEMENTS_TABLE)
-    .update(payload)
+    .update(rowPayload)
     .eq('id', id)
     .select()
     .single();
+
+  let { data: rows, error } = await updateQuery(payload);
+
+  if (error && 'event_time' in payload && isMissingColumnError(error.message, 'event_time')) {
+    const retryPayload = { ...payload };
+    delete retryPayload.event_time;
+    ({ data: rows, error } = await updateQuery(retryPayload));
+  }
+
   if (error) throw new Error(`Failed to update announcement: ${error.message}`);
   return mapAnnouncementFromDb(rows as AnnouncementDbRow);
 }
@@ -1413,6 +1505,133 @@ export async function deleteAnnouncement(id: string): Promise<void> {
     .delete()
     .eq('id', id);
   if (error) throw new Error(`Failed to delete announcement: ${error.message}`);
+}
+
+// ─── Donation Options ───────────────────────────────────────────────────────
+
+export async function fetchDonationOptions(options?: {
+  includeInactive?: boolean;
+  frequency?: DonationFrequency;
+}): Promise<DonationOption[]> {
+  let query = supabase
+    .from('donation_options')
+    .select('*')
+    .order('is_pinned', { ascending: false })
+    .order('pin_order', { ascending: true })
+    .order('global_order', { ascending: true })
+    .order('frequency', { ascending: true })
+    .order('display_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (!options?.includeInactive) {
+    query = query.eq('is_active', true);
+  }
+
+  if (options?.frequency) {
+    query = query.eq('frequency', options.frequency);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch donation options: ${error.message}`);
+  return (data ?? []) as DonationOption[];
+}
+
+export async function createDonationOption(data: Partial<DonationOptionPayload>): Promise<DonationOption> {
+  const { data: row, error } = await supabase
+    .from('donation_options')
+    .insert(data)
+    .select('*')
+    .single();
+
+  if (error) throw new Error(`Failed to create donation option: ${error.message}`);
+  return row as DonationOption;
+}
+
+export async function createDonationOptionWithStripe(data: Partial<DonationOptionPayload>): Promise<DonationOption> {
+  const { data: result, error } = await invokeExternalFunction<DonationOption | { error?: string }>(
+    'create-donation-option-stripe',
+    { option: data },
+  );
+
+  if (error) {
+    throw new Error(`Failed to create donation option with Stripe: ${error}`);
+  }
+
+  if (!result || typeof result !== 'object') {
+    throw new Error('Donation create function returned an empty response.');
+  }
+
+  if ('error' in result && typeof result.error === 'string' && result.error) {
+    throw new Error(result.error);
+  }
+
+  return result as DonationOption;
+}
+
+export async function updateDonationOption(
+  id: string,
+  data: Partial<DonationOptionPayload>
+): Promise<DonationOption> {
+  const { data: row, error } = await supabase
+    .from('donation_options')
+    .update(data)
+    .eq('id', id)
+    .select('*')
+    .single();
+
+  if (error) throw new Error(`Failed to update donation option: ${error.message}`);
+  return row as DonationOption;
+}
+
+export async function deleteDonationOption(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('donation_options')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to delete donation option: ${error.message}`);
+}
+
+export async function bulkReorderDonationOptions(
+  updates: Array<{
+    id: string;
+    pin_order: number;
+    display_order: number;
+    global_order: number;
+  }>
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  const now = new Date().toISOString();
+
+  await Promise.all(
+    updates.map(async (entry) => {
+      const { error } = await supabase
+        .from('donation_options')
+        .update({
+          pin_order: entry.pin_order,
+          display_order: entry.display_order,
+          global_order: entry.global_order,
+          updated_at: now,
+        })
+        .eq('id', entry.id);
+
+      if (error) {
+        throw new Error(`Failed to reorder donation option ${entry.id}: ${error.message}`);
+      }
+    })
+  );
+}
+
+export async function fetchDonationOptionAudit(limit = 100): Promise<DonationOptionAudit[]> {
+  const { data, error } = await supabase
+    .from('donation_option_audit')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`Failed to fetch donation option audit: ${error.message}`);
+  return (data ?? []) as DonationOptionAudit[];
 }
 
 // ─── Sunnah Reminders ────────────────────────────────────────────────────────

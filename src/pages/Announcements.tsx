@@ -9,7 +9,8 @@ import {
   Plus, Pencil, Trash2, Loader2, AlertCircle, RefreshCw,
   Bell, BellOff, GripVertical, ToggleLeft, ToggleRight, Link2, ExternalLink,
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  List, ListOrdered, Type, Palette, ImagePlus, X, Smartphone, Eye,
+  List, ListOrdered, Type, Palette, ImagePlus, X, Eye,
+  EyeOff,
   Users, Clock3,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
@@ -132,169 +133,180 @@ const RichTextEditor = ({ content, onChange }: { content: string; onChange: (htm
 
 const EMPTY_FORM = { title: '', type: '', urdu_title: '', body: '', urdu_body: '', tag: false, lead_names: '', urdu_lead_names: '', start_time: '', link_url: '', image_url: '', is_active: true, display_order: 0 };
 
-// ─── Phone Preview Modal ──────────────────────────────────────────────────────
+type TimeSlotDraft = {
+  start: string;
+  end: string;
+};
 
-const AnnouncementPreviewModal = ({
-  open,
-  onClose,
+function splitAnnouncementTimeEntries(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(/\s*\|\s*|\n+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+function parseTimeSlots(value: string | null | undefined): TimeSlotDraft[] {
+  const entries = splitAnnouncementTimeEntries(value);
+  const slots = entries.map((entry) => {
+    const rangeMatch = entry.match(/^(.*?)\s*[-\u2013]\s*(.*?)$/);
+    if (!rangeMatch) {
+      return { start: entry, end: '' };
+    }
+    return {
+      start: rangeMatch[1].trim(),
+      end: rangeMatch[2].trim(),
+    };
+  });
+  return slots.length > 0 ? slots : [{ start: '', end: '' }];
+}
+
+function serializeTimeSlots(slots: TimeSlotDraft[]): string {
+  return slots
+    .map((slot) => {
+      const start = slot.start.trim();
+      const end = slot.end.trim();
+      if (!start && !end) return '';
+      if (start && end) return `${start} - ${end}`;
+      return start || end;
+    })
+    .filter((entry) => entry.length > 0)
+    .join(' | ');
+}
+
+function formatSimpleTimeForDisplay(value: string): string {
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return value;
+  const hour24 = Number(match[1]);
+  const minute = match[2];
+  const meridiem = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${minute} ${meridiem}`;
+}
+
+function sanitizeAnnouncementHtml(html: string): string {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  doc.querySelectorAll('script,style,iframe,object,embed,link,meta').forEach((node) => node.remove());
+  doc.querySelectorAll('*').forEach((el) => {
+    Array.from(el.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim();
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name);
+        return;
+      }
+      if ((name === 'href' || name === 'src') && /^javascript:/i.test(value)) {
+        el.removeAttribute(attr.name);
+        return;
+      }
+      if (name === 'style' && /(expression\s*\(|javascript:|url\s*\()/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+
+  return doc.body.innerHTML;
+}
+
+const AnnouncementLivePreview = ({
   title,
   body,
   imageUrl,
   linkUrl,
+  type,
+  leadNames,
+  startTime,
 }: {
-  open: boolean;
-  onClose: () => void;
   title: string;
   body: string;
   imageUrl: string;
   linkUrl: string;
+  type: string;
+  leadNames: string;
+  startTime: string;
 }) => {
-  if (!open) return null;
-  const plainBody = body ? body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  const previewHtml = sanitizeAnnouncementHtml(body).trim();
+  const formattedStartTimes = splitAnnouncementTimeEntries(startTime).map(formatSimpleTimeForDisplay);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
-      onClick={onClose}
-    >
-      <div className="flex flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
-        {/* Label */}
-        <div className="flex items-center gap-2">
-          <Smartphone size={14} className="text-white/70" />
-          <span className="text-white/70 text-xs font-medium">Mobile App Preview</span>
-          <button onClick={onClose} className="ml-2 text-white/50 hover:text-white p-1 rounded-lg">
-            <X size={14} />
-          </button>
+    <div className="mx-auto w-full max-w-[320px] rounded-[2.4rem] bg-[#0f0f0f] p-2 shadow-[0_22px_42px_rgba(0,0,0,0.22)]">
+      <div className="overflow-hidden rounded-[2rem] border border-[#202020] bg-[#f2f2f7]">
+        <div className="flex justify-center py-2 bg-[#0f0f0f]">
+          <div className="h-6 w-24 rounded-full bg-[#1b1b1b]" />
         </div>
 
-        {/* Phone Frame */}
-        <div
-          className="relative flex flex-col rounded-[2.5rem] shadow-2xl overflow-hidden"
-          style={{
-            width: 320,
-            background: '#0f0f0f',
-            border: '8px solid #1a1a1a',
-            boxShadow: '0 0 0 2px #333, 0 32px 64px rgba(0,0,0,0.7)',
-          }}
-        >
-          {/* Notch / Dynamic Island */}
-          <div className="flex justify-center pt-3 pb-2 bg-[#0f0f0f]">
-            <div className="w-24 h-6 rounded-full bg-[#1a1a1a] flex items-center justify-center">
-              <div className="w-2 h-2 rounded-full bg-[#2a2a2a] mr-1" />
-              <div className="w-3 h-3 rounded-full bg-[#222]" />
-            </div>
+        <div className="bg-white px-4 py-3 border-b border-[#e5e5ea] flex items-center gap-2">
+          <div className="w-6 h-6 rounded-full bg-[#f2f2f7] flex items-center justify-center">
+            <Bell size={12} className="text-[#1c1c1e]" />
           </div>
+          <span className="text-[13px] font-bold text-[#1c1c1e]">Announcements</span>
+        </div>
 
-          {/* Status bar */}
-          <div className="flex items-center justify-between px-5 pb-1 bg-[#f2f2f7]">
-            <span className="text-[10px] font-semibold text-black">
-              {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            <div className="flex items-center gap-1">
-              <div className="flex gap-0.5">
-                {[3,5,7,9,11].map((h) => (
-                  <div key={h} className="w-0.5 rounded-full bg-black" style={{ height: h }} />
-                ))}
+        <div className="px-3 py-3 min-h-[470px] bg-[#f2f2f7]">
+          <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-[#e5e5ea]">
+            {imageUrl ? (
+              <div className="w-full overflow-hidden max-h-[180px]">
+                <img
+                  src={imageUrl}
+                  alt="Poster"
+                  className="w-full object-cover max-h-[180px]"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
               </div>
-              <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
-                <path d="M7 2C8.9 2 10.6 2.8 11.8 4.1L13 2.8C11.4 1 9.3 0 7 0C4.7 0 2.6 1 1 2.8L2.2 4.1C3.4 2.8 5.1 2 7 2Z" fill="black" />
-                <path d="M7 5C8.1 5 9.1 5.4 9.8 6.1L11 4.9C10 3.8 8.6 3 7 3C5.4 3 4 3.8 3 4.9L4.2 6.1C4.9 5.4 5.9 5 7 5Z" fill="black" />
-                <circle cx="7" cy="8" r="1.5" fill="black" />
-              </svg>
-              <svg width="25" height="12" viewBox="0 0 25 12">
-                <rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="black" strokeOpacity="0.35" />
-                <rect x="2" y="2" width="18" height="8" rx="2" fill="black" />
-                <path d="M23 4.5V7.5A1.5 1.5 0 000 4.5v3" stroke="black" strokeOpacity="0.4" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </div>
-          </div>
-
-          {/* App Screen */}
-          <div className="bg-[#f2f2f7] flex flex-col" style={{ minHeight: 520, maxHeight: 560, overflowY: 'auto' }}>
-            {/* App nav bar */}
-            <div className="bg-white px-4 py-3 border-b border-[#e5e5ea] flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-[#f2f2f7] flex items-center justify-center">
-                <Bell size={12} className="text-[#1c1c1e]" />
+            ) : (
+              <div className="h-[96px] w-full bg-[#f2f2f7] flex flex-col items-center justify-center gap-1 text-[#aeaeb2]">
+                <ImagePlus size={20} />
+                <span className="text-[10px]">No poster</span>
               </div>
-              <span className="text-[13px] font-bold text-[#1c1c1e]">Announcements</span>
-            </div>
+            )}
 
-            {/* Announcement Card */}
-            <div className="m-3 bg-white rounded-2xl overflow-hidden shadow-sm" style={{ border: '1px solid #e5e5ea' }}>
-              {/* Poster image */}
-              {imageUrl ? (
-                <div className="w-full overflow-hidden" style={{ maxHeight: 180 }}>
-                  <img
-                    src={imageUrl}
-                    alt="Poster"
-                    className="w-full object-cover"
-                    style={{ maxHeight: 180 }}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                </div>
+            <div className="px-4 py-3">
+              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                <span className="text-[10px] font-bold text-[#34c759] uppercase tracking-wide">JMN</span>
+                <span className="text-[10px] text-[#aeaeb2]">
+                  {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+                {type ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#fff4f2] text-[#c2410c] border border-[#fdba74]">{type}</span> : null}
+              </div>
+
+              <h3 className="font-bold text-[#1c1c1e] leading-snug mb-2 text-[15px]">
+                {title || <span className="text-[#aeaeb2] italic">Announcement title...</span>}
+              </h3>
+
+              {previewHtml ? (
+                <div
+                  className="text-[#3c3c43] leading-relaxed text-[13px] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-bold [&_em]:italic [&_u]:underline [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5 [&_li]:mb-1 [&_h1]:text-[17px] [&_h1]:font-bold [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:text-[14px] [&_h3]:font-semibold"
+                  dangerouslySetInnerHTML={{ __html: previewHtml }}
+                />
               ) : (
-                <div className="w-full flex items-center justify-center bg-[#f2f2f7]" style={{ height: 100 }}>
-                  <div className="flex flex-col items-center gap-1">
-                    <ImagePlus size={22} className="text-[#aeaeb2]" />
-                    <span className="text-[10px] text-[#aeaeb2]">No poster</span>
-                  </div>
-                </div>
+                <p className="text-[#aeaeb2] italic text-[13px]">No description...</p>
               )}
 
-              <div className="px-4 py-3">
-                {/* Date chip */}
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="text-[10px] font-bold text-[#34c759] uppercase tracking-wide">JMN</span>
-                  <span className="text-[10px] text-[#aeaeb2]">
-                    {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </span>
+              {(leadNames || formattedStartTimes.length > 0) ? (
+                <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {leadNames ? <span className="text-[11px] text-[#6b7280]">{leadNames}</span> : null}
+                  {formattedStartTimes.map((timeEntry) => (
+                    <span key={timeEntry} className="text-[11px] text-[#6b7280]">{timeEntry}</span>
+                  ))}
                 </div>
+              ) : null}
 
-                {/* Title */}
-                <h3
-                  className="font-bold text-[#1c1c1e] leading-snug mb-2"
-                  style={{ fontSize: 15 }}
-                >
-                  {title || <span className="text-[#aeaeb2] italic">Announcement title…</span>}
-                </h3>
-
-                {/* Body */}
-                {plainBody ? (
-                  <p className="text-[#3c3c43] leading-relaxed" style={{ fontSize: 13 }}>
-                    {plainBody}
-                  </p>
-                ) : (
-                  <p className="text-[#aeaeb2] italic" style={{ fontSize: 13 }}>No description…</p>
-                )}
-
-                {/* Link button */}
-                {linkUrl && (
-                  <div className="mt-3 pt-3" style={{ borderTop: '1px solid #e5e5ea' }}>
-                    <div
-                      className="flex items-center justify-center gap-1.5 rounded-xl py-2.5"
-                      style={{ background: '#34c759' }}
-                    >
-                      <ExternalLink size={12} className="text-white" />
-                      <span className="text-white font-semibold" style={{ fontSize: 13 }}>More Info</span>
-                    </div>
+              {linkUrl ? (
+                <div className="mt-3 pt-3 border-t border-[#e5e5ea]">
+                  <div className="flex items-center justify-center gap-1.5 rounded-xl py-2.5 bg-[#34c759]">
+                    <ExternalLink size={12} className="text-white" />
+                    <span className="text-white font-semibold text-[13px]">More Info</span>
                   </div>
-                )}
-              </div>
-            </div>
-
-            {/* Placeholder next card */}
-            <div className="mx-3 mb-3 bg-white rounded-2xl px-4 py-3 opacity-30" style={{ border: '1px solid #e5e5ea' }}>
-              <div className="w-2/3 h-2 rounded-full bg-[#aeaeb2] mb-2" />
-              <div className="w-full h-1.5 rounded-full bg-[#e5e5ea] mb-1.5" />
-              <div className="w-4/5 h-1.5 rounded-full bg-[#e5e5ea]" />
+                </div>
+              ) : null}
             </div>
           </div>
+        </div>
 
-          {/* Home indicator */}
-          <div className="flex justify-center py-2 bg-[#f2f2f7]">
-            <div className="w-28 h-1 rounded-full bg-[#1c1c1e]/20" />
-          </div>
+        <div className="flex justify-center py-2 bg-[#f2f2f7]">
+          <div className="w-28 h-1 rounded-full bg-[#1c1c1e]/20" />
         </div>
       </div>
     </div>
@@ -303,9 +315,10 @@ const AnnouncementPreviewModal = ({
 
 const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcement | null; open: boolean; onClose: () => void; onSaved: (a: Announcement) => void }) => {
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [timeSlots, setTimeSlots] = useState<TimeSlotDraft[]>([{ start: '', end: '' }]);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const [showMobilePreview, setShowMobilePreview] = useState(false);
   const { translateToUrdu, translating: translatingUrdu } = useUrduTranslation();
 
   const handleTranslateUrdu = async () => {
@@ -341,9 +354,24 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
   if (item !== lastItem) {
     setLastItem(item);
     setForm(item ? { title: item.title, type: (item as Announcement & { type?: string | null }).type ?? '', urdu_title: (item as Announcement & { urdu_title?: string | null }).urdu_title ?? '', body: item.body ?? '', urdu_body: (item as Announcement & { urdu_body?: string | null }).urdu_body ?? '', tag: Boolean((item as Announcement & { tag?: boolean | null }).tag), lead_names: (item as Announcement & { lead_names?: string | null }).lead_names ?? '', urdu_lead_names: (item as Announcement & { urdu_lead_names?: string | null }).urdu_lead_names ?? '', start_time: (item as Announcement & { start_time?: string | null }).start_time ?? '', link_url: item.link_url ?? '', image_url: item.image_url ?? '', is_active: item.is_active, display_order: item.display_order } : { ...EMPTY_FORM });
+    setTimeSlots(parseTimeSlots((item as Announcement & { start_time?: string | null } | null)?.start_time ?? ''));
+    setShowMobilePreview(false);
   }
 
   const set = <K extends keyof typeof EMPTY_FORM>(k: K, v: (typeof EMPTY_FORM)[K]) => setForm((prev) => ({ ...prev, [k]: v }));
+  const updateTimeSlot = (index: number, key: keyof TimeSlotDraft, value: string) => {
+    setTimeSlots((prev) => prev.map((slot, slotIndex) => (slotIndex === index ? { ...slot, [key]: value } : slot)));
+  };
+  const addTimeSlot = () => {
+    setTimeSlots((prev) => [...prev, { start: '', end: '' }]);
+  };
+  const removeTimeSlot = (index: number) => {
+    setTimeSlots((prev) => {
+      if (prev.length <= 1) return [{ start: '', end: '' }];
+      return prev.filter((_, slotIndex) => slotIndex !== index);
+    });
+  };
+  const serializedStartTime = serializeTimeSlots(timeSlots);
 
   const handleUpload = async (file: File) => {
     if (!ANNOUNCEMENTS_EVENTS_BUCKET) {
@@ -370,33 +398,43 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
     if (!form.title?.trim()) { toast.error('Title is required.'); return; }
     setSaving(true);
     try {
-      const payload: Partial<AnnouncementPayload> = { title: form.title.trim(), type: form.type?.trim() || null, urdu_title: form.urdu_title?.trim() || null, body: form.body?.trim() || null, urdu_body: (form as typeof EMPTY_FORM & { urdu_body?: string }).urdu_body?.trim() || null, tag: Boolean(form.tag), lead_names: form.lead_names?.trim() || null, urdu_lead_names: form.urdu_lead_names?.trim() || null, start_time: form.start_time?.trim() || null, link_url: form.link_url?.trim() || null, image_url: form.image_url?.trim() || null, is_active: form.is_active ?? true, display_order: Number(form.display_order) || 0 } as Partial<AnnouncementPayload>;
+      const payload: Partial<AnnouncementPayload> = { title: form.title.trim(), type: form.type?.trim() || null, urdu_title: form.urdu_title?.trim() || null, body: form.body?.trim() || null, urdu_body: (form as typeof EMPTY_FORM & { urdu_body?: string }).urdu_body?.trim() || null, tag: Boolean(form.tag), lead_names: form.lead_names?.trim() || null, urdu_lead_names: form.urdu_lead_names?.trim() || null, start_time: serializedStartTime || null, link_url: form.link_url?.trim() || null, image_url: form.image_url?.trim() || null, is_active: form.is_active ?? true, display_order: Number(form.display_order) || 0 } as Partial<AnnouncementPayload>;
       const saved = item ? await updateAnnouncement(item.id, payload) : await createAnnouncement(payload);
       toast.success(item ? 'Announcement updated.' : 'Announcement created.');
       onSaved(saved);
-    } catch (err) { console.error(err); toast.error('Failed to save.'); } finally { setSaving(false); }
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : 'Failed to save.');
+    } finally { setSaving(false); }
   };
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onClose}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center">
-                <Bell size={14} className="text-[hsl(142_60%_32%)]" />
-              </div>
-              {item ? 'Edit Announcement' : 'New Announcement'}
-              <button
-                type="button"
-                onClick={() => setShowPreview(true)}
-                className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] text-xs font-medium hover:bg-[hsl(142_50%_95%)] transition-colors"
-              >
-                <Eye size={12} /> Preview
-              </button>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-5 py-1">
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-[92vh] sm:max-h-[92vh] overflow-hidden p-0 rounded-none sm:rounded-lg flex flex-col">
+        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] text-white">
+          <DialogTitle className="text-sm sm:text-base font-bold flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-white/20 ring-1 ring-white/30 flex items-center justify-center shrink-0">
+              <Bell size={15} className="text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate">{item ? 'Edit Announcement' : 'New Announcement'}</p>
+              <p className="text-[11px] text-white/85 mt-1 hidden sm:block">Live preview mirrors how this announcement renders in the app.</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="lg:hidden gap-1 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white h-8"
+              onClick={() => setShowMobilePreview((value) => !value)}
+            >
+              {showMobilePreview ? <EyeOff size={14} /> : <Eye size={14} />} {showMobilePreview ? 'Editor' : 'Preview'}
+            </Button>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_390px] h-full min-h-0 overflow-hidden">
+            <div className={`${showMobilePreview ? 'hidden' : 'block'} lg:block min-h-0 overflow-y-auto px-4 sm:px-6 py-4 border-r border-[hsl(140_20%_92%)]`}>
+              <div className="space-y-5 pb-4">
             <div className="space-y-1.5">
               <Label className="text-sm font-medium">Title <span className="text-destructive">*</span></Label>
               <Input value={form.title ?? ''} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Ramadan Timetable Now Available" className="h-9" autoFocus />
@@ -415,7 +453,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
                 placeholder="اردو عنوان یہاں لکھیں…"
                 dir="rtl"
                 className="h-9 text-sm text-right"
-                style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif" }}
+                style={{ fontFamily: "'UrduNastaliq', 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif" }}
               />
             </div>
             <div className="space-y-1.5">
@@ -489,17 +527,47 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
                 placeholder="مہمان یا استاد کے نام…"
                 dir="rtl"
                 className="h-9 text-sm text-right"
-                style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif" }}
+                style={{ fontFamily: "'UrduNastaliq', 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif" }}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm font-medium">Start Time <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-              <Input
-                type="time"
-                value={form.start_time ?? ''}
-                onChange={(e) => set('start_time', e.target.value)}
-                className="h-9 text-sm"
-              />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-sm font-medium">Event Time Slots <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                <button
+                  type="button"
+                  onClick={addTimeSlot}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[hsl(142_50%_75%)] text-[hsl(142_60%_32%)] text-[11px] font-semibold hover:bg-[hsl(142_50%_95%)] transition-colors"
+                >
+                  <Plus size={11} /> Add slot
+                </button>
+              </div>
+              <div className="space-y-2">
+                {timeSlots.map((slot, slotIndex) => (
+                  <div key={`time-slot-${slotIndex}`} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                    <Input
+                      value={slot.start}
+                      onChange={(e) => updateTimeSlot(slotIndex, 'start', e.target.value)}
+                      placeholder="Start (e.g. 1:30 PM)"
+                      className="h-9 text-sm"
+                    />
+                    <Input
+                      value={slot.end}
+                      onChange={(e) => updateTimeSlot(slotIndex, 'end', e.target.value)}
+                      placeholder="End (e.g. 2:15 PM)"
+                      className="h-9 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeTimeSlot(slotIndex)}
+                      className="w-9 h-9 rounded-lg border border-[hsl(140_20%_88%)] text-muted-foreground hover:bg-[hsl(140_25%_96%)] hover:text-foreground flex items-center justify-center"
+                      aria-label="Remove time slot"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">Add one row per event session. Example: 1:30 PM - 2:15 PM | 2:30 PM - 3:15 PM</p>
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -516,7 +584,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
                 dir="rtl"
                 rows={3}
                 className="w-full rounded-xl border border-[hsl(140_20%_88%)] bg-background px-4 py-3 text-sm text-right focus:outline-none focus:ring-2 focus:ring-[hsl(142_60%_35%/0.3)] focus:border-[hsl(142_50%_70%)] resize-none"
-                style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }}
+                style={{ fontFamily: "'UrduNastaliq', 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }}
               />
             </div>
             <div className="space-y-2">
@@ -557,24 +625,39 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
                 </button>
               </div>
             </div>
+              </div>
+            </div>
+
+            <aside className={`${showMobilePreview ? 'block' : 'hidden'} lg:block min-h-0 overflow-y-auto bg-gradient-to-b from-[hsl(140_30%_98%)] to-white`}>
+              <div className="sticky top-0 z-10 border-b border-[hsl(140_20%_92%)] bg-white/95 backdrop-blur px-4 py-2 flex items-center gap-2">
+                <Eye size={14} className="text-[hsl(142_60%_32%)]" />
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Live preview</p>
+                  <p className="text-[10px] text-muted-foreground">Mirrors how the app renders this announcement.</p>
+                </div>
+              </div>
+              <div className="p-4">
+                <AnnouncementLivePreview
+                  title={form.title ?? ''}
+                  body={form.body ?? ''}
+                  imageUrl={form.image_url ?? ''}
+                  linkUrl={form.link_url ?? ''}
+                  type={form.type ?? ''}
+                  leadNames={form.lead_names ?? ''}
+                  startTime={serializedStartTime}
+                />
+              </div>
+            </aside>
           </div>
-          <DialogFooter> {/* This was the missing closing tag */}
+        </div>
+
+        <DialogFooter className="px-4 sm:px-6 py-3 border-t border-[hsl(140_20%_92%)] bg-white"> {/* This was the missing closing tag */}
             <Button onClick={handleSave} disabled={saving} className="gap-2">
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} {item ? 'Save Changes' : 'Create Announcement'}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AnnouncementPreviewModal
-        open={showPreview}
-        onClose={() => setShowPreview(false)}
-        title={form.title ?? ''}
-        body={form.body ?? ''}
-        imageUrl={form.image_url ?? ''}
-        linkUrl={form.link_url ?? ''}
-      />
-    </>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 
@@ -595,17 +678,12 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
   };
 
   const plainBody = item.body ? item.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : null;
-  const formattedStartTime = item.start_time
-    ? (() => {
-        const m = item.start_time.match(/^(\d{1,2}):(\d{2})/);
-        if (!m) return item.start_time;
-        const hour24 = Number(m[1]);
-        const minute = m[2];
-        const meridiem = hour24 >= 12 ? 'PM' : 'AM';
-        const hour12 = hour24 % 12 || 12;
-        return `${hour12}:${minute} ${meridiem}`;
-      })()
-    : null;
+  const formattedTimeEntries = splitAnnouncementTimeEntries(item.start_time).map(formatSimpleTimeForDisplay);
+  const formattedStartTime = formattedTimeEntries.length === 0
+    ? null
+    : formattedTimeEntries.length === 1
+      ? formattedTimeEntries[0]
+      : `${formattedTimeEntries[0]} +${formattedTimeEntries.length - 1} more`;
 
   return (
     <div ref={setNodeRef}
@@ -636,7 +714,7 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
           {plainBody && <p className="text-xs text-muted-foreground mt-1 leading-relaxed line-clamp-2">{plainBody}</p>}
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
             {item.lead_names && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Users size={10} /> {item.lead_names}</span>}
-            {formattedStartTime && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Clock3 size={10} /> {formattedStartTime}</span>}
+            {formattedStartTime && <span className="text-[11px] text-muted-foreground flex items-center gap-1" title={formattedTimeEntries.join(' | ')}><Clock3 size={10} /> {formattedStartTime}</span>}
             {item.image_url && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><ImagePlus size={10} /> Poster</span>}
             {item.link_url && <a href={item.link_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] font-medium text-[hsl(142_60%_35%)] hover:underline"><ExternalLink size={10} /> More Info</a>}
           </div>

@@ -17,6 +17,7 @@ import SunnahReminders from "./pages/SunnahReminders";
 import QaseedahNaats from "./pages/QaseedahNaats";
 import Notifications from "./pages/Notifications";
 import HowToGuides from "./pages/HowToGuides";
+import DonationOptions from "./pages/DonationOptions";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
@@ -93,6 +94,7 @@ const AppRoutes = () => {
         <Route path="/sunnah-reminders" element={<ProtectedRoute><SunnahReminders /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/howto-guides" element={<ProtectedRoute><HowToGuides /></ProtectedRoute>} />
+        <Route path="/donation-options" element={<ProtectedRoute><DonationOptions /></ProtectedRoute>} />
         <Route path="/excel-converter" element={<ProtectedRoute><ExcelConverter /></ProtectedRoute>} />
 
         {/* Admin-only routes */}

@@ -9,6 +9,12 @@ import {
   createAnnouncement,
   updateAnnouncement,
   deleteAnnouncement,
+  fetchDonationOptions,
+  createDonationOption,
+  updateDonationOption,
+  deleteDonationOption,
+  bulkReorderDonationOptions,
+  fetchDonationOptionAudit,
   fetchSunnahReminders,
   createSunnahReminder,
   updateSunnahReminder,
@@ -21,6 +27,10 @@ import {
 import type {
   Announcement,
   AnnouncementPayload,
+  DonationFrequency,
+  DonationOption,
+  DonationOptionAudit,
+  DonationOptionPayload,
   SunnahReminder,
   SunnahReminderPayload,
   SunnahGroup,
@@ -36,6 +46,34 @@ export const announcementsService = {
   delete: (id: string): Promise<void> => deleteAnnouncement(id),
   filterActive: (announcements: Announcement[]): Announcement[] =>
     announcements.filter((a) => a.is_active),
+};
+
+// ─── Donation Options ───────────────────────────────────────────────────────
+
+export const donationOptionsService = {
+  getAll: (options?: { includeInactive?: boolean; frequency?: DonationFrequency }): Promise<DonationOption[]> =>
+    fetchDonationOptions(options),
+  create: (data: Partial<DonationOptionPayload>): Promise<DonationOption> => createDonationOption(data),
+  update: (id: string, data: Partial<DonationOptionPayload>): Promise<DonationOption> => updateDonationOption(id, data),
+  delete: (id: string): Promise<void> => deleteDonationOption(id),
+  reorder: (updates: Array<{ id: string; pin_order: number; display_order: number; global_order: number }>): Promise<void> =>
+    bulkReorderDonationOptions(updates),
+  getAudit: (limit = 100): Promise<DonationOptionAudit[]> => fetchDonationOptionAudit(limit),
+  filterActive: (options: DonationOption[]): DonationOption[] => options.filter((option) => option.is_active),
+  groupByFrequency: (options: DonationOption[]): Map<DonationFrequency, DonationOption[]> => {
+    const grouped = new Map<DonationFrequency, DonationOption[]>([
+      ['one-off', []],
+      ['monthly', []],
+    ]);
+
+    for (const option of options) {
+      const bucket = grouped.get(option.frequency) ?? [];
+      bucket.push(option);
+      grouped.set(option.frequency, bucket);
+    }
+
+    return grouped;
+  },
 };
 
 // ─── Sunnah Reminders ─────────────────────────────────────────────────────────

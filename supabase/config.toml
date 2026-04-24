@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.translate-urdu]
 verify_jwt = false
+
+[functions.create-donation-option-stripe]
+verify_jwt = true

@@ -18,6 +18,7 @@ const ALL_NAV_ITEMS = [
   { to: '/qaseedah-naats',    icon: FileText,        label: 'Qaseedahs & Naats',  adminOnly: false },
   { to: '/howto-guides',      icon: FolderTree,      label: 'How-To Guides',    adminOnly: false },
   { to: '/announcements',     icon: Bell,            label: 'Announcements',    adminOnly: false },
+  { to: '/donation-options',  icon: Star,            label: 'Donation Options', adminOnly: false, requiresEdit: true },
   { to: '/sunnah-reminders',  icon: Star,            label: 'Sunnah Reminders', adminOnly: false },
   { to: '/notifications',     icon: BellRing,        label: 'Notifications',    adminOnly: false },
 
@@ -107,8 +108,12 @@ const SidebarFooter = ({ onNavClick }: { onNavClick?: () => void }) => {
 };
 
 const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => {
-  const { isAdmin } = usePermissions();
-  const visibleItems = ALL_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+  const { isAdmin, canEdit } = usePermissions();
+  const visibleItems = ALL_NAV_ITEMS.filter((item) => {
+    if (item.adminOnly && !isAdmin) return false;
+    if (item.requiresEdit && !canEdit) return false;
+    return true;
+  });
 
   return (
     <div className="flex flex-col h-full">

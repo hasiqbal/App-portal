@@ -370,6 +370,49 @@ export interface Announcement {
 
 export type AnnouncementPayload = Omit<Announcement, 'id' | 'created_at' | 'updated_at'>;
 
+// ─── Donation Options ───────────────────────────────────────────────────────
+
+export type DonationFrequency = 'one-off' | 'monthly';
+export type DonationAuditAction = 'insert' | 'update' | 'delete';
+
+export interface DonationOption {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  frequency: DonationFrequency;
+  amount_minor: number | null;
+  currency: string;
+  is_custom: boolean;
+  tags: string[];
+  is_active: boolean;
+  is_featured: boolean;
+  is_pinned: boolean;
+  pin_order: number;
+  display_order: number;
+  global_order: number;
+  campaign_label: string | null;
+  campaign_copy: string | null;
+  promo_start_at: string | null;
+  promo_end_at: string | null;
+  price_slot: number | null;
+  stripe_price_id: string | null;
+  stripe_product_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DonationOptionPayload = Omit<DonationOption, 'id' | 'created_at' | 'updated_at'>;
+
+export interface DonationOptionAudit {
+  id: string;
+  donation_option_id: string | null;
+  actor_id: string | null;
+  action: DonationAuditAction;
+  before_data: DonationOption | null;
+  after_data: DonationOption | null;
+  created_at: string;
+}
+
 // ─── Sunnah Reminders ────────────────────────────────────────────────────────
 
 export interface SunnahReminder {

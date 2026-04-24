@@ -173,8 +173,8 @@ function mapAnnouncementRow(row: Record<string, unknown>, includeUrdu: boolean, 
       : null,
     start_time:
       asTrimmedString(row.start_time)
-      ?? asTrimmedString(row.time)
       ?? asTrimmedString(row.event_time)
+      ?? asTrimmedString(row.time)
       ?? null,
     image_url: asTrimmedString(row.image_url),
     link_url: asTrimmedString(row.link_url),

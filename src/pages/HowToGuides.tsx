@@ -152,6 +152,27 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   return next;
 }
 
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+
+  const queue = [...items];
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (queue.length > 0) {
+        const next = queue.shift();
+        if (next === undefined) return;
+        await worker(next);
+      }
+    }),
+  );
+}
+
 function parseGuideNotesText(value: string): string[] {
   return value
     .split(/\n\s*\n+/)
@@ -195,7 +216,7 @@ function containsLatinScript(value: string): boolean {
 export default function HowToGuidesPage() {
   const queryClient = useQueryClient();
   const { canEdit, canDelete, role } = usePermissions();
-  const { translateToUrdu } = useUrduTranslation();
+  const { translateManyToUrdu } = useUrduTranslation();
 
   const [activeEditingLanguage, setActiveEditingLanguage] = useState<EditingLanguage>('en');
   const [filtersByLanguage, setFiltersByLanguage] = useState<Record<EditingLanguage, GuideFilterState>>({
@@ -234,6 +255,16 @@ export default function HowToGuidesPage() {
   const [saving, setSaving] = useState(false);
   const [creatingDemo, setCreatingDemo] = useState(false);
   const [autoTranslatingTree, setAutoTranslatingTree] = useState(false);
+  const [massTranslatingGroup, setMassTranslatingGroup] = useState(false);
+  const [treePreviewMode, setTreePreviewMode] = useState<'source' | 'urdu'>('source');
+  const [urduPreviewLoading, setUrduPreviewLoading] = useState(false);
+  const [urduPreviewData, setUrduPreviewData] = useState<{
+    title: string;
+    subtitle: string;
+    intro: string;
+    notesText: string;
+    sections: SectionDraft[];
+  } | null>(null);
 
   const { data: groups = [], isLoading: groupsLoading, refetch: refetchGroups } = useQuery({
     queryKey: GROUPS_KEY,
@@ -261,12 +292,22 @@ export default function HowToGuidesPage() {
 
   const [showMobilePreview, setShowMobilePreview] = useState(false);
   const urduTranslationCacheRef = useRef<Map<string, string>>(new Map());
-  const urduTranslationInflightRef = useRef<Map<string, Promise<string>>>(new Map());
   const urduLabelsBackfillStartedRef = useRef(false);
   const urduLabelsBackfillRunningRef = useRef(false);
+  const urduPreviewRequestRef = useRef(0);
 
   const activeFilters = filtersByLanguage[activeEditingLanguage];
   const englishGuides = useMemo(() => guides.filter((guide) => guide.language === 'en'), [guides]);
+  const selectedFilterGroup = useMemo(
+    () => (activeFilters.selectedGroupFilter === 'all'
+      ? null
+      : groups.find((group) => group.id === activeFilters.selectedGroupFilter) ?? null),
+    [activeFilters.selectedGroupFilter, groups],
+  );
+  const englishGuidesInFilterGroup = useMemo(
+    () => (selectedFilterGroup ? englishGuides.filter((guide) => guide.group_id === selectedFilterGroup.id) : []),
+    [englishGuides, selectedFilterGroup],
+  );
   const englishGroupMap = useMemo(() => {
     const counts = new Map<string, number>();
     englishGuides.forEach((guide) => {
@@ -443,6 +484,10 @@ export default function HowToGuidesPage() {
     setTreeGuide(guide);
     setTreeDialogOpen(true);
     setTreeLoading(true);
+    setTreePreviewMode('source');
+    setUrduPreviewData(null);
+    setUrduPreviewLoading(false);
+    urduPreviewRequestRef.current += 1;
 
     try {
       const tree = await fetchHowToGuideTree(guide.id);
@@ -758,6 +803,29 @@ export default function HowToGuidesPage() {
 
   const normalizeTranslationKey = (value: string): string => value.trim().replace(/\s+/g, ' ');
 
+  const translateFragmentsWithCache = async (fragments: string[]): Promise<Map<string, string>> => {
+    const normalizedUnique = Array.from(new Set(
+      fragments
+        .map((fragment) => normalizeTranslationKey(fragment))
+        .filter((fragment) => fragment.length > 0 && /[A-Za-z]/.test(fragment)),
+    ));
+
+    const missing = normalizedUnique.filter((fragment) => !urduTranslationCacheRef.current.has(fragment));
+    if (missing.length > 0) {
+      const translated = await translateManyToUrdu(missing, { silent: true });
+      missing.forEach((fragment, index) => {
+        const resolved = translated[index]?.trim() || fragment;
+        urduTranslationCacheRef.current.set(fragment, resolved);
+      });
+    }
+
+    const resolved = new Map<string, string>();
+    normalizedUnique.forEach((fragment) => {
+      resolved.set(fragment, urduTranslationCacheRef.current.get(fragment) || fragment);
+    });
+    return resolved;
+  };
+
   const translateFragmentWithCache = async (fragment: string): Promise<string> => {
     const normalized = normalizeTranslationKey(fragment);
     if (!normalized) return fragment;
@@ -765,30 +833,14 @@ export default function HowToGuidesPage() {
     const hasLatin = /[A-Za-z]/.test(normalized);
     if (!hasLatin) return fragment;
 
-    const cached = urduTranslationCacheRef.current.get(normalized);
-    if (cached) return cached;
-
-    const inflight = urduTranslationInflightRef.current.get(normalized);
-    if (inflight) return inflight;
-
-    const request = (async () => {
-      const translated = await translateToUrdu(normalized, { silent: true });
-      const resolved = translated?.trim() || fragment;
-      urduTranslationCacheRef.current.set(normalized, resolved);
-      urduTranslationInflightRef.current.delete(normalized);
-      return resolved;
-    })();
-
-    urduTranslationInflightRef.current.set(normalized, request);
-    return request;
+    const batch = await translateFragmentsWithCache([normalized]);
+    return batch.get(normalized) || fragment;
   };
 
   const translateLineForUrdu = async (line: string): Promise<string> => {
     if (!line.trim()) return line;
 
-    if (!containsArabicScript(line)) {
-      return translateFragmentWithCache(line);
-    }
+    if (!containsArabicScript(line)) return translateFragmentWithCache(line);
 
     if (!/[A-Za-z]/.test(line)) {
       return line;
@@ -801,7 +853,8 @@ export default function HowToGuidesPage() {
       return token;
     });
 
-    let translated = await translateFragmentWithCache(placeholderText);
+    const batch = await translateFragmentsWithCache([placeholderText]);
+    let translated = batch.get(normalizeTranslationKey(placeholderText)) || placeholderText;
     arabicRuns.forEach((run, index) => {
       translated = translated.replaceAll(`__AR_SEG_${index}__`, run);
     });
@@ -845,6 +898,39 @@ export default function HowToGuidesPage() {
     return value;
   };
 
+  const translateSectionsForUrdu = async (sections: SectionDraft[]): Promise<SectionDraft[]> => {
+    return Promise.all(
+      sections.map(async (section) => ({
+        ...section,
+        heading: await translateTextForUrdu(section.heading),
+        steps: await Promise.all(section.steps.map(async (step) => {
+          const translatedBlocks = await Promise.all(
+            step.blocks.map(async (block) => ({
+              ...block,
+              payload: await translatePayloadValue(block.payload) as Record<string, unknown>,
+            })),
+          );
+
+          const translatedImages = await Promise.all(
+            step.images.map(async (image) => ({
+              ...image,
+              caption: await translateTextForUrdu(image.caption),
+            })),
+          );
+
+          return {
+            ...step,
+            title: await translateTextForUrdu(step.title),
+            detail: await translateTextForUrdu(step.detail),
+            note: await translateTextForUrdu(step.note),
+            blocks: translatedBlocks,
+            images: translatedImages,
+          };
+        })),
+      })),
+    );
+  };
+
   const autoTranslateUrduTree = async () => {
     if (!treeGuide || treeGuide.language !== 'ur') return;
 
@@ -853,48 +939,11 @@ export default function HowToGuidesPage() {
 
     setAutoTranslatingTree(true);
     try {
-      const translatedIntro = await translateTextForUrdu(treeGuideIntro);
-      const translatedNotes = await Promise.all(parseGuideNotesText(treeGuideNotesText).map((note) => translateTextForUrdu(note)));
-
-      const translatedSections: SectionDraft[] = [];
-      for (const section of treeSections) {
-        const translatedHeading = await translateTextForUrdu(section.heading);
-        const translatedSteps: StepDraft[] = [];
-
-        for (const step of section.steps) {
-          const translatedBlocks: BlockDraft[] = [];
-          for (const block of step.blocks) {
-            const translatedPayload = await translatePayloadValue(block.payload);
-            translatedBlocks.push({
-              ...block,
-              payload: translatedPayload as Record<string, unknown>,
-            });
-          }
-
-          const translatedImages: ImageDraft[] = [];
-          for (const image of step.images) {
-            translatedImages.push({
-              ...image,
-              caption: await translateTextForUrdu(image.caption),
-            });
-          }
-
-          translatedSteps.push({
-            ...step,
-            title: await translateTextForUrdu(step.title),
-            detail: await translateTextForUrdu(step.detail),
-            note: await translateTextForUrdu(step.note),
-            blocks: translatedBlocks,
-            images: translatedImages,
-          });
-        }
-
-        translatedSections.push({
-          ...section,
-          heading: translatedHeading,
-          steps: translatedSteps,
-        });
-      }
+      const [translatedIntro, translatedNotes, translatedSections] = await Promise.all([
+        translateTextForUrdu(treeGuideIntro),
+        Promise.all(parseGuideNotesText(treeGuideNotesText).map((note) => translateTextForUrdu(note))),
+        translateSectionsForUrdu(treeSections),
+      ]);
 
       setTreeGuideIntro(translatedIntro);
       setTreeGuideNotesText(translatedNotes.join('\n\n'));
@@ -960,6 +1009,129 @@ export default function HowToGuidesPage() {
       intro: translatedIntro || guide.intro || null,
     });
   };
+
+  const massTranslateCurrentGroupToUrdu = async () => {
+    const groupId = activeFilters.selectedGroupFilter;
+    if (groupId === 'all') {
+      toast.error('Select a group first to run mass translation.');
+      return;
+    }
+
+    if (englishGuidesInFilterGroup.length === 0) {
+      toast.error('No English guides found in the selected group.');
+      return;
+    }
+
+    const groupLabel = selectedFilterGroup?.name ?? 'selected group';
+    const confirmed = window.confirm(`Translate all English guides in "${groupLabel}" to Urdu?`);
+    if (!confirmed) return;
+
+    setMassTranslatingGroup(true);
+    try {
+      if (selectedFilterGroup) {
+        const translatedGroupName = await translateTextForUrdu(selectedFilterGroup.name);
+        const nextUrduName = translatedGroupName.trim();
+        if (nextUrduName && nextUrduName !== (selectedFilterGroup.urdu_name ?? '').trim()) {
+          await updateHowToGroup(selectedFilterGroup.id, { urdu_name: nextUrduName });
+        }
+      }
+
+      const duplicateResult = await duplicateHowToGroupEntriesFromEnglish({
+        sourceGroupId: groupId,
+        sourceGuideIds: englishGuidesInFilterGroup.map((guide) => guide.id),
+        targetGroupId: groupId,
+        createTargetUrduGroup: false,
+      });
+
+      const existingUrduGuidesInGroup = guides.filter((guide) => guide.group_id === groupId && guide.language === 'ur');
+      const targetUrduGuides = Array.from(
+        new Map(
+          [...existingUrduGuidesInGroup, ...duplicateResult.guides].map((guide) => [guide.id, guide]),
+        ).values(),
+      );
+
+      await runWithConcurrency(targetUrduGuides, 3, async (guide) => {
+        await autoTranslatePersistedUrduGuideMetadata(guide);
+        await autoTranslatePersistedUrduGuide(guide.id);
+      });
+
+      await queryClient.invalidateQueries({ queryKey: GROUPS_KEY });
+      await queryClient.invalidateQueries({ queryKey: GUIDES_KEY });
+
+      setActiveEditingLanguage('ur');
+      setFiltersByLanguage((prev) => ({
+        ...prev,
+        ur: {
+          ...prev.ur,
+          search: '',
+          selectedGroupFilter: groupId,
+          selectedStatusFilter: 'all',
+        },
+      }));
+
+      toast.success(
+        `Mass translation complete: ${targetUrduGuides.length} Urdu ${targetUrduGuides.length === 1 ? 'guide' : 'guides'} in ${groupLabel}.`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Mass translation failed.');
+    } finally {
+      setMassTranslatingGroup(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!treeDialogOpen || !treeGuide || treeGuide.language !== 'en' || treePreviewMode !== 'urdu') {
+      return;
+    }
+
+    const requestId = urduPreviewRequestRef.current + 1;
+    urduPreviewRequestRef.current = requestId;
+
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        setUrduPreviewLoading(true);
+        try {
+          const [title, subtitle, intro, notes, sections] = await Promise.all([
+            translateTextForUrdu(treeGuide.title),
+            translateTextForUrdu(treeGuide.subtitle ?? ''),
+            translateTextForUrdu(treeGuideIntro),
+            Promise.all(parseGuideNotesText(treeGuideNotesText).map((note) => translateTextForUrdu(note))),
+            translateSectionsForUrdu(treeSections),
+          ]);
+
+          if (urduPreviewRequestRef.current !== requestId) return;
+          setUrduPreviewData({
+            title: title.trim() || treeGuide.title,
+            subtitle: subtitle.trim() || (treeGuide.subtitle ?? ''),
+            intro,
+            notesText: notes.join('\n\n'),
+            sections,
+          });
+        } catch {
+          if (urduPreviewRequestRef.current === requestId) {
+            setUrduPreviewData(null);
+          }
+        } finally {
+          if (urduPreviewRequestRef.current === requestId) {
+            setUrduPreviewLoading(false);
+          }
+        }
+      })();
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  // Preview translation helpers are component-local and intentionally captured from current closure.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    treeDialogOpen,
+    treeGuide,
+    treeGuideIntro,
+    treeGuideNotesText,
+    treePreviewMode,
+    treeSections,
+  ]);
 
   const backfillExistingUrduLabels = useCallback(async () => {
     if (urduLabelsBackfillRunningRef.current) return;
@@ -1314,6 +1486,24 @@ export default function HowToGuidesPage() {
     }
   };
 
+  const useDerivedUrduPreview = treeGuide?.language === 'en' && treePreviewMode === 'urdu';
+  const previewLanguage: EditingLanguage = (treeGuide?.language === 'ur' || useDerivedUrduPreview) ? 'ur' : 'en';
+  const previewTitle = useDerivedUrduPreview
+    ? (urduPreviewData?.title ?? treeGuide?.title ?? '')
+    : (treeGuide?.title ?? '');
+  const previewSubtitle = useDerivedUrduPreview
+    ? (urduPreviewData?.subtitle ?? treeGuide?.subtitle ?? '')
+    : (treeGuide?.subtitle ?? '');
+  const previewIntro = useDerivedUrduPreview
+    ? (urduPreviewData?.intro ?? treeGuideIntro)
+    : treeGuideIntro;
+  const previewNotesText = useDerivedUrduPreview
+    ? (urduPreviewData?.notesText ?? treeGuideNotesText)
+    : treeGuideNotesText;
+  const previewSectionsSource = useDerivedUrduPreview
+    ? (urduPreviewData?.sections ?? treeSections)
+    : treeSections;
+
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-[hsl(140_30%_97%)] via-[hsl(160_30%_97%)] to-[hsl(180_25%_97%)]">
       <Sidebar />
@@ -1442,9 +1632,23 @@ export default function HowToGuidesPage() {
             </div>
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="howto-search" className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">Guide Filters</Label>
-              <Button type="button" size="sm" variant="ghost" className="h-8" onClick={clearGuideFilters} disabled={!hasActiveGuideFilters}>
-                Clear
-              </Button>
+              <div className="flex items-center gap-2">
+                {activeEditingLanguage === 'en' ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1"
+                    onClick={() => void massTranslateCurrentGroupToUrdu()}
+                    disabled={!canEdit || massTranslatingGroup || !selectedFilterGroup || englishGuidesInFilterGroup.length === 0}
+                  >
+                    <Languages size={13} /> {massTranslatingGroup ? 'Translating...' : 'Translate Current Group'}
+                  </Button>
+                ) : null}
+                <Button type="button" size="sm" variant="ghost" className="h-8" onClick={clearGuideFilters} disabled={!hasActiveGuideFilters}>
+                  Clear
+                </Button>
+              </div>
             </div>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_170px]">
               <div className="relative">
@@ -2550,15 +2754,41 @@ export default function HowToGuidesPage() {
                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Live preview</p>
                     <p className="text-[10px] text-muted-foreground">Mirrors how the app renders this guide.</p>
                   </div>
+                  {treeGuide?.language === 'en' ? (
+                    <div className="ml-auto flex items-center gap-2">
+                      <div className="inline-flex rounded-lg border border-[hsl(140_20%_86%)] bg-[hsl(140_30%_98%)] p-0.5">
+                        <button
+                          type="button"
+                          className={`rounded-md px-2 py-1 text-[10px] font-semibold ${treePreviewMode === 'source' ? 'bg-white text-[hsl(142_60%_28%)] shadow-sm' : 'text-[hsl(142_20%_38%)]'}`}
+                          onClick={() => setTreePreviewMode('source')}
+                        >
+                          Source
+                        </button>
+                        <button
+                          type="button"
+                          className={`rounded-md px-2 py-1 text-[10px] font-semibold ${treePreviewMode === 'urdu' ? 'bg-white text-[hsl(142_60%_28%)] shadow-sm' : 'text-[hsl(142_20%_38%)]'}`}
+                          onClick={() => setTreePreviewMode('urdu')}
+                        >
+                          Urdu
+                        </button>
+                      </div>
+                      {treePreviewMode === 'urdu' ? (
+                        <span className="text-[10px] text-muted-foreground">
+                          {urduPreviewLoading ? 'Translating...' : 'Urdu preview'}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="p-3 sm:p-4">
                   <HowToGuidePreview
-                    title={treeGuide?.title ?? ''}
-                    subtitle={treeGuide?.subtitle ?? ''}
-                    intro={treeGuideIntro}
-                    notes={parseGuideNotesText(treeGuideNotesText)}
+                    title={previewTitle}
+                    subtitle={previewSubtitle}
+                    intro={previewIntro}
+                    notes={parseGuideNotesText(previewNotesText)}
                     accentColor={treeGuide?.color ?? '#2e7d32'}
-                    sections={treeSections.map((section) => ({
+                    previewLanguage={previewLanguage}
+                    sections={previewSectionsSource.map((section) => ({
                       heading: section.heading,
                       steps: section.steps.map((step, stepIndex) => ({
                         step: stepIndex + 1,

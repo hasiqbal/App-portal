@@ -9,5 +9,5 @@
 export { prayerTimesService } from './prayerTimesService';
 export { adhkaarService, adhkaarGroupsService } from './adhkaarService';
 export { notificationService, deviceTokenService } from './notificationService';
-export { announcementsService, sunnahService, sunnahGroupsService } from './contentService';
+export { announcementsService, donationOptionsService, sunnahService, sunnahGroupsService } from './contentService';
 

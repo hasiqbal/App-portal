@@ -38,13 +38,16 @@ export async function invokeExternalFunction<T = unknown>(
   body: unknown,
 ): Promise<{ data: T | null; error: string | null }> {
   try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token ?? SUPABASE_ANON_KEY;
+
     const res = await fetch(
       `${SUPABASE_URL}/functions/v1/${functionName}`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Authorization': `Bearer ${accessToken}`,
           'apikey': SUPABASE_ANON_KEY,
         },
         body: JSON.stringify(body),
