@@ -40,6 +40,63 @@ export interface DeviceToken {
   last_active: string;
 }
 
+export interface NotificationAutomation {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule_type: 'one_time' | 'daily' | 'weekly' | 'prayer';
+  schedule_timezone: string;
+  one_time_at: string | null;
+  next_run_at: string | null;
+  recurrence_days: number[];
+  prayer_names: string[];
+  title: string;
+  body: string;
+  urdu_body: string | null;
+  image_url: string | null;
+  link_url: string | null;
+  cta_label: string | null;
+  audience: string;
+  category: string;
+  run_count: number;
+  last_run_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationAutomationEvent {
+  id: string;
+  automation_id: string | null;
+  notification_id: string | null;
+  scheduled_for: string | null;
+  processed_at: string | null;
+  status: 'queued' | 'sent' | 'failed' | 'skipped';
+  recipient_count: number | null;
+  error_message: string | null;
+  payload_json: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface UpsertAutomationPayload {
+  name: string;
+  enabled: boolean;
+  schedule_type: 'one_time' | 'daily' | 'weekly' | 'prayer';
+  schedule_timezone: string;
+  one_time_at?: string | null;
+  next_run_at?: string | null;
+  recurrence_days?: number[];
+  prayer_names?: string[];
+  title: string;
+  body: string;
+  urdu_body?: string | null;
+  image_url?: string | null;
+  link_url?: string | null;
+  cta_label?: string | null;
+  audience?: string;
+  category?: string;
+}
+
 export interface SendNotificationPayload {
   title: string;
   body: string;
@@ -235,5 +292,65 @@ export const deviceTokenService = {
       android: active.filter((t) => t.platform === 'android'),
       other: active.filter((t) => t.platform !== 'ios' && t.platform !== 'android'),
     };
+  },
+};
+
+// ─── Automations ─────────────────────────────────────────────────────────────
+
+export const notificationAutomationService = {
+  /** Fetch all automation rules, newest first. */
+  getAll: async (): Promise<NotificationAutomation[]> => {
+    const { data, error } = await supabase
+      .from('notification_automations')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(`Failed to fetch automation rules: ${error.message}`);
+    return (data ?? []) as NotificationAutomation[];
+  },
+
+  /** Fetch recent automation execution events. */
+  getRecentEvents: async (limit = 40): Promise<NotificationAutomationEvent[]> => {
+    const { data, error } = await supabase
+      .from('notification_automation_events')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(`Failed to fetch automation events: ${error.message}`);
+    return (data ?? []) as NotificationAutomationEvent[];
+  },
+
+  /** Create a new automation rule. */
+  create: async (payload: UpsertAutomationPayload): Promise<NotificationAutomation> => {
+    const { data, error } = await supabase
+      .from('notification_automations')
+      .insert({
+        ...payload,
+        recurrence_days: payload.recurrence_days ?? [],
+        prayer_names: payload.prayer_names ?? [],
+        audience: payload.audience ?? 'all',
+        category: payload.category ?? 'general',
+      })
+      .select('*')
+      .single();
+    if (error) throw new Error(`Failed to create automation rule: ${error.message}`);
+    return data as NotificationAutomation;
+  },
+
+  /** Enable/disable an automation rule. */
+  setEnabled: async (id: string, enabled: boolean): Promise<void> => {
+    const { error } = await supabase
+      .from('notification_automations')
+      .update({ enabled })
+      .eq('id', id);
+    if (error) throw new Error(`Failed to update automation status: ${error.message}`);
+  },
+
+  /** Delete an automation rule. */
+  delete: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('notification_automations')
+      .delete()
+      .eq('id', id);
+    if (error) throw new Error(`Failed to delete automation rule: ${error.message}`);
   },
 };

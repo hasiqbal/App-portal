@@ -38,12 +38,65 @@ interface ExpoPushTicket {
   details?: { error?: string };
 }
 
+interface JwtClaims {
+  role?: string;
+  portal_role?: string;
+  app_metadata?: { role?: string };
+  user_metadata?: { role?: string; portal_role?: string };
+}
+
+function decodeJwtClaims(token: string): JwtClaims | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const json = atob(padded);
+    return JSON.parse(json) as JwtClaims;
+  } catch {
+    return null;
+  }
+}
+
+function getRequesterRole(req: Request): string | null {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+
+  const token = authHeader.slice(7).trim();
+
+   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
+   if (serviceRoleKey && token === serviceRoleKey) {
+     return 'service_role';
+   }
+
+  const claims = decodeJwtClaims(token);
+  if (!claims) return null;
+
+  if (claims.role === 'service_role') return 'service_role';
+  return (
+    claims.user_metadata?.portal_role
+    ?? claims.portal_role
+    ?? claims.app_metadata?.role
+    ?? claims.user_metadata?.role
+    ?? claims.role
+    ?? null
+  );
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
+    const requesterRole = getRequesterRole(req);
+    if (!requesterRole || !['service_role', 'admin', 'editor'].includes(requesterRole)) {
+      return new Response(JSON.stringify({ error: 'Insufficient permissions to send notifications.' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const payload: NotificationPayload = await req.json();
     const {
       notificationId,

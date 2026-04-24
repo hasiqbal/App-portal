@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.create-donation-option-stripe]
 verify_jwt = true
+
+[functions.process-recurring-notifications]
+verify_jwt = true
