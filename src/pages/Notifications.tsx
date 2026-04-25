@@ -1,16 +1,18 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+﻿import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell, Send, Clock, CheckCircle2, XCircle, RefreshCw, Trash2,
   Users, Image as ImageIcon, Link2, ChevronDown, ChevronUp,
   Smartphone, Megaphone, Search, Filter, Upload, X,
   RotateCcw, Bookmark, Calendar, Tag, LayoutGrid,
-  Layers, ChevronRight, Code2, Copy,
+  Layers, ChevronRight, Code2, Copy, CircleAlert, Eye,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '#/components/ui/button';
 import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Textarea } from '#/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import Sidebar from '#/components/layout/Sidebar';
 import { invokeExternalFunction, onspaceCloud, supabase } from '#/lib/supabase';
 import { toast } from 'sonner';
@@ -18,7 +20,7 @@ import { useUrduTranslation } from '#/hooks/useUrduTranslation';
 import { usePermissions } from '#/hooks/usePermissions';
 import { notificationAutomationService } from '#/services/notificationService';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface PushNotification {
   id: string;
@@ -112,7 +114,7 @@ interface NotificationAutomationEvent {
   created_at: string;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const AUDIENCE_OPTIONS = [
   { value: 'all',    label: 'All Users',    desc: 'Every registered device' },
@@ -143,32 +145,32 @@ const PRAYER_OPTIONS = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'] as const;
 
 const BUILT_IN_TEMPLATES: Template[] = [
   {
-    id: 'bt-jummah', label: "Jumu'ah Reminder", icon: '🕌', category: 'prayer', builtIn: true,
-    title: "Jumu'ah Mubarak — Friday Prayer Today",
+    id: 'bt-jummah', label: "Jumu'ah Reminder", icon: 'JM', category: 'prayer', builtIn: true,
+    title: "Jumu'ah Mubarak - Friday Prayer Today",
     body: "Join us for Jumu'ah Salah today. First khutbah at 1:00 PM, second at 1:15 PM. Doors open at 12:45 PM. Please arrive early. Jazakallah khayran.",
   },
   {
-    id: 'bt-eid-fitr', label: 'Eid ul-Fitr', icon: '🌙', category: 'eid', builtIn: true,
-    title: 'Eid Mubarak — Eid ul-Fitr Salah',
+    id: 'bt-eid-fitr', label: 'Eid ul-Fitr', icon: 'EF', category: 'eid', builtIn: true,
+    title: 'Eid Mubarak - Eid ul-Fitr Salah',
     body: 'Taqabbal Allahu Minna wa Minkum. Eid ul-Fitr Salah will be held at 8:30 AM and 9:30 AM. Please bring your prayer mat. May Allah accept our fasts and prayers.',
   },
   {
-    id: 'bt-eid-adha', label: 'Eid ul-Adha', icon: '🐑', category: 'eid', builtIn: true,
-    title: 'Eid Mubarak — Eid ul-Adha Salah',
+    id: 'bt-eid-adha', label: 'Eid ul-Adha', icon: 'EA', category: 'eid', builtIn: true,
+    title: 'Eid Mubarak - Eid ul-Adha Salah',
     body: 'Eid ul-Adha Salah will be held at 8:00 AM and 9:15 AM. May Allah accept your sacrifice and grant you all barakah on this blessed day.',
   },
   {
-    id: 'bt-taraweeh', label: 'Taraweeh Start', icon: '⭐', category: 'ramadan', builtIn: true,
-    title: 'Ramadan Mubarak — Taraweeh Begins Tonight',
+    id: 'bt-taraweeh', label: 'Taraweeh Start', icon: 'TR', category: 'ramadan', builtIn: true,
+    title: 'Ramadan Mubarak - Taraweeh Begins Tonight',
     body: 'Taraweeh prayers begin tonight after Isha. Please join us for this blessed month. May Allah enable us to observe Ramadan with full iman and devotion.',
   },
   {
-    id: 'bt-prayer-change', label: 'Prayer Time Change', icon: '🕐', category: 'prayer', builtIn: true,
+    id: 'bt-prayer-change', label: 'Prayer Time Change', icon: 'PT', category: 'prayer', builtIn: true,
     title: 'Prayer Time Update',
     body: 'Please note updated prayer jamaat times effective from this Sunday. Check the app for the latest schedule. Jazakallah khayran for your patience.',
   },
   {
-    id: 'bt-event', label: 'General Event', icon: '📅', category: 'event', builtIn: true,
+    id: 'bt-event', label: 'General Event', icon: 'GE', category: 'event', builtIn: true,
     title: 'Upcoming Event at Jami Masjid Noorani',
     body: 'We have an important event coming up at the masjid. Please share this with family and friends. More details available at the masjid notice board.',
   },
@@ -181,12 +183,19 @@ const statusConfig: Record<string, { label: string; icon: React.ReactNode; class
   scheduled: { label: 'Scheduled', icon: <Calendar size={11} />,     class: 'bg-blue-100 text-blue-700 border-blue-200',          dot: 'bg-blue-500'   },
 };
 
+const automationEventStatusStyles: Record<NotificationAutomationEvent['status'], string> = {
+  sent: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  failed: 'bg-red-100 text-red-700 border-red-200',
+  queued: 'bg-blue-100 text-blue-700 border-blue-200',
+  skipped: 'bg-amber-100 text-amber-700 border-amber-200',
+};
+
 const EMPTY_COMPOSE: ComposeData = {
   title: '', body: '', urduBody: '', imageUrl: '', linkUrl: '',
   audience: 'all', category: 'general', scheduledFor: '', scheduleEnabled: false,
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -202,6 +211,11 @@ function timeAgo(iso: string) {
 
 function getCategoryMeta(value: string) {
   return CATEGORIES.find((c) => c.value === value) ?? CATEGORIES[2];
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return 'Unexpected network error. Please refresh and try again.';
 }
 
 function buildNextRunAt(
@@ -281,7 +295,7 @@ const EMPTY_AUTOMATION_DRAFT: AutomationDraft = {
   category: 'general',
 };
 
-// ─── Urdu Auto-Translate Button ──────────────────────────────────────────────
+// â”€â”€â”€ Urdu Auto-Translate Button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const UrduAutoTranslateBtn = ({ sourceText, onResult }: { sourceText: string; onResult: (v: string) => void }) => {
   const { translateToUrdu, translating } = useUrduTranslation();
@@ -297,12 +311,12 @@ const UrduAutoTranslateBtn = ({ sourceText, onResult }: { sourceText: string; on
   return (
     <button type="button" disabled={translating} onClick={handleClick}
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors">
-      {translating ? <><RefreshCw size={11} className="animate-spin" /> Translating…</> : <>🌐 Auto-translate</>}
+      {translating ? <><RefreshCw size={11} className="animate-spin" /> Translating...</> : <>Auto-translate</>}
     </button>
   );
 };
 
-// ─── Image Gallery Modal ──────────────────────────────────────────────────────
+// â”€â”€â”€ Image Gallery Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface GalleryImage { name: string; url: string; path: string; }
 
@@ -337,7 +351,7 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
         <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
           <div>
             <h3 className="text-sm font-bold text-foreground">Image Gallery</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">{images.length} images · select to use</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{images.length} images - select to use</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
             <X size={15} className="text-muted-foreground" />
@@ -346,7 +360,7 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center h-40 gap-2 text-muted-foreground">
-              <RefreshCw size={16} className="animate-spin" /> Loading gallery…
+              <RefreshCw size={16} className="animate-spin" /> Loading gallery...
             </div>
           ) : images.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
@@ -389,7 +403,7 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
   );
 };
 
-// ─── Templates Panel ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Templates Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TemplatesPanel = ({
   onUse,
@@ -450,7 +464,7 @@ const TemplatesPanel = ({
   );
 };
 
-// ─── Compose Panel ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Compose Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const ComposePanel = ({
   initialData,
@@ -541,7 +555,7 @@ const ComposePanel = ({
 
     try {
       if (form.scheduleEnabled && form.scheduledFor) {
-        // Save as scheduled — no immediate delivery
+        // Save as scheduled â€” no immediate delivery
         const saved = await saveToDb('scheduled');
         onSent(saved);
         toast.success('Notification scheduled.');
@@ -579,7 +593,7 @@ const ComposePanel = ({
         const sent: number = data?.sent ?? 0;
         const total: number = data?.total ?? 0;
         if (sent === 0 && total === 0) {
-          toast.warning('Sent — but no registered devices found yet. Install the app and grant notification permission first.');
+          toast.warning('Sent - but no registered devices found yet. Install the app and grant notification permission first.');
         } else if (sent === total) {
           toast.success(`Delivered to ${sent.toLocaleString()} device${sent !== 1 ? 's' : ''}.`);
         } else {
@@ -668,7 +682,7 @@ const ComposePanel = ({
               id="notif-title"
               value={form.title}
               onChange={(e) => set('title', e.target.value.slice(0, 65))}
-              placeholder="e.g. Jumu'ah Reminder — Friday Prayer"
+              placeholder="e.g. Jumu'ah Reminder - Friday Prayer"
               className="text-sm"
             />
           </div>
@@ -701,7 +715,7 @@ const ComposePanel = ({
               id="notif-urdu-body"
               value={form.urduBody}
               onChange={(e) => set('urduBody', e.target.value)}
-              placeholder="اردو پیغام یہاں لکھیں…"
+              placeholder="Write Urdu message here..."
               dir="rtl"
               rows={2}
               className="text-sm resize-none text-right"
@@ -750,7 +764,7 @@ const ComposePanel = ({
                   <Input
                     value={form.imageUrl}
                     onChange={(e) => set('imageUrl', e.target.value)}
-                    placeholder="https://…/image.jpg"
+                    placeholder="https://.../image.jpg"
                     className="text-sm flex-1 min-w-0"
                   />
                   {form.imageUrl && (
@@ -771,7 +785,7 @@ const ComposePanel = ({
                     disabled={uploading}
                     className="flex items-center gap-1.5 px-3 h-9 rounded-md border border-input bg-background hover:bg-muted transition-colors text-xs font-medium shrink-0 disabled:opacity-60"
                   >
-                    {uploading ? <><RefreshCw size={12} className="animate-spin" /> …</> : <><Upload size={12} /> Upload</>}
+                    {uploading ? <><RefreshCw size={12} className="animate-spin" /> ...</> : <><Upload size={12} /> Upload</>}
                   </button>
                   <input ref={fileInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif" className="hidden"
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); }} />
@@ -783,7 +797,7 @@ const ComposePanel = ({
                     <p className="text-[10px] text-muted-foreground truncate flex-1 min-w-0">{form.imageUrl}</p>
                   </div>
                 )}
-                <p className="text-[11px] text-muted-foreground">Recommended: 1440×720px (2:1). Android shows banner; iOS shows thumbnail.</p>
+                <p className="text-[11px] text-muted-foreground">Recommended: 1440x720px (2:1). Android shows banner; iOS shows thumbnail.</p>
               </div>
 
               {/* Link */}
@@ -835,7 +849,7 @@ const ComposePanel = ({
               </div>
               <div className="px-4 py-3 flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-primary/10">
-                  <span className="text-lg">🕌</span>
+                  <span className="text-[11px] font-bold">JM</span>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-foreground leading-snug">{form.title || 'Notification title'}</p>
@@ -870,7 +884,7 @@ const ComposePanel = ({
               style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
             >
               {sending
-                ? <><RefreshCw size={13} className="animate-spin" /> Sending…</>
+                ? <><RefreshCw size={13} className="animate-spin" /> Sending...</>
                 : form.scheduleEnabled
                 ? <><Calendar size={13} /> Schedule</>
                 : <><Send size={13} /> Send Notification</>}
@@ -882,7 +896,7 @@ const ComposePanel = ({
   );
 };
 
-// ─── History Row ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ History Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const HistoryRow = ({
   notif,
@@ -946,7 +960,7 @@ const HistoryRow = ({
           {/* Error message inline */}
           {notif.error_message && (
             <p className="mt-1 text-[10px] text-red-500 leading-relaxed line-clamp-1" title={notif.error_message}>
-              ⚠ {notif.error_message}
+              Warning: {notif.error_message}
             </p>
           )}
         </div>
@@ -1026,7 +1040,7 @@ const HistoryRow = ({
   );
 };
 
-// ─── Scheduled Queue Panel ──────────────────────────────────────────────────────
+// â”€â”€â”€ Scheduled Queue Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const ScheduledQueuePanel = ({
   scheduled,
@@ -1105,7 +1119,7 @@ const ScheduledQueuePanel = ({
             </button>
             <span className="text-blue-300">|</span>
             <button onClick={clearSel} className="text-[11px] text-blue-500 hover:text-blue-700">Clear</button>
-            <span className="text-[11px] text-blue-500 ml-auto">Sorted by scheduled time ↓</span>
+            <span className="text-[11px] text-blue-500 ml-auto">Sorted by scheduled time</span>
           </div>
 
           <div className="divide-y divide-blue-200/40">
@@ -1151,7 +1165,7 @@ const ScheduledQueuePanel = ({
                       <span className="text-[10px] font-semibold text-blue-700">
                         {scheduledDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at {scheduledDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      <span className="text-[10px] text-blue-500">— {isOverdue ? 'was ' : ''}{timeAgo(notif.scheduled_for!)}</span>
+                      <span className="text-[10px] text-blue-500">- {isOverdue ? 'was ' : ''}{timeAgo(notif.scheduled_for!)}</span>
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <Users size={9} className="text-blue-400" />
@@ -1188,7 +1202,7 @@ const ScheduledQueuePanel = ({
   );
 };
 
-// ─── Automations Panel ──────────────────────────────────────────────────────
+// â”€â”€â”€ Automations Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const AutomationsPanel = ({
   automations,
@@ -1203,7 +1217,7 @@ const AutomationsPanel = ({
   canEdit: boolean;
   onSave: (draft: AutomationDraft) => Promise<void>;
   onToggle: (automation: NotificationAutomation) => Promise<void>;
-  onDelete: (automationId: string) => Promise<void>;
+  onDelete: (automation: NotificationAutomation) => Promise<void>;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1274,7 +1288,7 @@ const AutomationsPanel = ({
       {expanded && (
         <div className="px-5 py-4 space-y-4">
           <p className="text-[11px] text-amber-900/80 leading-relaxed">
-            Automated sends run in Europe/London timezone. Prayer-linked schedules are stored now and execution support is rolling out in the next batch.
+            Automated sends run in Europe/London timezone. Prayer-linked rules use live prayer times and compute the next run automatically after each execution.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1340,7 +1354,7 @@ const AutomationsPanel = ({
           )}
 
           {draft.scheduleType === 'prayer' && (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Prayers</Label>
               <div className="flex flex-wrap gap-1.5">
                 {PRAYER_OPTIONS.map((prayer) => {
@@ -1362,6 +1376,9 @@ const AutomationsPanel = ({
                   );
                 })}
               </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-100/60 px-2.5 py-2 text-[11px] text-amber-900/90 leading-relaxed">
+                Choose one or more prayers. The scheduler looks up each selected prayer in <span className="font-semibold">prayer_times</span> and always advances to the next valid prayer slot.
+              </div>
             </div>
           )}
 
@@ -1378,7 +1395,7 @@ const AutomationsPanel = ({
                 onChange={(e) => setDraftField('audience', e.target.value)}
                 disabled={!canEdit || saving}
               >
-                {AUDIENCES.map((audience) => (
+                {AUDIENCE_OPTIONS.map((audience) => (
                   <option key={audience.value} value={audience.value}>
                     {audience.label}
                   </option>
@@ -1420,29 +1437,38 @@ const AutomationsPanel = ({
           <div className="rounded-xl border border-amber-200 bg-white overflow-hidden">
             <div className="px-3 py-2 border-b border-amber-100 text-xs font-bold text-amber-800">Existing rules</div>
             {automations.length === 0 ? (
-              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation rules yet.</p>
+              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation rules yet. Create one above to schedule daily, weekly, or prayer-linked sends.</p>
             ) : (
-              <div className="divide-y divide-amber-100">
+              <div className="divide-y divide-amber-100 bg-amber-50/30">
                 {automations.slice(0, 20).map((automation) => (
-                  <div key={automation.id} className="px-3 py-2.5 flex items-start justify-between gap-3">
+                  <div key={automation.id} className="px-3 py-3 flex items-start justify-between gap-3 hover:bg-amber-50 transition-colors">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-foreground truncate">{automation.name}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        <p className="text-xs font-semibold text-foreground truncate max-w-[220px]">{automation.name}</p>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-slate-100 text-slate-700 border border-slate-200">
+                          {automation.schedule_type}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${getCategoryMeta(automation.category).color}`}>
+                          {getCategoryMeta(automation.category).label}
+                        </span>
+                      </div>
                       <p className="text-[10px] text-muted-foreground truncate">
-                        {automation.schedule_type} · next {automation.next_run_at ? new Date(automation.next_run_at).toLocaleString('en-GB') : 'not scheduled'}
+                        next {automation.next_run_at ? new Date(automation.next_run_at).toLocaleString('en-GB') : 'not scheduled'} - runs {automation.run_count}
                       </p>
+                      {automation.last_error && <p className="text-[10px] text-red-600 truncate mt-0.5">last error: {automation.last_error}</p>}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => onToggle(automation)}
                         disabled={!canEdit}
-                        className={`px-2 py-1 rounded text-[10px] font-semibold border ${automation.enabled ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-200'} disabled:opacity-50`}
+                        className={`px-2.5 py-1 rounded text-[10px] font-semibold border transition-colors ${automation.enabled ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'} disabled:opacity-50`}
                       >
                         {automation.enabled ? 'Enabled' : 'Disabled'}
                       </button>
                       <button
                         type="button"
-                        onClick={() => onDelete(automation.id)}
+                        onClick={() => onDelete(automation)}
                         disabled={!canEdit}
                         className="p-1 rounded hover:bg-red-100 disabled:opacity-50"
                         title="Delete automation"
@@ -1459,19 +1485,33 @@ const AutomationsPanel = ({
           <div className="rounded-xl border border-border bg-white overflow-hidden">
             <div className="px-3 py-2 border-b border-border text-xs font-bold text-foreground">Recent automation events</div>
             {events.length === 0 ? (
-              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation events yet.</p>
+              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation events yet. Events appear after the scheduler runs (every minute) or after a manual processor run.</p>
             ) : (
-              <div className="divide-y divide-border/60 max-h-56 overflow-y-auto">
+              <div className="divide-y divide-border/60 max-h-64 overflow-y-auto">
                 {events.map((event) => (
-                  <div key={event.id} className="px-3 py-2 text-[11px]">
+                  <div key={event.id} className="px-3 py-2.5 text-[11px]">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-foreground uppercase tracking-wide">{event.status}</span>
+                      <span className={`px-1.5 py-0.5 rounded-full border font-semibold uppercase tracking-wide text-[10px] ${automationEventStatusStyles[event.status]}`}>
+                        {event.status}
+                      </span>
                       <span className="text-muted-foreground">{timeAgo(event.created_at)}</span>
                     </div>
-                    <p className="text-muted-foreground mt-0.5">
-                      recipients: {event.recipient_count ?? 0}
-                      {event.error_message ? ` · ${event.error_message}` : ''}
+                    <p className="text-muted-foreground mt-1">
+                      recipients: {event.recipient_count ?? 0} - {event.notification_id ? `notification ${event.notification_id.slice(0, 8)}` : 'automation-only event'}
                     </p>
+                    {event.error_message && <p className="text-red-600 mt-0.5">{event.error_message}</p>}
+                    <details className="mt-1.5 rounded-md border border-border/70 bg-muted/20">
+                      <summary className="list-none cursor-pointer px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground flex items-center gap-1.5">
+                        <Eye size={11} /> View details
+                      </summary>
+                      <div className="px-2.5 pb-2.5 space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground">event id: {event.id}</p>
+                        <p className="text-[10px] text-muted-foreground">scheduled for: {event.scheduled_for ? new Date(event.scheduled_for).toLocaleString('en-GB') : 'n/a'}</p>
+                        <pre className="text-[10px] leading-relaxed bg-background border border-border rounded-md p-2 overflow-x-auto font-mono text-foreground whitespace-pre">
+                          {JSON.stringify(event.payload_json ?? {}, null, 2)}
+                        </pre>
+                      </div>
+                    </details>
                   </div>
                 ))}
               </div>
@@ -1483,7 +1523,7 @@ const AutomationsPanel = ({
   );
 };
 
-// ─── Stats Cards ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Stats Cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const StatsRow = ({ notifications, deviceCount }: { notifications: PushNotification[]; deviceCount: number }) => {
   const sent = notifications.filter((n) => n.status === 'sent').length;
@@ -1513,7 +1553,7 @@ const StatsRow = ({ notifications, deviceCount }: { notifications: PushNotificat
   );
 };
 
-// ─── Expo Setup Guide ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Expo Setup Guide â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const CODE_SNIPPET = `// In your Expo/React Native app (e.g. App.tsx)
 import * as Notifications from 'expo-notifications';
@@ -1559,7 +1599,7 @@ const ExpoSetupGuide = () => {
       <div className="px-5 py-4 border-b border-border" style={{ background: 'hsl(var(--primary) / 0.04)' }}>
         <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
           <Megaphone size={15} style={{ color: 'hsl(var(--primary))' }} />
-          Mobile App Setup — Expo Push
+          Mobile App Setup - Expo Push
         </h3>
         <p className="text-xs text-muted-foreground mt-0.5">Add this to your React Native app to register devices</p>
       </div>
@@ -1636,9 +1676,9 @@ const ExpoSetupGuide = () => {
   );
 };
 
-// ─── Devices Panel ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Devices Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const DevicesPanel = ({ tokens }: { tokens: DeviceToken[] }) => {
+const DevicesPanel = ({ tokens, errorMessage }: { tokens: DeviceToken[]; errorMessage?: string | null }) => {
   const [expanded, setExpanded] = useState(false);
   const active = tokens.filter((t) => t.is_active);
   const ios = active.filter((t) => t.platform === 'ios').length;
@@ -1675,13 +1715,19 @@ const DevicesPanel = ({ tokens }: { tokens: DeviceToken[] }) => {
             </div>
           ))}
           {active.length === 0 && (
-            <p className="text-xs text-muted-foreground">No devices yet — see setup guide below.</p>
+            <p className="text-xs text-muted-foreground">No active devices yet. Open the app on a real phone and accept notification permission.</p>
           )}
         </div>
       )}
 
       {expanded && (
         <div>
+          {errorMessage && (
+            <div className="mx-5 mt-4 mb-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 flex items-start gap-2">
+              <CircleAlert size={14} className="text-red-600 mt-0.5 shrink-0" />
+              <p className="text-[11px] text-red-700 leading-relaxed">Unable to refresh devices right now. {errorMessage}</p>
+            </div>
+          )}
           {/* Summary row */}
           <div className="px-5 py-3 border-b border-border/60 flex items-center gap-4 bg-muted/10">
             {[
@@ -1697,8 +1743,10 @@ const DevicesPanel = ({ tokens }: { tokens: DeviceToken[] }) => {
           </div>
 
           {tokens.length === 0 ? (
-            <div className="px-5 py-6 text-center">
-              <p className="text-xs text-muted-foreground">No devices registered yet. Follow the setup guide below to connect your mobile app.</p>
+            <div className="px-5 py-6 text-center space-y-2">
+              <p className="text-xs text-muted-foreground">No devices registered yet.</p>
+              <p className="text-[11px] text-muted-foreground">Quick check: install app on a physical device, allow push permission, and keep the app open for 10-15 seconds.</p>
+              <p className="text-[11px] text-muted-foreground">Then press refresh to confirm token sync.</p>
             </div>
           ) : (
             <div className="divide-y divide-border/40 max-h-60 overflow-y-auto">
@@ -1715,7 +1763,7 @@ const DevicesPanel = ({ tokens }: { tokens: DeviceToken[] }) => {
                       {t.app_version && <span className="text-[10px] text-muted-foreground">v{t.app_version}</span>}
                       {t.device_model && <span className="text-[10px] text-muted-foreground truncate">{t.device_model}</span>}
                     </div>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 font-mono truncate">{t.token.slice(0, 40)}…</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5 font-mono truncate">{t.token.slice(0, 40)}...</p>
                   </div>
                   <span className="text-[10px] text-muted-foreground whitespace-nowrap shrink-0">{timeAgo(t.last_active)}</span>
                 </div>
@@ -1733,17 +1781,24 @@ const DevicesPanel = ({ tokens }: { tokens: DeviceToken[] }) => {
   );
 };
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const Notifications = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [composeData, setComposeData] = useState<Partial<ComposeData> | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<string>('compose');
   const queryClient = useQueryClient();
   const { canEdit, canDelete, role } = usePermissions();
 
-  const { data: notifications = [], isFetching, refetch } = useQuery({
+  const {
+    data: notifications = [],
+    isFetching,
+    refetch,
+    isError: notificationsQueryError,
+    error: notificationsError,
+  } = useQuery({
     queryKey: ['push-notifications'],
     queryFn: async () => {
       const { data, error } = await supabase.from('push_notifications').select('*').order('created_at', { ascending: false });
@@ -1752,7 +1807,11 @@ const Notifications = () => {
     },
   });
 
-  const { data: deviceTokens = [] } = useQuery({
+  const {
+    data: deviceTokens = [],
+    isError: deviceTokensQueryError,
+    error: deviceTokensError,
+  } = useQuery({
     queryKey: ['device-tokens'],
     queryFn: async () => {
       const { data, error } = await supabase.from('device_tokens').select('*').order('last_active', { ascending: false });
@@ -1762,12 +1821,22 @@ const Notifications = () => {
     refetchInterval: 30000, // refresh every 30s
   });
 
-  const { data: automations = [], refetch: refetchAutomations } = useQuery({
+  const {
+    data: automations = [],
+    refetch: refetchAutomations,
+    isError: automationsQueryError,
+    error: automationsError,
+  } = useQuery({
     queryKey: ['notification-automations'],
     queryFn: () => notificationAutomationService.getAll(),
   });
 
-  const { data: automationEvents = [], refetch: refetchAutomationEvents } = useQuery({
+  const {
+    data: automationEvents = [],
+    refetch: refetchAutomationEvents,
+    isError: automationEventsQueryError,
+    error: automationEventsError,
+  } = useQuery({
     queryKey: ['notification-automation-events'],
     queryFn: () => notificationAutomationService.getRecentEvents(40),
     refetchInterval: 30000,
@@ -1805,6 +1874,7 @@ const Notifications = () => {
       scheduleEnabled: false,
       scheduledFor: '',
     });
+    setActiveTab('compose');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast.info('Notification loaded into compose form.');
   };
@@ -1815,6 +1885,7 @@ const Notifications = () => {
       return;
     }
     setComposeData({ title: t.title, body: t.body, category: t.category });
+    setActiveTab('compose');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast.info(`Template "${t.label}" loaded.`);
   };
@@ -1851,6 +1922,13 @@ const Notifications = () => {
   }, [notifications]);
 
   const activeDeviceCount = deviceTokens.filter((t) => t.is_active).length;
+
+  const queryErrors = [
+    notificationsQueryError ? `History failed to load: ${getErrorMessage(notificationsError)}` : null,
+    deviceTokensQueryError ? `Devices failed to load: ${getErrorMessage(deviceTokensError)}` : null,
+    automationsQueryError ? `Automation rules failed to load: ${getErrorMessage(automationsError)}` : null,
+    automationEventsQueryError ? `Automation events failed to load: ${getErrorMessage(automationEventsError)}` : null,
+  ].filter((entry): entry is string => Boolean(entry));
 
   const handleSaveAutomation = async (draft: AutomationDraft) => {
     if (!canEdit) {
@@ -1906,202 +1984,366 @@ const Notifications = () => {
       toast.error('Your role is read-only for automation changes.');
       return;
     }
+
+    const enableNext = !automation.enabled;
+    if (!confirm(`${enableNext ? 'Enable' : 'Disable'} automation "${automation.name}"?`)) {
+      return;
+    }
+
+    toast.info(`${enableNext ? 'Enabling' : 'Disabling'} automation...`);
     await notificationAutomationService.setEnabled(automation.id, !automation.enabled);
     toast.success(`Automation ${!automation.enabled ? 'enabled' : 'disabled'}.`);
     await refetchAutomations();
   };
 
-  const handleDeleteAutomation = async (automationId: string) => {
+  const handleDeleteAutomation = async (automation: NotificationAutomation) => {
     if (!canEdit) {
       toast.error('Your role is read-only for automation changes.');
       return;
     }
-    if (!confirm('Delete this automation rule?')) return;
+    if (!confirm(`Delete automation rule "${automation.name}"?`)) return;
 
-    await notificationAutomationService.delete(automationId);
+    toast.info('Deleting automation...');
+    await notificationAutomationService.delete(automation.id);
     toast.success('Automation deleted.');
     await refetchAutomations();
   };
+
+  const composeCard = canEdit ? (
+    <ComposePanel
+      key={JSON.stringify(composeData)}
+      initialData={composeData}
+      onSent={handleSent}
+      onRefetchHistory={refetch}
+    />
+  ) : (
+    <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-border">
+        <h3 className="text-sm font-bold text-foreground">Compose</h3>
+      </div>
+      <div className="px-5 py-5 text-sm text-muted-foreground">
+        Your current role is read-only. You can review history and delivery stats, but cannot create or send notifications.
+      </div>
+    </div>
+  );
+
+  const tabTriggerClass =
+    'gap-1.5 flex-1 min-w-[7rem] data-[state=active]:bg-[hsl(142_50%_93%)] data-[state=active]:text-[hsl(142_60%_24%)] data-[state=active]:shadow-sm';
 
   return (
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
       <Sidebar />
 
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
-        {/* Banner */}
-        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
-                <Bell size={20} className="text-[hsl(142_60%_32%)]" />
+        {/* Header banner */}
+        <div className="relative overflow-hidden border-b border-[hsl(140_20%_88%)]">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(142_50%_96%)] via-white to-[hsl(142_40%_98%)]" />
+          <div className="relative px-4 sm:px-8 pt-7 pb-6">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-[hsl(142_60%_32%)] text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <Bell size={20} />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold text-[hsl(150_30%_12%)] tracking-tight">Push Notifications</h1>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Compose, schedule and automate push messages to the masjid community.
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-[hsl(140_20%_88%)] text-[10px] font-semibold text-[hsl(150_30%_18%)]">
+                      <Smartphone size={10} /> {activeDeviceCount} device{activeDeviceCount !== 1 ? 's' : ''}
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-[hsl(140_20%_88%)] text-[10px] font-semibold text-[hsl(150_30%_18%)]">
+                      <Send size={10} /> {notifications.length} in history
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-[hsl(140_20%_88%)] text-[10px] font-semibold text-muted-foreground">
+                      Role: {role ?? 'none'}{canEdit ? ' - editable' : ' - read-only'}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Push Notifications</h1>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Expo Push · {activeDeviceCount} device{activeDeviceCount !== 1 ? 's' : ''} registered · {notifications.length} in history
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">Role: {role ?? 'none'} {canEdit ? '· editable' : '· read-only'}</p>
+              <div className="flex items-center gap-2 self-start">
+                {canEdit && (
+                  <Button
+                    size="sm"
+                    onClick={() => setActiveTab('compose')}
+                    className="gap-2 bg-[hsl(142_60%_32%)] hover:bg-[hsl(142_60%_28%)] text-white"
+                  >
+                    <Send size={13} /> New notification
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
+                  <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
+                </Button>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2 self-start">
-              <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
-            </Button>
           </div>
         </div>
 
         <div className="px-4 sm:px-8 py-5 space-y-5">
+          {queryErrors.length > 0 && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 space-y-1">
+              <div className="flex items-center gap-2 text-red-700">
+                <CircleAlert size={14} />
+                <p className="text-xs font-semibold">Some dashboard data failed to load</p>
+              </div>
+              {queryErrors.map((message, index) => (
+                <p key={`${message}-${index}`} className="text-[11px] text-red-700/90 leading-relaxed">{message}</p>
+              ))}
+            </div>
+          )}
+
           <StatsRow notifications={notifications} deviceCount={activeDeviceCount} />
 
-          {/* Scheduled Queue — shown when there are scheduled notifications */}
-          <ScheduledQueuePanel
-            scheduled={scheduledNotifs}
-            onCancel={handleBulkCancel}
-            onSendNow={handleLoadIntoCompose}
-            canManage={canEdit}
-          />
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="w-full h-auto flex flex-wrap gap-1 bg-white border border-[hsl(140_20%_88%)] p-1 rounded-xl text-muted-foreground">
+              <TabsTrigger value="compose" className={tabTriggerClass}>
+                <Send size={13} /> Compose
+              </TabsTrigger>
+              <TabsTrigger value="history" className={tabTriggerClass}>
+                <Layers size={13} /> History
+                <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted/70 text-muted-foreground">{notifications.length}</span>
+              </TabsTrigger>
+              <TabsTrigger value="scheduled" className={tabTriggerClass}>
+                <Calendar size={13} /> Scheduled
+                {scheduledNotifs.length > 0 && (
+                  <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">{scheduledNotifs.length}</span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="automations" className={tabTriggerClass}>
+                <Clock size={13} /> Automations
+                {automations.length > 0 && (
+                  <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{automations.length}</span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="devices" className={tabTriggerClass}>
+                <Smartphone size={13} /> Devices &amp; Setup
+              </TabsTrigger>
+            </TabsList>
 
-          <AutomationsPanel
-            automations={automations}
-            events={automationEvents}
-            canEdit={canEdit}
-            onSave={handleSaveAutomation}
-            onToggle={handleToggleAutomation}
-            onDelete={handleDeleteAutomation}
-          />
-
-          {/* Main layout */}
-          <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
-          {/* Left */}
-          <div className="space-y-6 min-w-0">
-            {canEdit ? (
-              <ComposePanel
-                key={JSON.stringify(composeData)}
-                initialData={composeData}
-                onSent={handleSent}
-                onRefetchHistory={refetch}
-              />
-            ) : (
-              <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-border">
-                  <h3 className="text-sm font-bold text-foreground">Compose</h3>
-                </div>
-                <div className="px-5 py-5 text-sm text-muted-foreground">
-                  Your current role is read-only. You can review history and delivery stats, but cannot create or send notifications.
-                </div>
-              </div>
-            )}
-
-            {/* History */}
-            <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-border">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                  <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                    <Layers size={14} style={{ color: 'hsl(var(--primary))' }} />
-                    Notification History
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{notifications.length}</span>
-                  </h3>
-                  <div className="relative">
-                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…" className="pl-7 h-8 text-xs w-36" />
+            {/* â”€â”€ Compose tab â”€â”€ */}
+            <TabsContent value="compose" className="mt-5 space-y-5 focus-visible:outline-none">
+              {canEdit && (
+                <div className="rounded-2xl border border-border bg-card shadow-sm px-4 py-3">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <Sparkles size={13} className="text-[hsl(142_60%_32%)]" />
+                    <span className="text-xs font-semibold text-foreground">Quick templates</span>
+                    <span className="text-[11px] text-muted-foreground">One click to pre-fill the form</span>
                   </div>
-                </div>
-
-                {/* Status filter */}
-                <div className="flex items-center gap-1 flex-wrap mb-2">
-                  <Filter size={11} className="text-muted-foreground mr-0.5" />
-                  {(['all', 'sent', 'scheduled', 'draft', 'failed'] as const).map((f) => {
-                    const count = f === 'all' ? notifications.length : notifications.filter((n) => n.status === f).length;
-                    return (
-                      <button
-                        key={f}
-                        onClick={() => setStatusFilter(f)}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-                          statusFilter === f ? 'border-primary bg-primary/8 text-primary' : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                        }`}
-                      >
-                        {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)} ({count})
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Category filter */}
-                <div className="flex items-center gap-1 flex-wrap">
-                  <Tag size={11} className="text-muted-foreground mr-0.5" />
-                  <button
-                    onClick={() => setCategoryFilter('all')}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${categoryFilter === 'all' ? 'border-primary bg-primary/8 text-primary' : 'border-border bg-background text-muted-foreground hover:bg-muted'}`}
-                  >
-                    All categories
-                  </button>
-                  {CATEGORIES.filter((c) => (catCounts[c.value] ?? 0) > 0).map((c) => (
-                    <button
-                      key={c.value}
-                      onClick={() => setCategoryFilter(c.value)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${categoryFilter === c.value ? c.color + ' shadow-sm' : 'border-border bg-background text-muted-foreground hover:bg-muted'}`}
-                    >
-                      {c.label} ({catCounts[c.value] ?? 0})
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {filtered.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-                  <Bell size={32} className="opacity-20" />
-                  <p className="text-sm">
-                    {notifications.length === 0
-                      ? 'No notifications yet. Compose your first one above.'
-                      : 'No results match your filter.'}
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  {filtered.map((notif) => (
-                    <HistoryRow
-                      key={notif.id}
-                      notif={notif}
-                      onDelete={handleDelete}
-                      onLoad={handleLoadIntoCompose}
-                      canDelete={canDelete}
-                      canEdit={canEdit}
-                    />
-                  ))}
+                  <div className="flex gap-2 overflow-x-auto pb-1.5 -mx-1 px-1">
+                    {BUILT_IN_TEMPLATES.map((t) => {
+                      const cat = getCategoryMeta(t.category);
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => handleUseTemplate(t)}
+                          className="group shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border border-[hsl(140_20%_88%)] bg-white hover:border-[hsl(142_50%_70%)] hover:bg-[hsl(142_50%_96%)] transition-all text-left"
+                          title={t.title}
+                        >
+                          <span className="text-lg leading-none">{t.icon}</span>
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-foreground leading-tight whitespace-nowrap">{t.label}</p>
+                            <span className={`inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${cat.color}`}>{cat.label}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Right sidebar */}
-          <div className="space-y-5">
-            <DevicesPanel tokens={deviceTokens} />
-            <TemplatesPanel
-              onUse={handleUseTemplate}
-            />
-            <ExpoSetupGuide />
-
-            {/* Writing tips */}
-            <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-border">
-                <h3 className="text-sm font-bold text-foreground">Writing Tips</h3>
-              </div>
-              <div className="px-5 py-4 space-y-3">
-                {[
-                  { icon: '✍️', tip: "Keep titles under 50 characters — they get truncated on lock screens." },
-                  { icon: '📢', tip: "Lead with the most important info in the first sentence." },
-                  { icon: '⏰', tip: "Send Jumu'ah and Taraweeh notices at least 2 hours early." },
-                  { icon: '🌙', tip: "Avoid sending between 10pm and 6am to respect quiet hours." },
-                  { icon: '🖼️', tip: "Rich images (1440×720px) significantly increase tap-through rates." },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <span className="text-base shrink-0 mt-0.5">{item.icon}</span>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{item.tip}</p>
+              <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-5 min-w-0">
+                <div className="min-w-0">{composeCard}</div>
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-border bg-card shadow-sm px-5 py-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Smartphone size={13} className="text-[hsl(142_60%_32%)]" />
+                      <h3 className="text-xs font-bold text-foreground uppercase tracking-wide">Reach</h3>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Your message will be delivered to{' '}
+                      <span className="font-semibold text-foreground">{activeDeviceCount.toLocaleString()}</span> registered device{activeDeviceCount !== 1 ? 's' : ''} via Expo Push (iOS APNs + Android FCM).
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('devices')}
+                      className="mt-2 text-[11px] font-semibold text-[hsl(142_60%_32%)] hover:text-[hsl(142_60%_24%)] inline-flex items-center gap-0.5"
+                    >
+                      Manage devices <ChevronRight size={10} />
+                    </button>
                   </div>
-                ))}
+
+                  <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+                    <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+                      <Sparkles size={13} className="text-[hsl(142_60%_32%)]" />
+                      <h3 className="text-xs font-bold text-foreground uppercase tracking-wide">Writing tips</h3>
+                    </div>
+                    <div className="px-5 py-4 space-y-3">
+                      {[
+                        { icon: '1.', tip: 'Keep titles under 50 characters - they get truncated on lock screens.' },
+                        { icon: '2.', tip: 'Lead with the most important info in the first sentence.' },
+                        { icon: '3.', tip: "Send Jumu'ah and Taraweeh notices at least 2 hours early." },
+                        { icon: '4.', tip: 'Avoid sending between 10pm and 6am to respect quiet hours.' },
+                        { icon: '5.', tip: 'Rich images (1440x720px) significantly increase tap-through rates.' },
+                      ].map((item, i) => (
+                        <div key={i} className="flex items-start gap-2.5">
+                          <span className="text-base shrink-0 mt-0.5">{item.icon}</span>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{item.tip}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <TemplatesPanel onUse={handleUseTemplate} />
+                </div>
               </div>
-            </div>
-          </div>
-          </div>
+            </TabsContent>
+
+            {/* â”€â”€ History tab â”€â”€ */}
+            <TabsContent value="history" className="mt-5 space-y-5 focus-visible:outline-none">
+              <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-border space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <Layers size={14} style={{ color: 'hsl(var(--primary))' }} />
+                      Notification History
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{notifications.length}</span>
+                    </h3>
+                    <div className="relative">
+                      <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search title or body..."
+                        className="pl-7 h-8 text-xs w-56"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <Filter size={11} className="text-muted-foreground mr-0.5" />
+                    {(['all', 'sent', 'scheduled', 'draft', 'failed'] as const).map((f) => {
+                      const count = f === 'all' ? notifications.length : notifications.filter((n) => n.status === f).length;
+                      return (
+                        <button
+                          key={f}
+                          onClick={() => setStatusFilter(f)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                            statusFilter === f ? 'border-primary bg-primary/8 text-primary' : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                          }`}
+                        >
+                          {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <Tag size={11} className="text-muted-foreground mr-0.5" />
+                    <button
+                      onClick={() => setCategoryFilter('all')}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                        categoryFilter === 'all' ? 'border-primary bg-primary/8 text-primary' : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                      }`}
+                    >
+                      All categories
+                    </button>
+                    {CATEGORIES.filter((c) => (catCounts[c.value] ?? 0) > 0).map((c) => (
+                      <button
+                        key={c.value}
+                        onClick={() => setCategoryFilter(c.value)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                          categoryFilter === c.value ? c.color + ' shadow-sm' : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                        }`}
+                      >
+                        {c.label} ({catCounts[c.value] ?? 0})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {filtered.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+                    <Bell size={32} className="opacity-20" />
+                    <p className="text-sm">
+                      {notifications.length === 0
+                        ? 'No notifications yet. Compose your first one.'
+                        : 'No results match your filter.'}
+                    </p>
+                    {canEdit && notifications.length === 0 && (
+                      <Button size="sm" onClick={() => setActiveTab('compose')} className="gap-2">
+                        <Send size={12} /> Compose
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    {filtered.map((notif) => (
+                      <HistoryRow
+                        key={notif.id}
+                        notif={notif}
+                        onDelete={handleDelete}
+                        onLoad={handleLoadIntoCompose}
+                        canDelete={canDelete}
+                        canEdit={canEdit}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* â”€â”€ Scheduled tab â”€â”€ */}
+            <TabsContent value="scheduled" className="mt-5 space-y-5 focus-visible:outline-none">
+              {scheduledNotifs.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[hsl(140_20%_85%)] bg-white px-6 py-14 flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-[hsl(142_50%_93%)] flex items-center justify-center">
+                    <Calendar size={22} className="text-[hsl(142_60%_32%)]" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">No notifications scheduled</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Schedule a future send from the Compose tab - it will appear here until it fires.
+                    </p>
+                  </div>
+                  {canEdit && (
+                    <Button size="sm" onClick={() => setActiveTab('compose')} className="gap-2 mt-1">
+                      <Send size={12} /> Compose
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <ScheduledQueuePanel
+                  scheduled={scheduledNotifs}
+                  onCancel={handleBulkCancel}
+                  onSendNow={handleLoadIntoCompose}
+                  canManage={canEdit}
+                />
+              )}
+            </TabsContent>
+
+            {/* â”€â”€ Automations tab â”€â”€ */}
+            <TabsContent value="automations" className="mt-5 space-y-5 focus-visible:outline-none">
+              <AutomationsPanel
+                automations={automations}
+                events={automationEvents}
+                canEdit={canEdit}
+                onSave={handleSaveAutomation}
+                onToggle={handleToggleAutomation}
+                onDelete={handleDeleteAutomation}
+              />
+            </TabsContent>
+
+            {/* â”€â”€ Devices & Setup tab â”€â”€ */}
+            <TabsContent value="devices" className="mt-5 space-y-5 focus-visible:outline-none">
+              <DevicesPanel
+                tokens={deviceTokens}
+                errorMessage={deviceTokensQueryError ? getErrorMessage(deviceTokensError) : null}
+              />
+              <ExpoSetupGuide />
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
     </div>
