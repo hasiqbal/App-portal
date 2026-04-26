@@ -16,6 +16,9 @@ import {
   SunnahReminderPayload,
   SunnahGroup,
   SunnahGroupPayload,
+  IslamicCalendarEvent,
+  IslamicCalendarEventPayload,
+  IslamicCalendarEventType,
   AdhkarContentType,
   QaseedahNaatEntry,
   QaseedahNaatEntryPayload,
@@ -32,6 +35,7 @@ import {
   HowToStepBlock,
   HowToStepImage,
   HowToLanguage,
+  AnnouncementMutationDiagnostics,
 } from '#/types';
 import { supabase, supabaseAdmin, invokeExternalFunction } from '#/lib/supabase';
 
@@ -133,15 +137,59 @@ function extractAnnouncementTimeParts(value: string): { primaryTime: string | nu
   return { primaryTime, richTimeText };
 }
 
-function isMissingColumnError(errorMessage: string, column: string): boolean {
-  const lower = errorMessage.toLowerCase();
-  if (!lower.includes(column.toLowerCase())) return false;
-  return (
-    lower.includes('does not exist')
-    || lower.includes('schema cache')
-    || lower.includes('could not find')
-    || lower.includes('not found')
-  );
+type ErrorWithMessage = { message: string };
+
+function extractMissingColumnName(errorMessage: string): string | null {
+  const patterns = [
+    /could not find the ['"]([^'"]+)['"] column/i,
+    /column ['"]([^'"]+)['"] does not exist/i,
+    /column ([a-z0-9_]+) does not exist/i,
+    /column ['"]([^'"]+)['"] not found/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = errorMessage.match(pattern);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+async function retryAnnouncementMutationWithoutMissingColumns<T>(
+  payload: Record<string, unknown>,
+  execute: (rowPayload: Record<string, unknown>) => Promise<{ data: T | null; error: ErrorWithMessage | null }>,
+): Promise<{ data: T | null; error: ErrorWithMessage | null; removedColumns: string[]; retryCount: number }> {
+  let currentPayload = payload;
+  let { data, error } = await execute(currentPayload);
+  const removedColumns = new Set<string>();
+  let retryCount = 0;
+
+  while (error) {
+    const missingColumn = extractMissingColumnName(error.message);
+    if (!missingColumn) break;
+
+    const payloadKey = Object.keys(currentPayload).find((key) => key.toLowerCase() === missingColumn.toLowerCase());
+    if (!payloadKey) break;
+
+    const normalizedKey = payloadKey.toLowerCase();
+    if (removedColumns.has(normalizedKey)) break;
+    removedColumns.add(normalizedKey);
+
+    const retryPayload = { ...currentPayload };
+    delete retryPayload[payloadKey];
+    currentPayload = retryPayload;
+    retryCount += 1;
+    ({ data, error } = await execute(currentPayload));
+  }
+
+  return {
+    data,
+    error,
+    removedColumns: [...removedColumns],
+    retryCount,
+  };
 }
 
 function normalizeHowToGuideSlug(value: string): string {
@@ -282,6 +330,17 @@ function mapAnnouncementPayloadToDb(data: Partial<AnnouncementPayload>): Record<
   return mapped;
 }
 
+function attachAnnouncementMutationDiagnostics(
+  announcement: Announcement,
+  diagnostics: AnnouncementMutationDiagnostics,
+): Announcement {
+  if (diagnostics.removedColumns.length === 0) return announcement;
+  return {
+    ...announcement,
+    __mutationDiagnostics: diagnostics,
+  };
+}
+
 // All data now lives in the single external Supabase project (lhaqqqatdztuijgdfdcf).
 // The supabase client in src/lib/supabase.ts already points there.
 
@@ -321,6 +380,169 @@ export async function bulkUpdatePrayerTimes(ids: string[], data: PrayerTimeUpdat
     .select();
   if (error) throw new Error(`Failed to bulk update prayer times: ${error.message}`);
   return rows as PrayerTime[];
+}
+
+export type HijriCalendarLookupRow = {
+  gregorian_year: number;
+  gregorian_month: number;
+  gregorian_day: number;
+  gregorian_date: string;
+  hijri_date: string;
+};
+
+function monthRangeIso(year: number, month: number): { start: string; end: string } {
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const endDate = new Date(year, month, 0);
+  const end = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+  return { start, end };
+}
+
+export async function fetchHijriCalendarForHijriYear(hijriYear: number): Promise<HijriCalendarLookupRow[]> {
+  const matchText = `% ${hijriYear} AH`;
+  const { data, error } = await supabaseAdmin
+    .from('hijri_calendar')
+    .select('gregorian_year,gregorian_month,gregorian_day,gregorian_date,hijri_date')
+    .ilike('hijri_date', matchText)
+    .order('gregorian_year', { ascending: true })
+    .order('gregorian_month', { ascending: true })
+    .order('gregorian_day', { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to fetch Hijri calendar for ${hijriYear} AH: ${error.message}`);
+  }
+
+  return (data ?? []) as HijriCalendarLookupRow[];
+}
+
+export async function fetchIslamicCalendarEvents(options?: {
+  eventType?: IslamicCalendarEventType;
+}): Promise<IslamicCalendarEvent[]> {
+  // NOTE: Do NOT filter by linked_gregorian_date here — many rows have stale dates
+  // from prior years. The mobile app remaps them via the hijri_calendar table.
+  // The portal management view always shows all rows.
+  let query = supabase
+    .from('islamic_calendar_events')
+    .select('*')
+    .order('linked_hijri_month', { ascending: true })
+    .order('linked_hijri_day', { ascending: true })
+    .order('title', { ascending: true });
+
+  if (options?.eventType) {
+    query = query.eq('event_type', options.eventType);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`Failed to fetch Islamic calendar events: ${error.message}`);
+  }
+
+  return (data ?? []) as IslamicCalendarEvent[];
+}
+
+export async function createIslamicCalendarEvent(
+  data: Partial<IslamicCalendarEventPayload>
+): Promise<IslamicCalendarEvent> {
+  const { data: row, error } = await supabase
+    .from('islamic_calendar_events')
+    .insert(data)
+    .select('*')
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create Islamic calendar event: ${error.message}`);
+  }
+
+  return row as IslamicCalendarEvent;
+}
+
+export async function updateIslamicCalendarEvent(
+  id: string,
+  data: Partial<IslamicCalendarEventPayload>
+): Promise<IslamicCalendarEvent> {
+  const { data: row, error } = await supabase
+    .from('islamic_calendar_events')
+    .update(data)
+    .eq('id', id)
+    .select('*')
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to update Islamic calendar event: ${error.message}`);
+  }
+
+  return row as IslamicCalendarEvent;
+}
+
+export async function deleteIslamicCalendarEvent(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('islamic_calendar_events')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    throw new Error(`Failed to delete Islamic calendar event: ${error.message}`);
+  }
+}
+
+export async function upsertIslamicCalendarEvents(
+  rows: Array<Partial<IslamicCalendarEventPayload>>
+): Promise<IslamicCalendarEvent[]> {
+  if (rows.length === 0) return [];
+
+  const buildConflictKey = (row: Partial<IslamicCalendarEventPayload>): string | null => {
+    const title = typeof row.title === 'string' ? row.title.trim() : '';
+    const eventType = (typeof row.event_type === 'string' && row.event_type.trim().length > 0
+      ? row.event_type.trim()
+      : 'important_date') as IslamicCalendarEventType;
+
+    const day = Number(row.linked_hijri_day);
+    const month = Number(row.linked_hijri_month);
+    const year = Number(row.linked_hijri_year);
+
+    if (!title || !Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) {
+      return null;
+    }
+
+    return `${title}||${eventType}||${day}||${month}||${year}`;
+  };
+
+  // Postgres cannot upsert the same conflict key twice in one statement.
+  // Collapse duplicate rows so each key appears only once per request.
+  const dedupedRows: Array<Partial<IslamicCalendarEventPayload>> = [];
+  const dedupeIndexByKey = new Map<string, number>();
+
+  rows.forEach((row) => {
+    const key = buildConflictKey(row);
+    if (!key) {
+      dedupedRows.push(row);
+      return;
+    }
+
+    const existingIndex = dedupeIndexByKey.get(key);
+    if (existingIndex === undefined) {
+      dedupeIndexByKey.set(key, dedupedRows.length);
+      dedupedRows.push(row);
+      return;
+    }
+
+    dedupedRows[existingIndex] = {
+      ...dedupedRows[existingIndex],
+      ...row,
+    };
+  });
+
+  const { data, error } = await supabase
+    .from('islamic_calendar_events')
+    .upsert(dedupedRows, {
+      onConflict: 'title,event_type,linked_hijri_day,linked_hijri_month,linked_hijri_year',
+    })
+    .select('*');
+
+  if (error) {
+    throw new Error(`Failed to upsert Islamic calendar events: ${error.message}`);
+  }
+
+  return (data ?? []) as IslamicCalendarEvent[];
 }
 
 // ─── Adhkar ──────────────────────────────────────────────────────────────────
@@ -882,11 +1104,22 @@ export async function updateHowToGuide(id: string, data: Partial<HowToGuidePaylo
   return rows as HowToGuide;
 }
 
-export async function deleteHowToGuide(id: string): Promise<void> {
-  const { error } = await supabase
+export async function deleteHowToGuide(
+  id: string,
+  options?: {
+    expectedLanguage?: HowToLanguage;
+  },
+): Promise<void> {
+  let query = supabase
     .from('howto_guides')
     .delete()
     .eq('id', id);
+
+  if (options?.expectedLanguage) {
+    query = query.eq('language', options.expectedLanguage);
+  }
+
+  const { error } = await query;
 
   if (error) throw new Error(`Failed to delete how-to guide: ${error.message}`);
 }
@@ -1459,27 +1692,30 @@ export async function fetchAnnouncements(): Promise<Announcement[]> {
 }
 
 export async function createAnnouncement(data: Partial<AnnouncementPayload>): Promise<Announcement> {
-  const payload = { is_active: true, ...mapAnnouncementPayloadToDb(data) };
+  const payload: Record<string, unknown> = { is_active: true, ...mapAnnouncementPayloadToDb(data) };
   const insertQuery = (rowPayload: Record<string, unknown>) => supabase
     .from(ANNOUNCEMENTS_TABLE)
     .insert(rowPayload)
     .select()
     .single();
 
-  let { data: rows, error } = await insertQuery(payload);
-
-  if (error && 'event_time' in payload && isMissingColumnError(error.message, 'event_time')) {
-    const retryPayload = { ...payload };
-    delete retryPayload.event_time;
-    ({ data: rows, error } = await insertQuery(retryPayload));
-  }
+  const { data: rows, error, removedColumns, retryCount } = await retryAnnouncementMutationWithoutMissingColumns(payload, insertQuery);
 
   if (error) throw new Error(`Failed to create announcement: ${error.message}`);
-  return mapAnnouncementFromDb(rows as AnnouncementDbRow);
+  if (removedColumns.length > 0) {
+    console.warn('[announcements] create mutation retried without unsupported columns', {
+      removedColumns,
+      retryCount,
+    });
+  }
+  return attachAnnouncementMutationDiagnostics(
+    mapAnnouncementFromDb(rows as AnnouncementDbRow),
+    { removedColumns, retryCount }
+  );
 }
 
 export async function updateAnnouncement(id: string, data: Partial<AnnouncementPayload>): Promise<Announcement> {
-  const payload = mapAnnouncementPayloadToDb(data);
+  const payload: Record<string, unknown> = mapAnnouncementPayloadToDb(data);
   const updateQuery = (rowPayload: Record<string, unknown>) => supabase
     .from(ANNOUNCEMENTS_TABLE)
     .update(rowPayload)
@@ -1487,16 +1723,20 @@ export async function updateAnnouncement(id: string, data: Partial<AnnouncementP
     .select()
     .single();
 
-  let { data: rows, error } = await updateQuery(payload);
-
-  if (error && 'event_time' in payload && isMissingColumnError(error.message, 'event_time')) {
-    const retryPayload = { ...payload };
-    delete retryPayload.event_time;
-    ({ data: rows, error } = await updateQuery(retryPayload));
-  }
+  const { data: rows, error, removedColumns, retryCount } = await retryAnnouncementMutationWithoutMissingColumns(payload, updateQuery);
 
   if (error) throw new Error(`Failed to update announcement: ${error.message}`);
-  return mapAnnouncementFromDb(rows as AnnouncementDbRow);
+  if (removedColumns.length > 0) {
+    console.warn('[announcements] update mutation retried without unsupported columns', {
+      id,
+      removedColumns,
+      retryCount,
+    });
+  }
+  return attachAnnouncementMutationDiagnostics(
+    mapAnnouncementFromDb(rows as AnnouncementDbRow),
+    { removedColumns, retryCount }
+  );
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {

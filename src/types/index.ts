@@ -19,6 +19,33 @@ export interface HijriMonthOverride {
   updated_at?: string;
 }
 
+export type IslamicCalendarEventType = 'important_date' | 'masjid_event';
+
+export interface IslamicCalendarEvent {
+  id: string;
+  title: string;
+  event_type: IslamicCalendarEventType;
+  field_label: string | null;
+  region: string | null;
+  notes: string | null;
+  source_name: string | null;
+  linked_hijri_day: number;
+  linked_hijri_month: number;
+  linked_hijri_year: number;
+  linked_hijri_label: string;
+  linked_gregorian_date: string;
+  original_hijri_year: number | null;
+  auto_delete_grace_days: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type IslamicCalendarEventPayload = Omit<
+  IslamicCalendarEvent,
+  'id' | 'created_at' | 'updated_at'
+>;
+
 export interface PrayerTime {
   id: string;
   month: number;
@@ -364,9 +391,25 @@ export interface Announcement {
   image_url: string | null;
   is_active: boolean;
   display_order: number;
+  recurrence_type?: AnnouncementRecurrenceType | null;
+  recurrence_interval?: number | null;
+  recurrence_weekday?: number | null;
+  recurrence_month_day?: number | null;
+  recurrence_until?: string | null;
+  published_at?: string | null;
+  event_date?: string | null;
+  expires_at?: string | null;
   created_at: string;
   updated_at: string;
+  __mutationDiagnostics?: AnnouncementMutationDiagnostics;
 }
+
+export interface AnnouncementMutationDiagnostics {
+  removedColumns: string[];
+  retryCount: number;
+}
+
+export type AnnouncementRecurrenceType = 'none' | 'weekly' | 'monthly';
 
 export type AnnouncementPayload = Omit<Announcement, 'id' | 'created_at' | 'updated_at'>;
 

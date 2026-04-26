@@ -1,0 +1,217 @@
+FINAL IMPORTANT ISLAMIC DATES LIST (SUNNI CONTEXT)
+INCLUDES:
+- Major Islamic observances and seerah milestones
+- Major battles and prophetic-era events
+- Urs/Wisaal dates of key Sunni figures
+- Full Hijri date format only: day + month + year
+- Duplicates removed
+
+FORMAT:
+Name | Field | Full Hijri Date | Region | Notes
+
+
+==================================================
+MAJOR ISLAMIC DATES / SEERAH EVENTS
+==================================================
+
+Islamic New Year (1 Muharram) | Islamic Event / Sacred Month | 1 Muharram 1 AH | Global Ummah | Beginning of Hijri year
+Day of Ashura | Islamic Event / Sacred Month | 10 Muharram 61 AH | Karbala and wider Ummah | Major day of fasting and remembrance
+Mawlid al-Nabi | Seerah / Mawlid | 12 Rabi al-Awwal 53 BH | Makkah | Widely observed date of the blessed birth of Rasulullah
+Isra and Mi'raj | Seerah / Miraj | 27 Rajab 1 BH | Makkah to Jerusalem and Heavens | Night Journey and Ascension
+Nisf Sha'ban | Islamic Event / Worship | 15 Sha'ban 2 AH | Global Ummah | Mid-Sha'ban observance in Sunni devotional practice
+Start of Ramadan | Islamic Event / Fasting | 1 Ramadan 2 AH | Madinah and global Ummah | Beginning of fasting month
+Battle of Badr | Seerah / Battle | 17 Ramadan 2 AH | Badr | First major battle in Islam
+Conquest of Makkah | Seerah / Victory | 20 Ramadan 8 AH | Makkah | Fath Makkah milestone
+Laylat al-Qadr (commonly observed) | Islamic Event / Worship | 27 Ramadan 2 AH | Global Ummah | Commonly observed Night of Power
+Eid al-Fitr | Islamic Event / Eid | 1 Shawwal 2 AH | Global Ummah | Eid after Ramadan
+Battle of Uhud | Seerah / Battle | 7 Shawwal 3 AH | Uhud (Madinah) | Major prophetic-era battle
+Battle of Khandaq (Ahzab) | Seerah / Battle | 15 Shawwal 5 AH | Madinah | Battle of the Trench
+Day of Arafah | Hajj / Islamic Event | 9 Dhul Hijjah 10 AH | Arafat | Greatest day of Hajj
+Eid al-Adha | Hajj / Islamic Event / Eid | 10 Dhul Hijjah 10 AH | Mina and global Ummah | Eid of sacrifice
+
+
+==================================================
+SAHABAH / AHL AL-BAYT
+==================================================
+
+Sayyiduna Abu Bakr al-Siddiq | Sahabi / Khalifah | 22 Jumada al-Akhirah 13 AH | Madinah | First Khalifah
+Sayyiduna Umar ibn al-Khattab | Sahabi / Khalifah | 26 Dhul Hijjah 23 AH | Madinah | Second Khalifah
+Sayyiduna Uthman ibn Affan | Sahabi / Khalifah / Quran | 18 Dhul Hijjah 35 AH | Madinah | Standardisation of the Mushaf
+Sayyiduna Ali ibn Abi Talib | Sahabi / Ahl al-Bayt / Fiqh / Tasawwuf | 21 Ramadan 40 AH | Kufa/Najaf | Fourth Khalifah
+Sayyiduna Imam Hasan ibn Ali | Ahl al-Bayt / Khalifah | 5 Rabi al-Awwal 50 AH | Madinah | Grandson of Rasulullah ﷺ
+Sayyiduna Imam Husayn ibn Ali | Ahl al-Bayt / Shahid | 10 Muharram 61 AH | Karbala | Shahid of Karbala
+Sayyiduna Imam Zayn al-Abidin Ali ibn al-Husayn | Ahl al-Bayt | 18 Muharram 95 AH | Madinah | Imam of Ahl al-Bayt
+Sayyiduna Imam Muhammad al-Baqir | Ahl al-Bayt / Ilm | 7 Dhul Hijjah 114 AH | Madinah | Imam of Ahl al-Bayt
+Sayyiduna Imam Jafar al-Sadiq | Ahl al-Bayt / Fiqh / Tasawwuf | 15 Rajab 148 AH | Madinah | Imam of Ahl al-Bayt
+Sayyiduna Imam Musa al-Kazim | Ahl al-Bayt | 5 Rajab 183 AH | Baghdad | Imam of Ahl al-Bayt
+Sayyiduna Bilal ibn Rabah | Sahabi / Muadhdhin | 20 Muharram 20 AH | Damascus | Muadhdhin of Rasulullah ﷺ
+Sayyiduna Salman al-Farsi | Sahabi / Zuhd / Tasawwuf | 10 Rajab 36 AH | Mada'in | Linked to spiritual chains
+Sayyiduna Abdullah ibn Masud | Sahabi / Quran / Qira'ah / Fiqh | 9 Ramadan 32 AH | Madinah/Kufa | Qur'an and fiqh authority
+Sayyidah Khadijah al-Kubra | Umm al-Mu'minin | 10 Ramadan 3 BH | Makkah | Before Hijrah
+Sayyidah Aishah al-Siddiqah | Umm al-Mu'minin / Hadith / Fiqh | 17 Ramadan 58 AH | Madinah | Major hadith narrator
+Sayyiduna Hamzah ibn Abd al-Muttalib | Sahabi / Shahid | 15 Shawwal 3 AH | Uhud | Sayyid al-Shuhada
+Sayyiduna Khalid ibn al-Walid | Sahabi / Commander | 29 Jumada al-Ula 21 AH | Homs | Sword of Allah
+Mu'awiyah ibn Abi Sufyan | Sahabi / Khalifah | 22 Rajab 60 AH | Damascus | First Umayyad Khalifah
+
+
+==================================================
+TABIEEN / EARLY ZUHD / EARLY TASAWWUF
+==================================================
+
+Hasan al-Basri | Tabi'i / Zuhd / Tafsir | 4 Muharram 110 AH | Basra | Major early ascetic
+Umar ibn Abd al-Aziz | Khalifah / Mujaddid / Zuhd | 25 Rajab 101 AH | Syria | Righteous Umayyad Khalifah
+Maruf al-Karkhi | Early Sufi | 2 Muharram 200 AH | Baghdad | Early Baghdadi wali
+Ibrahim ibn Adham | Early Sufi / Zuhd | 16 Jumada al-Ula 161 AH | Syria | King-saint ascetic
+Dhu al-Nun al-Misri | Early Sufi | 10 Dhul Qa'dah 245 AH | Egypt | Early Egyptian wali
+Sari al-Saqati | Early Sufi | 13 Ramadan 253 AH | Baghdad | Teacher of Junayd
+Bayazid Bastami | Early Sufi | 14 Ramadan 261 AH | Bastam | Master of fana and ma'rifah
+Junayd al-Baghdadi | Tasawwuf | 27 Rajab 297 AH | Baghdad | Sayyid al-Ta'ifah
+Abu Bakr al-Shibli | Tasawwuf | 27 Dhul Hijjah 334 AH | Baghdad | Disciple of Junayd
+
+
+==================================================
+QURAN / QIRA'AT / TAJWID / RASM / TAFSIR
+==================================================
+
+Imam al-Tabari | Tafsir / Quran / Hadith | 26 Shawwal 310 AH | Baghdad | Jami' al-Bayan
+Imam al-Shatibi | Qira'at / Tajwid | 28 Jumada al-Akhirah 590 AH | Egypt | Author of al-Shatibiyyah
+Imam Ibn Kathir | Tafsir / Hadith | 26 Sha'ban 774 AH | Damascus | Tafsir Ibn Kathir
+Imam Ibn al-Jazari | Qira'at / Tajwid / Hadith | 5 Rabi al-Awwal 833 AH | Shiraz | Shaykh al-Qurra, author of al-Nashr
+Imam Jalal al-Din al-Suyuti | Tafsir / Quran Sciences / Hadith | 19 Jumada al-Ula 911 AH | Cairo | al-Itqan fi Ulum al-Qur'an
+Sadr al-Afadil Na'im al-Din Muradabadi | Tafsir / Hanafi / Sunni | 18 Dhul Hijjah 1367 AH | Moradabad | Khaza'in al-Irfan
+Mufti Ahmad Yar Khan Na'imi | Tafsir / Hadith / Hanafi | 3 Ramadan 1391 AH | Pakistan | Tafsir Na'imi
+Muhammad Siddiq al-Minshawi | Qur'an Reciter | 5 Rabi al-Thani 1389 AH | Egypt | Famous Egyptian qari
+Mahmud Khalil al-Husari | Qur'an Reciter / Qira'at | 16 Muharram 1401 AH | Egypt | Major Egyptian muqri
+Mahmud Ali al-Banna | Qur'an Reciter | 3 Dhul Qa'dah 1405 AH | Egypt | Famous Egyptian qari
+Abd al-Basit Abd al-Samad | Qur'an Reciter | 30 Rabi al-Thani 1409 AH | Egypt | Famous Egyptian qari
+
+
+==================================================
+HADITH IMAMS
+==================================================
+
+Imam Malik ibn Anas | Hadith / Fiqh | 14 Rabi al-Awwal 179 AH | Madinah | Imam of Madinah, al-Muwatta
+Imam al-Bukhari | Hadith | 1 Shawwal 256 AH | Khartank/Samarqand | Sahih al-Bukhari
+Imam Muslim ibn al-Hajjaj | Hadith | 25 Rajab 261 AH | Nishapur | Sahih Muslim
+Imam Ibn Majah | Hadith | 22 Ramadan 273 AH | Qazwin | Sunan Ibn Majah
+Imam Abu Dawud | Hadith | 16 Shawwal 275 AH | Basra | Sunan Abi Dawud
+Imam al-Tirmidhi | Hadith | 13 Rajab 279 AH | Tirmidh | Jami al-Tirmidhi
+Imam al-Nasa'i | Hadith | 13 Safar 303 AH | Palestine/Damascus route | Sunan al-Nasa'i
+Imam al-Bayhaqi | Hadith / Shafi'i | 10 Jumada al-Ula 458 AH | Bayhaq/Nishapur | al-Sunan al-Kubra
+Imam al-Nawawi | Hadith / Fiqh / Zuhd | 24 Rajab 676 AH | Nawa, Syria | Riyad al-Salihin, Arba'in
+Imam Ibn Daqiq al-Id | Hadith / Fiqh | 11 Safar 702 AH | Egypt | Hadith and usul scholar
+Imam al-Dhahabi | Hadith / History | 3 Dhul Qa'dah 748 AH | Damascus | Siyar A'lam al-Nubala
+Imam Ibn Hajar al-Asqalani | Hadith / Shafi'i | 28 Dhul Hijjah 852 AH | Cairo | Fath al-Bari
+Muhammad Zahid al-Kawthari | Hanafi / Hadith | 19 Dhul Qa'dah 1371 AH | Cairo | Ottoman-Hanafi hadith scholar
+Muhammad Alawi al-Maliki | Hadith / Makkan Sunni | 15 Ramadan 1425 AH | Makkah | Sunni Makkan scholar
+
+
+==================================================
+FIQH / AQIDAH / SUNNI IMAMS
+==================================================
+
+Imam Abu Hanifah | Fiqh / Hanafi | 2 Sha'ban 150 AH | Baghdad | Imam al-A'zam
+Imam Malik ibn Anas | Fiqh / Hadith | 14 Rabi al-Awwal 179 AH | Madinah | Maliki Imam
+Imam al-Shafi'i | Fiqh / Usul | 4 Rajab 204 AH | Cairo | Shafi'i Imam
+Imam Ahmad ibn Hanbal | Fiqh / Hadith | 9 Rabi al-Thani 241 AH | Baghdad | Hanbali Imam
+Imam al-Tahawi | Aqidah / Hanafi / Hadith | 3 Dhul Qa'dah 321 AH | Egypt | al-Aqidah al-Tahawiyyah
+Imam Abu Hamid al-Ghazali | Fiqh / Tasawwuf / Aqidah | 14 Rabi al-Thani 505 AH | Tus | Ihya Ulum al-Din
+Qadi Iyad ibn Musa | Maliki / Hadith / Sirah | 9 Jumada al-Akhirah 544 AH | Morocco | al-Shifa
+Imam Fakhr al-Din al-Razi | Tafsir / Aqidah / Shafi'i | 1 Shawwal 606 AH | Herat | Mafatih al-Ghayb
+Imam al-Izz ibn Abd al-Salam | Shafi'i / Usul / Zuhd | 10 Jumada al-Ula 660 AH | Egypt | Sultan al-Ulama
+Ibn Hajar al-Haytami | Shafi'i / Hadith | 23 Rajab 974 AH | Makkah / Egypt | Tuhfat al-Muhtaj
+Mulla Ali al-Qari | Hanafi / Hadith / Qira'at | 4 Shawwal 1014 AH | Makkah | Mirqat al-Mafatih
+Imam Rabbani Ahmad Sirhindi | Hanafi / Naqshbandi / Mujaddid | 28 Safar 1034 AH | Sirhind | Mujaddid Alf-e-Thani
+Ibn Abidin al-Shami | Hanafi Fiqh | 21 Rabi al-Thani 1252 AH | Damascus | Radd al-Muhtar
+Ibrahim al-Bajuri | Shafi'i / Ash'ari / Azhar | 28 Dhul Qa'dah 1277 AH | Cairo | Shaykh al-Azhar
+Ahmad Rida Khan Barelwi | Hanafi / Maturidi / Qadiri | 25 Safar 1340 AH | Bareilly | A'la Hazrat
+Amjad Ali A'zami | Hanafi Fiqh / Qadiri | 2 Dhul Qa'dah 1367 AH | India | Bahar-e-Shari'at
+Ahmad Yar Khan Na'imi | Hanafi / Tafsir / Hadith | 3 Ramadan 1391 AH | Pakistan | Tafsir Na'imi
+
+
+==================================================
+MAJOR AWLIYA / TASAWWUF / TARIQAH MASHAYIKH
+==================================================
+
+Ali Hujwiri Data Ganj Bakhsh | Tasawwuf | 18 Safar 465 AH | Lahore | Kashf al-Mahjub
+Abd al-Qadir al-Jilani | Qadiri / Hanbali / Tasawwuf | 11 Rabi al-Thani 561 AH | Baghdad | Ghawth al-A'zam
+Ahmad al-Rifa'i | Rifai / Tasawwuf | 12 Jumada al-Ula 578 AH | Iraq | Founder of Rifaiyyah
+Mu'in al-Din Chishti Ajmeri | Chishti | 6 Rajab 633 AH | Ajmer | Gharib Nawaz
+Qutb al-Din Bakhtiyar Kaki | Chishti | 14 Rabi al-Awwal 633 AH | Delhi | Chishti master
+Muhyi al-Din Ibn Arabi | Tasawwuf | 22 Rabi al-Thani 638 AH | Damascus | al-Shaykh al-Akbar
+Faqih al-Muqaddam Muhammad ibn Ali Ba Alawi | Ba Alawi / Shafi'i / Tasawwuf | 22 Dhul Hijjah 653 AH | Tarim | Root of Ba Alawi path
+Abu al-Hasan al-Shadhili | Shadhili | 12 Shawwal 656 AH | Humaythara, Egypt | Founder of Shadhiliyyah
+Baha al-Din Zakariyya Multani | Suhrawardi | 7 Safar 666 AH | Multan | Suhrawardi master
+Baba Farid al-Din Ganjshakar | Chishti | 5 Muharram 664 AH | Pakpattan | Chishti saint
+Jalal al-Din Rumi | Mevlevi / Sufi Poet | 5 Jumada al-Akhirah 672 AH | Konya | Mathnawi
+Ahmad al-Badawi | Egyptian Sufi | 12 Rabi al-Awwal 675 AH | Tanta | Major Egyptian wali
+Ibrahim al-Dasuqi | Egyptian Sufi | 29 Sha'ban 676 AH | Dasuq | Egyptian wali
+Ala al-Din Ali Ahmad Sabir Kalyari | Chishti Sabiri | 13 Rabi al-Awwal 690 AH | Kalyar | Sabiri line
+Ibn Ata'illah al-Iskandari | Shadhili / Maliki | 13 Jumada al-Akhirah 709 AH | Cairo | al-Hikam
+Nizam al-Din Awliya | Chishti | 19 Rabi al-Thani 725 AH | Delhi | Mahbub-e-Ilahi
+Amir Khusro | Chishti / Poet | 18 Shawwal 725 AH | Delhi | Disciple of Nizam al-Din
+Nasir al-Din Chiragh Dehlavi | Chishti | 18 Ramadan 757 AH | Delhi | Chishti master
+Baha al-Din Naqshband | Naqshbandi | 3 Rabi al-Awwal 791 AH | Bukhara | Naqshbandi Imam
+Makhdum Ashraf Jahangir Simnani | Chishti / Qadiri | 28 Muharram 808 AH | Kichaucha | Ashrafi silsilah
+Muhammad al-Jazuli | Shadhili / Salawat | 16 Rabi al-Awwal 870 AH | Morocco | Dalail al-Khayrat
+Abd al-Wahhab al-Sha'rani | Shafi'i / Sufi | 12 Jumada al-Ula 973 AH | Cairo | al-Tabaqat al-Kubra
+Sultan Bahu | Qadiri / Sufi Poet | 1 Jumada al-Akhirah 1102 AH | Punjab | Sultan al-Arifin
+Abdullah ibn Alawi al-Haddad | Ba Alawi / Shafi'i / Sufi | 7 Dhul Qa'dah 1132 AH | Tarim | Ratib al-Haddad, Wird al-Latif
+Ahmad ibn Zayn al-Habshi | Ba Alawi / Sufi | 19 Sha'ban 1145 AH | Hadramaut | Student of Imam al-Haddad
+Ahmad al-Tijani | Tijani / Sufi | 17 Shawwal 1230 AH | Fez | Founder of Tijaniyyah
+Khalid al-Baghdadi | Naqshbandi | 13 Dhul Qa'dah 1242 AH | Damascus | Khalidi branch
+Abd al-Qadir al-Jaza'iri | Scholar / Sufi / Emir | 19 Rajab 1300 AH | Damascus / Algeria | Algerian scholar and wali
+Ahmad al-Alawi | Shadhili-Darqawi | 28 Safar 1353 AH | Algeria | Modern Shadhili master
+Ali ibn Muhammad al-Habshi | Ba Alawi / Sufi / Mawlid | 20 Rabi al-Thani 1333 AH | Seiyun | Author of Simt al-Durar
+Mustafa Rida Khan | Hanafi / Qadiri | 14 Muharram 1402 AH | Bareilly | Mufti-e-A'zam Hind
+Ahmad Mashhur al-Haddad | Ba Alawi / Shafi'i / Da'wah | 14 Rajab 1416 AH | Jeddah | Hadrami da'wah scholar
+Shaykh Nazim al-Haqqani | Naqshbandi-Haqqani | 8 Rajab 1435 AH | Cyprus | Naqshbandi shaykh
+Akhtar Raza Khan Azhari | Hanafi / Qadiri | 6 Dhul Qa'dah 1439 AH | Bareilly | Taj al-Shari'ah
+
+
+==================================================
+BARELVI / RAZVI / AHL AL-SUNNAH SCHOLARS
+==================================================
+
+Ahmad Rida Khan Barelwi | Hanafi / Maturidi / Qadiri / Mujaddid | 25 Safar 1340 AH | Bareilly | A'la Hazrat
+Wasi Ahmad Muhaddith Surati | Hadith / Hanafi / Ahl al-Sunnah | 8 Rabi al-Thani 1334 AH | India | Ahl al-Sunnah hadith scholar
+Hamid Raza Khan | Hanafi / Qadiri | 17 Rabi al-Thani 1362 AH | Bareilly | Hujjat al-Islam
+Amjad Ali A'zami | Hanafi Fiqh / Qadiri | 2 Dhul Qa'dah 1367 AH | India | Sadr al-Shari'ah
+Na'im al-Din Muradabadi | Tafsir / Hanafi / Qadiri | 18 Dhul Hijjah 1367 AH | Moradabad | Sadr al-Afadil
+Abd al-Alim Siddiqi | Scholar / Da'wah / Qadiri | 22 Dhul Hijjah 1373 AH | Madinah | Global Sunni da'wah scholar
+Hashmat Ali Khan | Hanafi / Munazir / Ahl al-Sunnah | 24 Rajab 1380 AH | Lucknow / India | Sher Besha-e-Ahl al-Sunnat
+Ahmad Yar Khan Na'imi | Tafsir / Hadith / Hanafi | 3 Ramadan 1391 AH | Pakistan | Tafsir Na'imi, Mir'at al-Manajih
+Zia al-Din Ahmad Madani | Hanafi / Qadiri / Madani scholar | 4 Dhul Hijjah 1401 AH | Madinah | Shaykh Zia al-Din Madani
+Mustafa Rida Khan | Hanafi / Qadiri | 14 Muharram 1402 AH | Bareilly | Mufti-e-A'zam Hind
+Qari Muhammad Muslehuddin Siddiqui | Qira'at / Sunni scholar | 7 Jumada al-Thani 1403 AH | Karachi | Qari Muslehuddin Siddiqui
+Ibrahim Khushtar Siddiqi | Sunni scholar / Poet | 5 Jumada al-Thani 1418 AH | India | Ahl al-Sunnah scholar-poet
+Arshad al-Qadiri | Writer / Scholar / Ahl al-Sunnah | 5 Safar 1423 AH | India | Allama Arshad al-Qadiri
+Akhtar Raza Khan Azhari | Hanafi / Qadiri | 6 Dhul Qa'dah 1439 AH | Bareilly | Taj al-Shari'ah
+
+
+==================================================
+ARABIC GRAMMAR / LANGUAGE / BALAGHAH
+==================================================
+
+Imam al-Zamakhshari | Arabic / Tafsir / Balaghah | 9 Dhul Hijjah 538 AH | Khwarazm | Author of al-Kashshaf; not Sunni in aqidah
+Ibn Malik al-Andalusi | Nahw / Arabic Grammar | 12 Sha'ban 672 AH | Damascus | Author of Alfiyyah Ibn Malik
+Ibn Hisham al-Ansari | Nahw / Arabic Grammar | 5 Dhul Qa'dah 761 AH | Egypt | Author of Mughni al-Labib
+Jalal al-Din al-Suyuti | Arabic / Tafsir / Hadith | 19 Jumada al-Ula 911 AH | Cairo | Arabic sciences, tafsir, hadith
+
+
+==================================================
+FAMOUS MUSLIM CALIPHS / SULTANS
+==================================================
+
+Sayyiduna Abu Bakr al-Siddiq | Rashidun Khalifah | 22 Jumada al-Akhirah 13 AH | Madinah | First Khalifah
+Sayyiduna Umar ibn al-Khattab | Rashidun Khalifah | 26 Dhul Hijjah 23 AH | Madinah | Second Khalifah
+Sayyiduna Uthman ibn Affan | Rashidun Khalifah | 18 Dhul Hijjah 35 AH | Madinah | Third Khalifah
+Sayyiduna Ali ibn Abi Talib | Rashidun Khalifah | 21 Ramadan 40 AH | Kufa/Najaf | Fourth Khalifah
+Sayyiduna Hasan ibn Ali | Khalifah / Ahl al-Bayt | 5 Rabi al-Awwal 50 AH | Madinah | Fifth rightly-guided khalifah in Sunni devotional lists
+Mu'awiyah ibn Abi Sufyan | Umayyad Khalifah / Sahabi | 22 Rajab 60 AH | Damascus | First Umayyad khalifah
+Umar ibn Abd al-Aziz | Umayyad Khalifah / Mujaddid | 25 Rajab 101 AH | Syria | Righteous khalifah
+Harun al-Rashid | Abbasid Khalifah | 3 Jumada al-Akhirah 193 AH | Tus | Famous Abbasid khalifah
+Salah al-Din al-Ayyubi | Sultan / Sunni ruler | 27 Safar 589 AH | Damascus | Liberator of Jerusalem
+Muhammad al-Fatih | Ottoman Sultan | 4 Rabi al-Awwal 886 AH | Istanbul | Conqueror of Constantinople
+Sultan Sulayman al-Qanuni | Ottoman Sultan | 20 Safar 974 AH | Szigetvar / Istanbul | Ottoman Sultan
+Sultan Abd al-Hamid II | Ottoman Sultan / Khalifah | 28 Rabi al-Thani 1336 AH | Istanbul | Last powerful Ottoman khalifah

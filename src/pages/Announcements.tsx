@@ -2,7 +2,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement } from '#/lib/api';
-import { Announcement, AnnouncementPayload } from '#/types';
+import { Announcement, AnnouncementPayload, AnnouncementRecurrenceType } from '#/types';
 import Sidebar from '#/components/layout/Sidebar';
 import { toast } from 'sonner';
 import {
@@ -39,6 +39,15 @@ const FONT_SIZES = ['12px','14px','16px','18px','20px','24px','28px','32px','40p
 const TEXT_COLORS = ['#000000','#1a1a2e','#374151','#6b7280','#dc2626','#ea580c','#d97706','#16a34a','#0284c7','#7c3aed','#db2777','#0f766e','#ffffff','#f8fafc','#fef3c7','#dbeafe'];
 const ANNOUNCEMENTS_EVENTS_BUCKET = (import.meta.env.VITE_ANNOUNCEMENTS_EVENTS_BUCKET ?? '').trim();
 const ANNOUNCEMENT_TYPE_OPTIONS = ['Urgent', 'Jalsa', 'Public Safety', 'Class', 'Special', 'Ramadan', 'Eid', 'Jumuah', 'Lecture', 'Workshop', 'Community', 'Youth', 'Funeral', 'Nikah'];
+const WEEKDAY_OPTIONS = [
+  { value: '0', label: 'Sunday' },
+  { value: '1', label: 'Monday' },
+  { value: '2', label: 'Tuesday' },
+  { value: '3', label: 'Wednesday' },
+  { value: '4', label: 'Thursday' },
+  { value: '5', label: 'Friday' },
+  { value: '6', label: 'Saturday' },
+];
 
 const FontSize = Extension.create({
   name: 'fontSize',
@@ -131,7 +140,27 @@ const RichTextEditor = ({ content, onChange }: { content: string; onChange: (htm
   );
 };
 
-const EMPTY_FORM = { title: '', type: '', urdu_title: '', body: '', urdu_body: '', tag: false, lead_names: '', urdu_lead_names: '', start_time: '', link_url: '', image_url: '', is_active: true, display_order: 0 };
+const EMPTY_FORM = {
+  title: '',
+  type: '',
+  urdu_title: '',
+  body: '',
+  urdu_body: '',
+  tag: false,
+  lead_names: '',
+  urdu_lead_names: '',
+  start_time: '',
+  event_date: '',
+  recurrence_type: 'none' as AnnouncementRecurrenceType,
+  recurrence_interval: 1,
+  recurrence_weekday: '',
+  recurrence_month_day: '',
+  recurrence_until: '',
+  link_url: '',
+  image_url: '',
+  is_active: true,
+  display_order: 0,
+};
 
 type TimeSlotDraft = {
   start: string;
@@ -182,6 +211,98 @@ function formatSimpleTimeForDisplay(value: string): string {
   const meridiem = hour24 >= 12 ? 'PM' : 'AM';
   const hour12 = hour24 % 12 || 12;
   return `${hour12}:${minute} ${meridiem}`;
+}
+
+function toDateInputValue(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const year = parsed.getUTCFullYear();
+  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toNoonUtcIso(dateValue: string): string | null {
+  const trimmed = dateValue.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  return `${match[1]}-${match[2]}-${match[3]}T12:00:00.000Z`;
+}
+
+function normalizeRecurrenceType(value: string | null | undefined): AnnouncementRecurrenceType {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'weekly' || normalized === 'monthly') return normalized;
+  return 'none';
+}
+
+function isEventLikeAnnouncementType(value: string | null | undefined): boolean {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('event')) return true;
+  return [
+    'jalsa',
+    'class',
+    'special',
+    'ramadan',
+    'eid',
+    'jumuah',
+    "jumu'ah",
+    'lecture',
+    'workshop',
+    'community',
+    'youth',
+    'funeral',
+    'nikah',
+  ].includes(normalized);
+}
+
+function dateInputWeekday(value: string): number | null {
+  const parsedIso = toNoonUtcIso(value);
+  if (!parsedIso) return null;
+  const date = new Date(parsedIso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getUTCDay();
+}
+
+function dateInputDay(value: string): number | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const day = Number(match[2]);
+  if (!Number.isFinite(day) || day < 1 || day > 31) return null;
+  return day;
+}
+
+function formatRecurrenceSummary(item: Announcement): string | null {
+  const recurrenceType = normalizeRecurrenceType(item.recurrence_type ?? null);
+  if (recurrenceType === 'none') return null;
+
+  const interval = Math.max(1, Number(item.recurrence_interval) || 1);
+  const untilLabel = item.recurrence_until ? ` until ${new Date(item.recurrence_until).toLocaleDateString()}` : '';
+
+  if (recurrenceType === 'weekly') {
+    const weekday = typeof item.recurrence_weekday === 'number' ? item.recurrence_weekday : null;
+    const weekdayLabel = weekday !== null
+      ? (WEEKDAY_OPTIONS.find((option) => Number(option.value) === weekday)?.label ?? `Weekday ${weekday}`)
+      : 'selected day';
+    const cadence = interval === 1 ? 'Every week' : `Every ${interval} weeks`;
+    return `${cadence} on ${weekdayLabel}${untilLabel}`;
+  }
+
+  const monthDay = typeof item.recurrence_month_day === 'number' ? item.recurrence_month_day : null;
+  const cadence = interval === 1 ? 'Every month' : `Every ${interval} months`;
+  if (monthDay) {
+    return `${cadence} on day ${monthDay}${untilLabel}`;
+  }
+
+  return `${cadence}${untilLabel}`;
 }
 
 function sanitizeAnnouncementHtml(html: string): string {
@@ -353,7 +474,31 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
   const [lastItem, setLastItem] = useState(item);
   if (item !== lastItem) {
     setLastItem(item);
-    setForm(item ? { title: item.title, type: (item as Announcement & { type?: string | null }).type ?? '', urdu_title: (item as Announcement & { urdu_title?: string | null }).urdu_title ?? '', body: item.body ?? '', urdu_body: (item as Announcement & { urdu_body?: string | null }).urdu_body ?? '', tag: Boolean((item as Announcement & { tag?: boolean | null }).tag), lead_names: (item as Announcement & { lead_names?: string | null }).lead_names ?? '', urdu_lead_names: (item as Announcement & { urdu_lead_names?: string | null }).urdu_lead_names ?? '', start_time: (item as Announcement & { start_time?: string | null }).start_time ?? '', link_url: item.link_url ?? '', image_url: item.image_url ?? '', is_active: item.is_active, display_order: item.display_order } : { ...EMPTY_FORM });
+    setForm(item ? {
+      title: item.title,
+      type: (item as Announcement & { type?: string | null }).type ?? '',
+      urdu_title: (item as Announcement & { urdu_title?: string | null }).urdu_title ?? '',
+      body: item.body ?? '',
+      urdu_body: (item as Announcement & { urdu_body?: string | null }).urdu_body ?? '',
+      tag: Boolean((item as Announcement & { tag?: boolean | null }).tag),
+      lead_names: (item as Announcement & { lead_names?: string | null }).lead_names ?? '',
+      urdu_lead_names: (item as Announcement & { urdu_lead_names?: string | null }).urdu_lead_names ?? '',
+      start_time: (item as Announcement & { start_time?: string | null }).start_time ?? '',
+      event_date: toDateInputValue(item.event_date ?? item.published_at ?? item.created_at),
+      recurrence_type: normalizeRecurrenceType((item as Announcement & { recurrence_type?: string | null }).recurrence_type ?? null),
+      recurrence_interval: Math.max(1, Number((item as Announcement & { recurrence_interval?: number | null }).recurrence_interval ?? 1) || 1),
+      recurrence_weekday: typeof (item as Announcement & { recurrence_weekday?: number | null }).recurrence_weekday === 'number'
+        ? String((item as Announcement & { recurrence_weekday?: number | null }).recurrence_weekday)
+        : '',
+      recurrence_month_day: typeof (item as Announcement & { recurrence_month_day?: number | null }).recurrence_month_day === 'number'
+        ? String((item as Announcement & { recurrence_month_day?: number | null }).recurrence_month_day)
+        : '',
+      recurrence_until: toDateInputValue((item as Announcement & { recurrence_until?: string | null }).recurrence_until ?? null),
+      link_url: item.link_url ?? '',
+      image_url: item.image_url ?? '',
+      is_active: item.is_active,
+      display_order: item.display_order,
+    } : { ...EMPTY_FORM });
     setTimeSlots(parseTimeSlots((item as Announcement & { start_time?: string | null } | null)?.start_time ?? ''));
     setShowMobilePreview(false);
   }
@@ -396,10 +541,93 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
 
   const handleSave = async () => {
     if (!form.title?.trim()) { toast.error('Title is required.'); return; }
+
+    const recurrenceType = normalizeRecurrenceType(form.recurrence_type);
+    const trimmedEventDate = (form.event_date ?? '').trim();
+    const eventDateIso = trimmedEventDate ? toNoonUtcIso(trimmedEventDate) : null;
+    const requiresEventDate = Boolean(form.tag)
+      || recurrenceType !== 'none'
+      || isEventLikeAnnouncementType(form.type ?? null);
+
+    if (trimmedEventDate && !eventDateIso) {
+      toast.error('Event date must be a valid date in YYYY-MM-DD format.');
+      return;
+    }
+
+    if (requiresEventDate && !eventDateIso) {
+      toast.error('Event date is required for event-tagged, event-type, or recurring announcements.');
+      return;
+    }
+
+    const trimmedRecurrenceUntil = (form.recurrence_until ?? '').trim();
+    const recurrenceUntilIso = trimmedRecurrenceUntil ? toNoonUtcIso(trimmedRecurrenceUntil) : null;
+    if (trimmedRecurrenceUntil && !recurrenceUntilIso) {
+      toast.error('Repeat until date must be a valid date in YYYY-MM-DD format.');
+      return;
+    }
+
     setSaving(true);
     try {
-      const payload: Partial<AnnouncementPayload> = { title: form.title.trim(), type: form.type?.trim() || null, urdu_title: form.urdu_title?.trim() || null, body: form.body?.trim() || null, urdu_body: (form as typeof EMPTY_FORM & { urdu_body?: string }).urdu_body?.trim() || null, tag: Boolean(form.tag), lead_names: form.lead_names?.trim() || null, urdu_lead_names: form.urdu_lead_names?.trim() || null, start_time: serializedStartTime || null, link_url: form.link_url?.trim() || null, image_url: form.image_url?.trim() || null, is_active: form.is_active ?? true, display_order: Number(form.display_order) || 0 } as Partial<AnnouncementPayload>;
+      const payload: (Partial<AnnouncementPayload> & { published_at?: string | null; event_date?: string | null }) = {
+        title: form.title.trim(),
+        type: form.type?.trim() || null,
+        urdu_title: form.urdu_title?.trim() || null,
+        body: form.body?.trim() || null,
+        urdu_body: (form as typeof EMPTY_FORM & { urdu_body?: string }).urdu_body?.trim() || null,
+        tag: Boolean(form.tag),
+        lead_names: form.lead_names?.trim() || null,
+        urdu_lead_names: form.urdu_lead_names?.trim() || null,
+        start_time: serializedStartTime || null,
+        link_url: form.link_url?.trim() || null,
+        image_url: form.image_url?.trim() || null,
+        is_active: form.is_active ?? true,
+        display_order: Number(form.display_order) || 0,
+      };
+
+      payload.event_date = eventDateIso;
+
+      if (recurrenceType === 'none') {
+        payload.recurrence_type = null;
+        payload.recurrence_interval = null;
+        payload.recurrence_weekday = null;
+        payload.recurrence_month_day = null;
+        payload.recurrence_until = null;
+      } else {
+        payload.recurrence_type = recurrenceType;
+        payload.recurrence_interval = Math.max(1, Math.min(52, Number(form.recurrence_interval) || 1));
+
+        if (recurrenceType === 'weekly') {
+          const weekdayInput = Number(form.recurrence_weekday);
+          const weekday = Number.isFinite(weekdayInput) && weekdayInput >= 0 && weekdayInput <= 6
+            ? weekdayInput
+            : dateInputWeekday(form.event_date ?? '');
+
+          payload.recurrence_weekday = weekday ?? 5;
+          payload.recurrence_month_day = null;
+        } else {
+          const monthDayInput = Number(form.recurrence_month_day);
+          const monthDay = Number.isFinite(monthDayInput) && monthDayInput >= 1 && monthDayInput <= 31
+            ? monthDayInput
+            : dateInputDay(form.event_date ?? '');
+
+          payload.recurrence_month_day = monthDay ?? 1;
+          payload.recurrence_weekday = null;
+        }
+
+        payload.recurrence_until = recurrenceUntilIso;
+      }
+
       const saved = item ? await updateAnnouncement(item.id, payload) : await createAnnouncement(payload);
+
+      const diagnostics = saved.__mutationDiagnostics;
+      if (diagnostics && diagnostics.removedColumns.length > 0) {
+        toast.warning(`Saved with compatibility fallback. Unsupported columns removed: ${diagnostics.removedColumns.join(', ')}`);
+      }
+
+      if (recurrenceType !== 'none' && normalizeRecurrenceType(saved.recurrence_type ?? null) === 'none') {
+        toast.warning('Recurrence settings were not saved in database. Apply the latest announcements recurrence migration, then save again.');
+      }
+
       toast.success(item ? 'Announcement updated.' : 'Announcement created.');
       onSaved(saved);
     } catch (err) {
@@ -570,6 +798,125 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
               <p className="text-[11px] text-muted-foreground">Add one row per event session. Example: 1:30 PM - 2:15 PM | 2:30 PM - 3:15 PM</p>
             </div>
             <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Event Date <span className="text-muted-foreground font-normal text-xs">(used by app day filter)</span></Label>
+              <Input
+                type="date"
+                value={form.event_date ?? ''}
+                onChange={(e) => set('event_date', e.target.value)}
+                className="h-9 text-sm"
+              />
+              <p className="text-[11px] text-muted-foreground">Set this so the app shows the event on that calendar day.</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Recurrence <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForm((prev) => ({
+                    ...prev,
+                    recurrence_type: 'none',
+                    recurrence_interval: 1,
+                    recurrence_weekday: '',
+                    recurrence_month_day: '',
+                    recurrence_until: '',
+                  }))}
+                  className={`px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${form.recurrence_type === 'none' ? 'border-[hsl(142_55%_45%)] bg-[hsl(142_60%_94%)] text-[hsl(142_65%_28%)]' : 'border-[hsl(140_20%_88%)] bg-white text-muted-foreground hover:bg-[hsl(140_25%_96%)]'}`}
+                >
+                  One-time
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm((prev) => ({
+                    ...prev,
+                    recurrence_type: 'weekly',
+                    recurrence_interval: Math.max(1, Number(prev.recurrence_interval) || 1),
+                    recurrence_weekday: prev.recurrence_weekday || String(dateInputWeekday(prev.event_date ?? '') ?? 5),
+                    recurrence_month_day: '',
+                  }))}
+                  className={`px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${form.recurrence_type === 'weekly' ? 'border-[hsl(142_55%_45%)] bg-[hsl(142_60%_94%)] text-[hsl(142_65%_28%)]' : 'border-[hsl(140_20%_88%)] bg-white text-muted-foreground hover:bg-[hsl(140_25%_96%)]'}`}
+                >
+                  Weekly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm((prev) => ({
+                    ...prev,
+                    recurrence_type: 'monthly',
+                    recurrence_interval: Math.max(1, Number(prev.recurrence_interval) || 1),
+                    recurrence_month_day: prev.recurrence_month_day || String(dateInputDay(prev.event_date ?? '') ?? 1),
+                    recurrence_weekday: '',
+                  }))}
+                  className={`px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${form.recurrence_type === 'monthly' ? 'border-[hsl(142_55%_45%)] bg-[hsl(142_60%_94%)] text-[hsl(142_65%_28%)]' : 'border-[hsl(140_20%_88%)] bg-white text-muted-foreground hover:bg-[hsl(140_25%_96%)]'}`}
+                >
+                  Monthly
+                </button>
+              </div>
+
+              {form.recurrence_type !== 'none' && (
+                <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(140_25%_98%)] p-3 space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Repeat Every</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={52}
+                        value={form.recurrence_interval}
+                        onChange={(e) => set('recurrence_interval', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        className="h-9 text-sm"
+                      />
+                    </div>
+
+                    {form.recurrence_type === 'weekly' ? (
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Weekday</Label>
+                        <select
+                          value={form.recurrence_weekday || String(dateInputWeekday(form.event_date ?? '') ?? 5)}
+                          onChange={(e) => set('recurrence_weekday', e.target.value)}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          {WEEKDAY_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Day Of Month</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={31}
+                          value={form.recurrence_month_day}
+                          onChange={(e) => set('recurrence_month_day', e.target.value)}
+                          placeholder="e.g. 25"
+                          className="h-9 text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Repeat Until <span className="normal-case font-normal">(optional)</span></Label>
+                    <Input
+                      type="date"
+                      value={form.recurrence_until ?? ''}
+                      onChange={(e) => set('recurrence_until', e.target.value)}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <p className="text-[11px] text-muted-foreground">
+                {form.recurrence_type === 'none'
+                  ? 'Set as one-time announcement. It appears on the selected Event Date only.'
+                  : form.recurrence_type === 'weekly'
+                    ? 'Weekly repeats on the selected weekday. Good for recurring Jumuah notices.'
+                    : 'Monthly repeats on the selected day number (for example day 25 each month).'}
+              </p>
+            </div>
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">Urdu Description <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
                 <button type="button" disabled={translatingUrdu} onClick={handleTranslateUrdu}
@@ -684,6 +1031,7 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
     : formattedTimeEntries.length === 1
       ? formattedTimeEntries[0]
       : `${formattedTimeEntries[0]} +${formattedTimeEntries.length - 1} more`;
+  const recurrenceSummary = formatRecurrenceSummary(item);
 
   return (
     <div ref={setNodeRef}
@@ -715,6 +1063,7 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
             {item.lead_names && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Users size={10} /> {item.lead_names}</span>}
             {formattedStartTime && <span className="text-[11px] text-muted-foreground flex items-center gap-1" title={formattedTimeEntries.join(' | ')}><Clock3 size={10} /> {formattedStartTime}</span>}
+            {recurrenceSummary && <span className="text-[11px] text-muted-foreground">{recurrenceSummary}</span>}
             {item.image_url && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><ImagePlus size={10} /> Poster</span>}
             {item.link_url && <a href={item.link_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] font-medium text-[hsl(142_60%_35%)] hover:underline"><ExternalLink size={10} /> More Info</a>}
           </div>

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Sidebar from '#/components/layout/Sidebar';
 import PrayerTimesTable from '#/components/features/PrayerTimesTable';
 import EditPrayerTimeModal from '#/components/features/EditPrayerTimeModal';
@@ -9,8 +9,29 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Button } from '#/components/ui/button';
-import { fetchPrayerTimes, bulkUpdatePrayerTimes, updatePrayerTime } from '#/lib/api';
-import { PrayerTime, HijriCalendarEntry, PrayerTimeUpdate, HijriMonthOverride } from '#/types';
+import {
+  fetchPrayerTimes,
+  bulkUpdatePrayerTimes,
+  updatePrayerTime,
+  fetchAnnouncements,
+  fetchIslamicCalendarEvents,
+  createIslamicCalendarEvent,
+  updateIslamicCalendarEvent,
+  deleteIslamicCalendarEvent,
+  upsertIslamicCalendarEvents,
+  fetchHijriCalendarForHijriYear,
+  type HijriCalendarLookupRow,
+} from '#/lib/api';
+import {
+  PrayerTime,
+  HijriCalendarEntry,
+  PrayerTimeUpdate,
+  HijriMonthOverride,
+  Announcement,
+  AnnouncementRecurrenceType,
+  IslamicCalendarEvent,
+  IslamicCalendarEventType,
+} from '#/types';
 import { toast } from 'sonner';
 import {
   Loader2, AlertCircle, RefreshCw,
@@ -29,6 +50,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { usePermissions } from '#/hooks/usePermissions';
 
 // ─── External Supabase config (same as supabase.ts) ───────────────────────────
 const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
@@ -263,6 +285,10 @@ const HIJRI_MONTHS_CANONICAL = [
 
 const HIJRI_MONTH_ALIAS_TO_INDEX: Record<string, number> = {
   muharram: 1,
+  muharam: 1,
+  muhraam: 1,
+  muhraama: 1,
+  moharram: 1,
   safar: 2,
   rabialawwal: 3,
   rabialthani: 4,
@@ -275,10 +301,14 @@ const HIJRI_MONTH_ALIAS_TO_INDEX: Record<string, number> = {
   jumadaula: 5,
   jumadaalulaa: 5,
   jumadaalthani: 6,
+  jumadaalthania: 6,
   jumadaalakhira: 6,
+  jumadaalakhirah: 6,
   jumadaakhira: 6,
+  jumadaakhirah: 6,
   rajab: 7,
   shaban: 8,
+  shaaban: 8,
   ramadan: 9,
   shawwal: 10,
   dhualqidah: 11,
@@ -307,8 +337,10 @@ function normalizeHijriMonthKey(raw: string): string {
 }
 
 function parseHijriDate(raw: string): HijriParts | null {
-  const trimmed = (raw ?? '').trim();
-  const match = trimmed.match(/^(\d{1,2})\s+(.+?)\s+(\d{4})\s*AH$/i);
+  const trimmed = (raw ?? '')
+    .replace(/([AB])\.?\s*H\.?/gi, (_match, era: string) => `${era.toUpperCase()}H`)
+    .trim();
+  const match = trimmed.match(/^(\d{1,2})\s+(.+?)\s+(\d{1,4})\s*[AB]H\b\.?$/i);
   if (!match) return null;
 
   const day = parseInt(match[1], 10);
@@ -323,6 +355,482 @@ function parseHijriDate(raw: string): HijriParts | null {
 function formatHijriDate(parts: HijriParts): string {
   const monthName = HIJRI_MONTHS_CANONICAL[parts.month - 1] ?? '';
   return `${parts.day} ${monthName} ${parts.year} AH`;
+}
+
+type IslamicSeedRow = {
+  title: string;
+  fieldLabel: string;
+  region: string;
+  notes: string;
+  hijriDay: number;
+  hijriMonth: number;
+  originalHijriYear: number;
+};
+
+function parseIslamicSeedText(raw: string): { rows: IslamicSeedRow[]; skipped: number } {
+  const rows: IslamicSeedRow[] = [];
+  let skipped = 0;
+
+  const lines = raw.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('=') || trimmed.startsWith('-') || trimmed.endsWith(':')) continue;
+    if (!trimmed.includes('|')) continue;
+
+    const parts = trimmed.split('|').map((part) => part.trim());
+    if (parts.length < 5) {
+      skipped += 1;
+      continue;
+    }
+
+    const [title, fieldLabel, hijriRaw, region, ...notesParts] = parts;
+
+    // Skip schema/header lines from seed docs without counting them as bad rows.
+    if (
+      /^name$/i.test(title) &&
+      /^field$/i.test(fieldLabel) &&
+      /full\s*hijri\s*date/i.test(hijriRaw)
+    ) {
+      continue;
+    }
+
+    if (!title || !fieldLabel || !hijriRaw) {
+      skipped += 1;
+      continue;
+    }
+
+    if (!/\b(?:A\.?\s*H\.?|B\.?\s*H\.?)\b/i.test(hijriRaw)) {
+      skipped += 1;
+      continue;
+    }
+
+    const parsedHijri = parseHijriDate(hijriRaw);
+    if (!parsedHijri) {
+      skipped += 1;
+      continue;
+    }
+
+    rows.push({
+      title,
+      fieldLabel,
+      region,
+      notes: notesParts.join('|').trim(),
+      hijriDay: parsedHijri.day,
+      hijriMonth: parsedHijri.month,
+      originalHijriYear: parsedHijri.year,
+    });
+  }
+
+  return { rows, skipped };
+}
+
+function hijriDayMonthKey(day: number, month: number): string {
+  return `${day}-${month}`;
+}
+
+function toIsoGregorianDate(row: HijriCalendarLookupRow): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(row.gregorian_date)) {
+    return row.gregorian_date;
+  }
+
+  const dmy = row.gregorian_date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) {
+    return `${dmy[3]}-${String(parseInt(dmy[2], 10)).padStart(2, '0')}-${String(parseInt(dmy[1], 10)).padStart(2, '0')}`;
+  }
+
+  return `${row.gregorian_year}-${String(row.gregorian_month).padStart(2, '0')}-${String(row.gregorian_day).padStart(2, '0')}`;
+}
+
+type IslamicEventFormState = {
+  title: string;
+  eventType: IslamicCalendarEventType;
+  fieldLabel: string;
+  region: string;
+  notes: string;
+  linkedGregorianDate: string;
+};
+
+function buildDefaultIslamicEventForm(year: number, month: number): IslamicEventFormState {
+  return {
+    title: '',
+    eventType: 'important_date',
+    fieldLabel: '',
+    region: '',
+    notes: '',
+    linkedGregorianDate: `${year}-${String(month).padStart(2, '0')}-01`,
+  };
+}
+
+function normalizeUiDateToIso(value: string): string {
+  const normalized = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
+  const match = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return normalized;
+  return `${match[3]}-${String(parseInt(match[2], 10)).padStart(2, '0')}-${String(parseInt(match[1], 10)).padStart(2, '0')}`;
+}
+
+type CalendarMasjidEvent = {
+  id: string;
+  title: string;
+  type: string | null;
+  leadNames: string | null;
+  startTime: string | null;
+  linkedGregorianDate: string;
+};
+
+function formatGregorianDateForMasjidCard(raw: string): { day: string; month: string; year: string } {
+  const normalized = normalizeUiDateToIso(raw);
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return {
+      day: normalized,
+      month: '',
+      year: '',
+    };
+  }
+
+  const year = match[1];
+  const monthNumber = parseInt(match[2], 10);
+  const day = String(parseInt(match[3], 10));
+  return {
+    day,
+    month: MONTHS_SHORT[monthNumber - 1] ?? match[2],
+    year,
+  };
+}
+
+function parseUtcDateParts(raw: string | null | undefined): { year: number; month: number; day: number; iso: string } | null {
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const year = parsed.getUTCFullYear();
+  const month = parsed.getUTCMonth() + 1;
+  const day = parsed.getUTCDate();
+  return {
+    year,
+    month,
+    day,
+    iso: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+  };
+}
+
+const TEXT_MONTH_TO_NUMBER: Record<string, number> = {
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12,
+};
+
+function buildDateParts(year: number, month: number, day: number): { year: number; month: number; day: number; iso: string } | null {
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  if (year < 1900 || year > 2200 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year
+    || parsed.getUTCMonth() + 1 !== month
+    || parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return {
+    year,
+    month,
+    day,
+    iso: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+  };
+}
+
+function parseDatePartsFromText(
+  raw: string | null | undefined,
+  options?: { defaultYear?: number; defaultMonth?: number },
+): { year: number; month: number; day: number; iso: string } | null {
+  const text = (raw ?? '').trim();
+  if (!text) return null;
+
+  const defaultYear = options?.defaultYear;
+  const defaultMonth = options?.defaultMonth;
+
+  const isoMatch = text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (isoMatch) {
+    return buildDateParts(
+      parseInt(isoMatch[1], 10),
+      parseInt(isoMatch[2], 10),
+      parseInt(isoMatch[3], 10),
+    );
+  }
+
+  const dmyMatch = text.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/);
+  if (dmyMatch) {
+    return buildDateParts(
+      parseInt(dmyMatch[3], 10),
+      parseInt(dmyMatch[2], 10),
+      parseInt(dmyMatch[1], 10),
+    );
+  }
+
+  const dayMonthYearMatch = text.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\s*,?\s*(\d{4})\b/i);
+  if (dayMonthYearMatch) {
+    const monthKey = dayMonthYearMatch[2].toLowerCase().replace(/\./g, '');
+    const month = TEXT_MONTH_TO_NUMBER[monthKey];
+    if (month) {
+      return buildDateParts(
+        parseInt(dayMonthYearMatch[3], 10),
+        month,
+        parseInt(dayMonthYearMatch[1], 10),
+      );
+    }
+  }
+
+  const monthDayYearMatch = text.match(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/i);
+  if (monthDayYearMatch) {
+    const monthKey = monthDayYearMatch[1].toLowerCase().replace(/\./g, '');
+    const month = TEXT_MONTH_TO_NUMBER[monthKey];
+    if (month) {
+      return buildDateParts(
+        parseInt(monthDayYearMatch[3], 10),
+        month,
+        parseInt(monthDayYearMatch[2], 10),
+      );
+    }
+  }
+
+  if (defaultYear) {
+    const dayMonthMatch = text.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\b/i);
+    if (dayMonthMatch) {
+      const monthKey = dayMonthMatch[2].toLowerCase().replace(/\./g, '');
+      const month = TEXT_MONTH_TO_NUMBER[monthKey];
+      if (month) {
+        return buildDateParts(defaultYear, month, parseInt(dayMonthMatch[1], 10));
+      }
+    }
+
+    const monthDayMatch = text.match(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
+    if (monthDayMatch) {
+      const monthKey = monthDayMatch[1].toLowerCase().replace(/\./g, '');
+      const month = TEXT_MONTH_TO_NUMBER[monthKey];
+      if (month) {
+        return buildDateParts(defaultYear, month, parseInt(monthDayMatch[2], 10));
+      }
+    }
+
+    const slashNoYear = text.match(/\b(\d{1,2})[\/-](\d{1,2})\b/);
+    if (slashNoYear) {
+      return buildDateParts(defaultYear, parseInt(slashNoYear[2], 10), parseInt(slashNoYear[1], 10));
+    }
+
+    if (defaultMonth) {
+      const looksLikeTimeOnly = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(text) || /\b\d{1,2}:\d{2}\b/.test(text);
+      if (!looksLikeTimeOnly) {
+        const dayOnly = text.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
+        if (dayOnly) {
+          return buildDateParts(defaultYear, defaultMonth, parseInt(dayOnly[1], 10));
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function hasLikelyDateToken(raw: string): boolean {
+  const text = raw.trim();
+  if (!text) return false;
+
+  if (/\b\d{4}-\d{1,2}-\d{1,2}\b/.test(text)) return true;
+  if (/\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/.test(text)) return true;
+  if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\b/i.test(text)) return true;
+  if (/\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\b/i.test(text)) return true;
+  if (/\b[A-Za-z]{3,9}\.?(?:\s+)\d{1,2}(?:st|nd|rd|th)?\b/i.test(text)) return true;
+
+  return false;
+}
+
+function resolveAnnouncementEventDateParts(
+  item: Announcement,
+  fallbackYear?: number,
+  fallbackMonth?: number,
+): { year: number; month: number; day: number; iso: string } | null {
+  const parseCandidate = (value: string | null | undefined) => (
+    parseDatePartsFromText(value, { defaultYear: fallbackYear, defaultMonth: fallbackMonth })
+    ?? parseUtcDateParts(value)
+  );
+
+  const explicitEventDate = parseCandidate(item.event_date);
+  if (explicitEventDate) return explicitEventDate;
+
+  const startTimeEntries = (item.start_time ?? '')
+    .split(/\s*\|\s*|\n+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  for (const entry of startTimeEntries) {
+    if (!hasLikelyDateToken(entry)) continue;
+    const parsed = parseDatePartsFromText(entry, { defaultYear: fallbackYear, defaultMonth: fallbackMonth })
+      ?? parseUtcDateParts(entry);
+    if (parsed) return parsed;
+  }
+
+  const textCandidates = [item.title, item.body];
+  for (const candidate of textCandidates) {
+    const parsed = parseDatePartsFromText(candidate, { defaultYear: fallbackYear, defaultMonth: fallbackMonth });
+    if (parsed) return parsed;
+  }
+
+  const publishedDate = parseCandidate(item.published_at);
+  if (publishedDate) return publishedDate;
+
+  const expiresDate = parseCandidate(item.expires_at);
+  if (expiresDate) return expiresDate;
+
+  return parseCandidate(item.created_at);
+}
+
+function normalizeAnnouncementRecurrenceType(value: string | null | undefined): AnnouncementRecurrenceType {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'weekly' || normalized === 'monthly') return normalized;
+  return 'none';
+}
+
+function isoFromUtcTimestamp(utcTimestamp: number): string {
+  const date = new Date(utcTimestamp);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+function resolveAnnouncementOccurrenceDatesForMonth(
+  item: Announcement,
+  year: number,
+  month: number,
+): string[] {
+  const baseDate = resolveAnnouncementEventDateParts(item, year, month);
+  if (!baseDate) return [];
+
+  const recurrenceType = normalizeAnnouncementRecurrenceType(item.recurrence_type ?? null);
+  const recurrenceInterval = Math.max(1, Math.min(52, Number(item.recurrence_interval) || 1));
+  const untilParts = parseUtcDateParts(item.recurrence_until ?? null);
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const baseUtc = Date.UTC(baseDate.year, baseDate.month - 1, baseDate.day);
+  const monthDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthStartUtc = Date.UTC(year, month - 1, 1);
+  const monthEndUtc = Date.UTC(year, month - 1, monthDays);
+  const untilUtc = untilParts ? Date.UTC(untilParts.year, untilParts.month - 1, untilParts.day) : null;
+
+  if (recurrenceType === 'none') {
+    if (baseDate.year !== year || baseDate.month !== month) return [];
+    if (untilUtc !== null && baseUtc > untilUtc) return [];
+    return [baseDate.iso];
+  }
+
+  if (recurrenceType === 'weekly') {
+    const weekdayRaw = typeof item.recurrence_weekday === 'number' ? item.recurrence_weekday : null;
+    const targetWeekday = weekdayRaw !== null && weekdayRaw >= 0 && weekdayRaw <= 6
+      ? weekdayRaw
+      : new Date(baseUtc).getUTCDay();
+
+    const baseWeekday = new Date(baseUtc).getUTCDay();
+    const weekdayShift = (targetWeekday - baseWeekday + 7) % 7;
+    const anchorUtc = baseUtc + (weekdayShift * dayMs);
+
+    const occurrenceDates: string[] = [];
+    for (let day = 1; day <= monthDays; day += 1) {
+      const occurrenceUtc = Date.UTC(year, month - 1, day);
+      if (occurrenceUtc < monthStartUtc || occurrenceUtc > monthEndUtc) continue;
+      if (occurrenceUtc < baseUtc) continue;
+      if (untilUtc !== null && occurrenceUtc > untilUtc) continue;
+      if (new Date(occurrenceUtc).getUTCDay() !== targetWeekday) continue;
+
+      const diffDays = Math.floor((occurrenceUtc - anchorUtc) / dayMs);
+      if (diffDays < 0 || diffDays % 7 !== 0) continue;
+
+      const diffWeeks = diffDays / 7;
+      if (diffWeeks % recurrenceInterval !== 0) continue;
+
+      occurrenceDates.push(isoFromUtcTimestamp(occurrenceUtc));
+    }
+
+    return occurrenceDates;
+  }
+
+  const monthDayRaw = typeof item.recurrence_month_day === 'number' ? item.recurrence_month_day : null;
+  const targetDay = monthDayRaw !== null && monthDayRaw >= 1 && monthDayRaw <= 31
+    ? monthDayRaw
+    : baseDate.day;
+
+  if (targetDay > monthDays) return [];
+
+  const occurrenceUtc = Date.UTC(year, month - 1, targetDay);
+  if (occurrenceUtc < baseUtc) return [];
+  if (untilUtc !== null && occurrenceUtc > untilUtc) return [];
+
+  const baseMonthIndex = (baseDate.year * 12) + (baseDate.month - 1);
+  const targetMonthIndex = (year * 12) + (month - 1);
+  const diffMonths = targetMonthIndex - baseMonthIndex;
+  if (diffMonths < 0 || diffMonths % recurrenceInterval !== 0) return [];
+
+  if (diffMonths === 0 && targetDay < baseDate.day) return [];
+
+  return [isoFromUtcTimestamp(occurrenceUtc)];
+}
+
+function isAnnouncementEvent(item: Announcement): boolean {
+  if (item.tag) return true;
+
+  const hasExplicitEventDate = Boolean((item.event_date ?? '').trim());
+  if (hasExplicitEventDate) return true;
+
+  const hasTimeSlots = Boolean((item.start_time ?? '').trim());
+  if (hasTimeSlots) return true;
+
+  const normalizedType = (item.type ?? '').trim().toLowerCase();
+  if (!normalizedType) return false;
+
+  if (normalizedType.includes('event')) return true;
+
+  const eventLikeTypes = new Set([
+    'event',
+    'events',
+    'jalsa',
+    'class',
+    'special',
+    'ramadan',
+    'eid',
+    'jumuah',
+    'jumu\'ah',
+    'lecture',
+    'workshop',
+    'community',
+    'youth',
+    'funeral',
+    'nikah',
+  ]);
+
+  if (eventLikeTypes.has(normalizedType)) return true;
+
+  return normalizedType === 'event';
 }
 
 function compareHijriMonth(aYear: number, aMonth: number, bYear: number, bMonth: number): number {
@@ -1070,6 +1578,8 @@ const HijriMonthLengthModal = ({
 // ─── Prayer Times page ────────────────────────────────────────────────────────
 
 const PrayerTimes = () => {
+  const { canEdit, canDelete } = usePermissions();
+  const navigate = useNavigate();
   const initialOffset = readOffsetFromStorage() ?? 0;
   const [selectedYear,    setSelectedYear]    = useState(CURRENT_YEAR);
   const [selectedMonth,   setSelectedMonth]   = useState(CURRENT_MONTH);
@@ -1119,6 +1629,13 @@ const PrayerTimes = () => {
   const [showLegend,      setShowLegend]      = useState(true);
   const [showSolarCard,   setShowSolarCard]   = useState(true);
   const [showPreviewHint, setShowPreviewHint] = useState(true);
+  const [islamicEventModalOpen, setIslamicEventModalOpen] = useState(false);
+  const [editingIslamicEvent, setEditingIslamicEvent] = useState<IslamicCalendarEvent | null>(null);
+  const [islamicEventSaving, setIslamicEventSaving] = useState(false);
+  const [seedImporting, setSeedImporting] = useState(false);
+  const [islamicEventForm, setIslamicEventForm] = useState<IslamicEventFormState>(() =>
+    buildDefaultIslamicEventForm(CURRENT_YEAR, CURRENT_MONTH)
+  );
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Hijri calendar data: day → entry
@@ -1760,6 +2277,29 @@ const PrayerTimes = () => {
     staleTime: 30_000,
   });
 
+  const {
+    data: islamicEvents = [],
+    isLoading: islamicEventsLoading,
+    refetch: refetchIslamicEvents,
+  } = useQuery({
+    queryKey: ['islamic_calendar_events', selectedYear, selectedMonth],
+    queryFn: () => fetchIslamicCalendarEvents({ year: selectedYear, month: selectedMonth }),
+    staleTime: 30_000,
+  });
+
+  const {
+    data: announcements = [],
+    isLoading: announcementsLoading,
+    refetch: refetchAnnouncements,
+    isFetching: announcementsFetching,
+  } = useQuery<Announcement[]>({
+    queryKey: ['announcements'],
+    queryFn: fetchAnnouncements,
+    staleTime: 15_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+  });
+
   const editablePrayerKeys: (keyof PrayerTimeUpdate)[] = [
     'fajr', 'fajr_jamat', 'sunrise', 'ishraq', 'zawaal',
     'zuhr', 'zuhr_jamat', 'asr', 'asr_jamat',
@@ -1883,6 +2423,364 @@ const PrayerTimes = () => {
     });
   }, [queryClient]);
 
+  const importantDateEvents = useMemo(
+    () => islamicEvents.filter((event) => event.event_type === 'important_date'),
+    [islamicEvents],
+  );
+
+  const masjidEvents = useMemo<CalendarMasjidEvent[]>(
+    () => announcements
+      .filter((item) => item.is_active)
+      .filter(isAnnouncementEvent)
+      .flatMap((item) => {
+        const occurrenceDates = resolveAnnouncementOccurrenceDatesForMonth(item, selectedYear, selectedMonth);
+        return occurrenceDates.map((isoDate) => ({
+          id: `${item.id}-${isoDate}`,
+          title: item.title,
+          type: item.type ?? null,
+          leadNames: item.lead_names ?? null,
+          startTime: item.start_time ?? null,
+          linkedGregorianDate: isoDate,
+        }));
+      })
+      .sort((a, b) => a.linkedGregorianDate.localeCompare(b.linkedGregorianDate) || a.title.localeCompare(b.title)),
+    [announcements, selectedMonth, selectedYear],
+  );
+
+  const refreshPrayerPageData = useCallback(async () => {
+    await Promise.all([
+      refetch(),
+      refetchIslamicEvents(),
+      refetchAnnouncements(),
+    ]);
+  }, [refetch, refetchAnnouncements, refetchIslamicEvents]);
+
+  const isRefreshingAnyData = isFetching || announcementsFetching;
+
+  useEffect(() => {
+    if (!editingIslamicEvent) return;
+    setIslamicEventForm({
+      title: editingIslamicEvent.title,
+      eventType: editingIslamicEvent.event_type,
+      fieldLabel: editingIslamicEvent.field_label ?? '',
+      region: editingIslamicEvent.region ?? '',
+      notes: editingIslamicEvent.notes ?? '',
+      linkedGregorianDate: normalizeUiDateToIso(editingIslamicEvent.linked_gregorian_date),
+    });
+  }, [editingIslamicEvent]);
+
+  useEffect(() => {
+    if (editingIslamicEvent || islamicEventModalOpen) return;
+    setIslamicEventForm(buildDefaultIslamicEventForm(selectedYear, selectedMonth));
+  }, [selectedYear, selectedMonth, islamicEventModalOpen, editingIslamicEvent]);
+
+  const openCreateIslamicEventModal = () => {
+    setEditingIslamicEvent(null);
+    setIslamicEventForm({
+      ...buildDefaultIslamicEventForm(selectedYear, selectedMonth),
+      eventType: 'important_date',
+    });
+    setIslamicEventModalOpen(true);
+  };
+
+  const openEditIslamicEventModal = (event: IslamicCalendarEvent) => {
+    setEditingIslamicEvent(event);
+    setIslamicEventModalOpen(true);
+  };
+
+  const closeIslamicEventModal = () => {
+    setIslamicEventModalOpen(false);
+    setEditingIslamicEvent(null);
+    setIslamicEventForm(buildDefaultIslamicEventForm(selectedYear, selectedMonth));
+  };
+
+  const resolveHijriPartsFromGregorianDate = useCallback((gregorianIso: string): HijriParts | null => {
+    const normalizedDate = normalizeUiDateToIso(gregorianIso);
+    const match = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+
+    const y = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const d = parseInt(match[3], 10);
+    if (y !== selectedYear || m !== selectedMonth) return null;
+
+    const hijri = hijriCalendar.get(d)?.hijri_date;
+    if (!hijri) return null;
+
+    return parseHijriDate(hijri);
+  }, [hijriCalendar, selectedMonth, selectedYear]);
+
+  const handleSaveIslamicEvent = async () => {
+    if (!canEdit) {
+      toast.error('Your role is read-only for this section.');
+      return;
+    }
+
+    const title = islamicEventForm.title.trim();
+    if (!title) {
+      toast.error('Event name is required.');
+      return;
+    }
+
+    const hijriParts = resolveHijriPartsFromGregorianDate(islamicEventForm.linkedGregorianDate);
+    if (!hijriParts) {
+      toast.error('Linked date must be in the selected month with a saved Hijri value. Fill Hijri dates first if needed.');
+      return;
+    }
+
+    setIslamicEventSaving(true);
+    try {
+      const payload = {
+        title,
+        event_type: islamicEventForm.eventType,
+        field_label: islamicEventForm.fieldLabel.trim() || null,
+        region: islamicEventForm.region.trim() || null,
+        notes: islamicEventForm.notes.trim() || null,
+        source_name: editingIslamicEvent?.source_name ?? 'portal-manual',
+        linked_hijri_day: hijriParts.day,
+        linked_hijri_month: hijriParts.month,
+        linked_hijri_year: hijriParts.year,
+        linked_hijri_label: formatHijriDate(hijriParts),
+        linked_gregorian_date: normalizeUiDateToIso(islamicEventForm.linkedGregorianDate),
+        original_hijri_year: editingIslamicEvent?.original_hijri_year ?? hijriParts.year,
+        auto_delete_grace_days: editingIslamicEvent?.auto_delete_grace_days ?? 3,
+      };
+
+      if (editingIslamicEvent) {
+        await updateIslamicCalendarEvent(editingIslamicEvent.id, payload);
+        toast.success('Islamic calendar event updated.');
+      } else {
+        await createIslamicCalendarEvent(payload);
+        toast.success('Islamic calendar event created.');
+      }
+
+      await refetchIslamicEvents();
+      closeIslamicEventModal();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save event.');
+    } finally {
+      setIslamicEventSaving(false);
+    }
+  };
+
+  const handleDeleteIslamicEvent = async (event: IslamicCalendarEvent) => {
+    if (!canDelete) {
+      toast.error('Only admin can delete events.');
+      return;
+    }
+
+    const shouldDelete = window.confirm(`Delete "${event.title}"? This removes it immediately.`);
+    if (!shouldDelete) return;
+
+    try {
+      await deleteIslamicCalendarEvent(event.id);
+      toast.success('Islamic calendar event deleted.');
+      await refetchIslamicEvents();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete event.');
+    }
+  };
+
+  const handleImportIslamicSeed = async () => {
+    if (!canEdit) {
+      toast.error('Your role is read-only for import.');
+      return;
+    }
+
+    setSeedImporting(true);
+    try {
+      const baseUrl = import.meta.env.BASE_URL ?? '/';
+      const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+      const baseSeedUrl = `${normalizedBaseUrl}islamic-calendar-seed.txt`;
+      const candidateSeedUrls = Array.from(new Set([baseSeedUrl, '/islamic-calendar-seed.txt']));
+
+      let response: Response | null = null;
+      let lastStatus: number | null = null;
+      let lastNetworkError: string | null = null;
+
+      for (const url of candidateSeedUrls) {
+        try {
+          const result = await fetch(url, { cache: 'no-store' });
+          if (result.ok) {
+            response = result;
+            break;
+          }
+          lastStatus = result.status;
+        } catch (error) {
+          lastNetworkError = error instanceof Error ? error.message : String(error);
+        }
+      }
+
+      if (!response) {
+        if (lastNetworkError) {
+          throw new Error(
+            `Seed file network request failed (${lastNetworkError}). Tried: ${candidateSeedUrls.join(', ')}`,
+          );
+        }
+        throw new Error(
+          `Seed file request failed${lastStatus ? ` (${lastStatus})` : ''}. Tried: ${candidateSeedUrls.join(', ')}`,
+        );
+      }
+
+      const seedText = await response.text();
+      const { rows, skipped } = parseIslamicSeedText(seedText);
+      if (rows.length === 0) {
+        throw new Error('Seed file contains no importable rows.');
+      }
+
+      const activeHijriYear = parseHijriDate(todayHijriBase)?.year ?? parseHijriDate(hijriCalendar.get(1)?.hijri_date ?? '')?.year;
+      if (!activeHijriYear) {
+        throw new Error('Could not determine active Hijri year. Fill Hijri data first.');
+      }
+
+      const lookupRows = await fetchHijriCalendarForHijriYear(activeHijriYear);
+      const hijriDayMonthMap = new Map<string, HijriCalendarLookupRow>();
+
+      for (const lookupRow of lookupRows) {
+        const parsed = parseHijriDate(lookupRow.hijri_date);
+        if (!parsed || parsed.year !== activeHijriYear) continue;
+        const key = hijriDayMonthKey(parsed.day, parsed.month);
+        if (!hijriDayMonthMap.has(key)) {
+          hijriDayMonthMap.set(key, lookupRow);
+        }
+      }
+
+      const requiredKeys = new Set(rows.map((row) => hijriDayMonthKey(row.hijriDay, row.hijriMonth)));
+      const missingKeys = new Set(Array.from(requiredKeys).filter((key) => !hijriDayMonthMap.has(key)));
+
+      let fallbackResolved = 0;
+      if (missingKeys.size > 0) {
+        const adjustmentSnapshot = getHijriAdjustmentSnapshot();
+        const candidateYears = [selectedYear, selectedYear - 1, selectedYear + 1];
+
+        for (const candidateYear of candidateYears) {
+          if (missingKeys.size === 0) break;
+
+          for (let candidateMonth = 1; candidateMonth <= 12; candidateMonth += 1) {
+            if (missingKeys.size === 0) break;
+
+            try {
+              const apiMonthMap = await fetchHijriMonthFromApi(candidateYear, candidateMonth, adjustmentSnapshot.offset);
+              const adjustedMonthMap = applyCurrentHijriAdjustments(apiMonthMap, adjustmentSnapshot.overrides);
+
+              adjustedMonthMap.forEach((entry) => {
+                if (missingKeys.size === 0) return;
+
+                const parsed = parseHijriDate(entry.hijri);
+                if (!parsed || parsed.year !== activeHijriYear) return;
+
+                const key = hijriDayMonthKey(parsed.day, parsed.month);
+                if (!missingKeys.has(key) || hijriDayMonthMap.has(key)) return;
+
+                const iso = normalizeUiDateToIso(entry.gregorian);
+                const dateParts = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                if (!dateParts) return;
+
+                hijriDayMonthMap.set(key, {
+                  gregorian_year: parseInt(dateParts[1], 10),
+                  gregorian_month: parseInt(dateParts[2], 10),
+                  gregorian_day: parseInt(dateParts[3], 10),
+                  gregorian_date: iso,
+                  hijri_date: formatHijriDate(parsed),
+                });
+
+                missingKeys.delete(key);
+                fallbackResolved += 1;
+              });
+            } catch (error) {
+              console.warn(
+                `[Islamic seed import] fallback map failed for ${candidateYear}-${candidateMonth}:`,
+                error,
+              );
+            }
+          }
+        }
+      }
+
+      const payload: Array<Record<string, unknown>> = [];
+      let unresolved = 0;
+      let adjustedTo29 = 0;
+
+      for (const row of rows) {
+        const key = hijriDayMonthKey(row.hijriDay, row.hijriMonth);
+        let lookup = hijriDayMonthMap.get(key);
+        let linkedDay = row.hijriDay;
+        let dayAdjustmentNote: string | null = null;
+
+        if (!lookup && row.hijriDay === 30) {
+          const fallbackKey = hijriDayMonthKey(29, row.hijriMonth);
+          const fallbackLookup = hijriDayMonthMap.get(fallbackKey);
+          if (fallbackLookup) {
+            lookup = fallbackLookup;
+            linkedDay = 29;
+            adjustedTo29 += 1;
+            dayAdjustmentNote = 'Adjusted from day 30 to day 29 because this Hijri month is 29 days in the active year.';
+          }
+        }
+
+        if (!lookup) {
+          unresolved += 1;
+          continue;
+        }
+
+        const linkedHijri = {
+          day: linkedDay,
+          month: row.hijriMonth,
+          year: activeHijriYear,
+        };
+
+        const sourceNotes = [
+          row.notes,
+          dayAdjustmentNote,
+          `Original Hijri year: ${row.originalHijriYear} AH`,
+        ].filter(Boolean).join(' | ');
+
+        payload.push({
+          title: row.title,
+          event_type: 'important_date',
+          field_label: row.fieldLabel,
+          region: row.region || null,
+          notes: sourceNotes || null,
+          source_name: 'islamic-calendar-seed',
+          linked_hijri_day: linkedHijri.day,
+          linked_hijri_month: linkedHijri.month,
+          linked_hijri_year: linkedHijri.year,
+          linked_hijri_label: formatHijriDate(linkedHijri),
+          linked_gregorian_date: toIsoGregorianDate(lookup),
+          original_hijri_year: row.originalHijriYear,
+          auto_delete_grace_days: 3,
+        });
+      }
+
+      if (payload.length === 0) {
+        throw new Error('No rows could be linked to current Hijri year in hijri_calendar.');
+      }
+
+      const upserted = await upsertIslamicCalendarEvents(payload);
+      await refetchIslamicEvents();
+
+      const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-`;
+      const currentMonthVisible = upserted.filter((event) => {
+        const iso = normalizeUiDateToIso(event.linked_gregorian_date);
+        return iso.startsWith(monthPrefix);
+      }).length;
+
+      toast.success(
+        `Imported/updated ${upserted.length} Islamic calendar event(s) for ${activeHijriYear} AH. ` +
+        `${currentMonthVisible} visible in ${MONTHS_FULL[selectedMonth - 1]} ${selectedYear} (this month only).`,
+      );
+      if (skipped > 0 || unresolved > 0) {
+        const fallbackNote = fallbackResolved > 0 ? ` Resolved ${fallbackResolved} row(s) via API fallback.` : '';
+        const adjustedNote = adjustedTo29 > 0 ? ` Adjusted ${adjustedTo29} day-30 row(s) to day 29 for this year.` : '';
+        toast.warning(`Skipped ${skipped} unparsable row(s); ${unresolved} row(s) could not be linked to Gregorian dates.${fallbackNote}${adjustedNote}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Seed import failed.');
+    } finally {
+      setSeedImporting(false);
+    }
+  };
+
   const monthHasBSTChange = (m: number) => m === 3 || m === 10;
   const isBstMonth = isBST(selectedYear, selectedMonth, 15);
   const offsetLabel = `${hijriOffset >= 0 ? '+' : ''}${hijriOffset}`;
@@ -1894,6 +2792,9 @@ const PrayerTimes = () => {
       }).length
     : 0;
   const hasPendingPreview = previewHijri.size > 0 && previewDiffCount > 0;
+  const monthStartIso = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+  const monthEndIso = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(new Date(selectedYear, selectedMonth, 0).getDate()).padStart(2, '0')}`;
+  const formHijriPreview = resolveHijriPartsFromGregorianDate(islamicEventForm.linkedGregorianDate);
 
   const goToPrevMonth = () => {
     if (selectedMonth === 1) {
@@ -2077,8 +2978,8 @@ const PrayerTimes = () => {
                     <Star size={14} className="mr-2" /> Eid Times
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => refetch()} disabled={isFetching}>
-                    <RefreshCw size={14} className={`mr-2 ${isFetching ? 'animate-spin' : ''}`} /> Refresh Data
+                  <DropdownMenuItem onClick={() => refreshPrayerPageData()} disabled={isRefreshingAnyData}>
+                    <RefreshCw size={14} className={`mr-2 ${isRefreshingAnyData ? 'animate-spin' : ''}`} /> Refresh Data
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -2250,6 +3151,116 @@ const PrayerTimes = () => {
           )}
           {!isLoading && !isError && data && (
             <>
+              <div className="mb-3 rounded-xl border border-[hsl(140_20%_88%)] bg-white p-3 sm:p-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-sm font-bold text-[hsl(150_30%_14%)]">Islamic Calendar Events</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Important Islamic dates are linked to exact Hijri + Gregorian dates and shown only for the selected month/year. Masjid events come from Announcements entries tagged as Event.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={openCreateIslamicEventModal}
+                      disabled={!canEdit}
+                    >
+                      Add Important Date
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate('/announcements')}
+                    >
+                      Manage Event Announcements
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleImportIslamicSeed}
+                      disabled={!canEdit || seedImporting || todayHijriLoading}
+                      className="gap-2"
+                    >
+                      {seedImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                      {seedImporting ? 'Importing…' : 'Import Seed List'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">Important Islamic Dates (This Month)</p>
+                      <span className="text-[11px] font-semibold text-amber-700">{importantDateEvents.length}</span>
+                    </div>
+                    <p className="mt-1 text-[10px] text-amber-700/90">
+                      Showing {MONTHS_FULL[selectedMonth - 1]} {selectedYear} only.
+                    </p>
+                    {islamicEventsLoading ? (
+                      <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Loading…</div>
+                    ) : importantDateEvents.length === 0 ? (
+                      <p className="mt-2 text-xs text-muted-foreground">No linked important Islamic dates for this month.</p>
+                    ) : (
+                      <div className="mt-2 space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {importantDateEvents.map((event) => (
+                          <div key={event.id} className="rounded-md border border-amber-200 bg-white p-2 flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-[hsl(150_30%_14%)] truncate">{event.title}</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">{event.linked_hijri_label} • {normalizeUiDateToIso(event.linked_gregorian_date)}</p>
+                              {(event.field_label || event.region) ? (
+                                <p className="text-[11px] text-muted-foreground mt-0.5">{[event.field_label, event.region].filter(Boolean).join(' • ')}</p>
+                              ) : null}
+                            </div>
+                            {canEdit ? (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={() => openEditIslamicEventModal(event)} className="text-[11px] font-semibold text-[hsl(142_60%_35%)] hover:underline">Edit</button>
+                                {canDelete ? (
+                                  <button onClick={() => handleDeleteIslamicEvent(event)} className="text-[11px] font-semibold text-red-600 hover:underline">Delete</button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-emerald-800 uppercase tracking-wide">Masjid Events</p>
+                      <span className="text-[11px] font-semibold text-emerald-700">{masjidEvents.length}</span>
+                    </div>
+                    {announcementsLoading ? (
+                      <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Loading…</div>
+                    ) : masjidEvents.length === 0 ? (
+                      <p className="mt-2 text-xs text-muted-foreground">No Event-tagged announcements for this month.</p>
+                    ) : (
+                      <div className="mt-2 space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {masjidEvents.map((event) => {
+                          const displayDate = formatGregorianDateForMasjidCard(event.linkedGregorianDate);
+                          return (
+                            <div key={event.id} className="rounded-md border border-emerald-200 bg-white p-2">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-[hsl(150_30%_14%)] truncate">{event.title}</p>
+                                <p className="text-[11px] mt-0.5">
+                                  <span className="font-bold text-emerald-700">{displayDate.day}</span>
+                                  {displayDate.month ? <span className="mx-1 text-muted-foreground">•</span> : null}
+                                  {displayDate.month ? <span className="font-semibold text-amber-700">{displayDate.month}</span> : null}
+                                  {displayDate.year ? <span className="ml-1 text-muted-foreground">{displayDate.year}</span> : null}
+                                </p>
+                                {(event.type || event.leadNames || event.startTime) ? (
+                                  <p className="text-[11px] text-muted-foreground mt-0.5">{[event.type, event.leadNames, event.startTime].filter(Boolean).join(' • ')}</p>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Preview banner — auto-shown on offset change */}
               {(previewHijri.size > 0 || previewLoading) && showPreviewHint && (
                 <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border border-[#7c3aed]/25 bg-[hsl(270_30%_98%)]">
@@ -2341,6 +3352,86 @@ const PrayerTimes = () => {
           </div>
         )}
       </main>
+
+      <Dialog open={islamicEventModalOpen} onOpenChange={closeIslamicEventModal}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">
+              {editingIslamicEvent ? 'Edit Important Date Event' : 'Add Important Date Event'}
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground pt-1">
+              Event will link to this month&apos;s Hijri mapping and auto-delete 3 days after date completion.
+            </p>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground">Event Name</Label>
+              <Input
+                value={islamicEventForm.title}
+                onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, title: e.target.value }))}
+                placeholder="e.g. Urs of Imam al-Nawawi"
+                className="mt-1 h-9"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">Field</Label>
+                <Input
+                  value={islamicEventForm.fieldLabel}
+                  onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, fieldLabel: e.target.value }))}
+                  placeholder="Scholar / Category"
+                  className="mt-1 h-9"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Region</Label>
+                <Input
+                  value={islamicEventForm.region}
+                  onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, region: e.target.value }))}
+                  placeholder="Madinah / Damascus"
+                  className="mt-1 h-9"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs text-muted-foreground">Linked Gregorian Date ({MONTHS_FULL[selectedMonth - 1]} {selectedYear})</Label>
+              <Input
+                type="date"
+                min={monthStartIso}
+                max={monthEndIso}
+                value={normalizeUiDateToIso(islamicEventForm.linkedGregorianDate)}
+                onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, linkedGregorianDate: e.target.value }))}
+                className="mt-1 h-9"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {formHijriPreview ? `Linked Hijri: ${formatHijriDate(formHijriPreview)}` : 'No Hijri mapping found for this date. Use Fill Hijri first.'}
+              </p>
+            </div>
+
+            <div>
+              <Label className="text-xs text-muted-foreground">Notes</Label>
+              <textarea
+                value={islamicEventForm.notes}
+                onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                placeholder="Optional reference or context"
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="outline" onClick={closeIslamicEventModal} disabled={islamicEventSaving}>Cancel</Button>
+            <Button onClick={handleSaveIslamicEvent} disabled={islamicEventSaving || !canEdit} className="gap-2">
+              {islamicEventSaving ? <Loader2 size={14} className="animate-spin" /> : null}
+              {islamicEventSaving ? 'Saving…' : (editingIslamicEvent ? 'Save Changes' : 'Create Event')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <JumuahYearModal open={jumuahModal} onClose={() => setJumuahModal(false)} year={selectedYear} queryClient={queryClient} />
       <HijriMonthLengthModal

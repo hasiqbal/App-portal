@@ -27,8 +27,15 @@ type FeedAnnouncement = {
   link_url: string | null;
   pinned: boolean;
   is_active: boolean;
+  recurrence_type: 'none' | 'weekly' | 'monthly' | null;
+  recurrence_interval: number | null;
+  recurrence_weekday: number | null;
+  recurrence_month_day: number | null;
+  recurrence_until: string | null;
   published_at: string;
   expires_at: string | null;
+  event_date: string | null;
+  event_date_source: 'event_date' | 'legacy' | 'none';
   display_order: number | null;
   updated_at: string | null;
 };
@@ -58,6 +65,26 @@ function asBoolean(value: unknown): boolean {
     return normalized === 'true' || normalized === '1' || normalized === 'yes';
   }
   return false;
+}
+
+function asInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value.trim(), 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function normalizeRecurrenceType(value: unknown): 'none' | 'weekly' | 'monthly' | null {
+  const normalized = asTrimmedString(value)?.toLowerCase() ?? '';
+  if (normalized === 'weekly' || normalized === 'monthly') return normalized;
+  if (normalized === 'none') return 'none';
+  return null;
 }
 
 function normalizeNameList(value: unknown): string[] {
@@ -116,6 +143,17 @@ function sanitizeRichHtml(input: string): string {
 }
 
 function mapAnnouncementRow(row: Record<string, unknown>, includeUrdu: boolean, formatRichText: boolean): FeedAnnouncement {
+  const canonicalEventDate = asTrimmedString(row.event_date);
+  const legacyEventDate =
+    asTrimmedString(row.event_day)
+    ?? asTrimmedString(row.event_on)
+    ?? asTrimmedString(row.date)
+    ?? null;
+  const eventDate = canonicalEventDate ?? legacyEventDate ?? null;
+  const eventDateSource: FeedAnnouncement['event_date_source'] = canonicalEventDate
+    ? 'event_date'
+    : (legacyEventDate ? 'legacy' : 'none');
+
   const type =
     asTrimmedString(row.type)
     ?? asTrimmedString(row.event_type)
@@ -180,14 +218,28 @@ function mapAnnouncementRow(row: Record<string, unknown>, includeUrdu: boolean, 
     link_url: asTrimmedString(row.link_url),
     pinned: asBoolean(row.pinned),
     is_active: row.is_active !== false,
+    recurrence_type: normalizeRecurrenceType(row.recurrence_type),
+    recurrence_interval: asInteger(row.recurrence_interval),
+    recurrence_weekday: asInteger(row.recurrence_weekday),
+    recurrence_month_day: asInteger(row.recurrence_month_day),
+    recurrence_until: asTrimmedString(row.recurrence_until),
     published_at:
       asTrimmedString(row.published_at)
       ?? asTrimmedString(row.created_at)
       ?? new Date().toISOString(),
     expires_at: asTrimmedString(row.expires_at),
+    event_date: eventDate,
+    event_date_source: eventDateSource,
     display_order: typeof row.display_order === 'number' ? row.display_order : null,
     updated_at: asTrimmedString(row.updated_at),
   };
+}
+
+function isNotExpired(row: FeedAnnouncement): boolean {
+  if (!row.expires_at) return true;
+  const expiresAt = Date.parse(row.expires_at);
+  if (!Number.isFinite(expiresAt)) return true;
+  return expiresAt > Date.now();
 }
 
 function applyTypeFilter(rows: FeedAnnouncement[], typeFilter: string | null): FeedAnnouncement[] {
@@ -256,6 +308,11 @@ serve(async (req: Request) => {
     }
 
     const { data, error } = await query
+      .order('pinned', { ascending: false })
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .order('display_order', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
 
     if (error) {
@@ -268,13 +325,17 @@ serve(async (req: Request) => {
     const mapped = (Array.isArray(data) ? data : [])
       .map((row) => mapAnnouncementRow(row as Record<string, unknown>, includeUrdu, formatRichText));
 
-    const filtered = applyTypeFilter(mapped, typeFilter);
+    const filtered = applyTypeFilter(mapped, typeFilter)
+      .filter(isNotExpired);
     const announcements = sortRows(filtered);
+
+    const legacyDateCount = announcements.filter((row) => row.event_date_source === 'legacy').length;
 
     return new Response(JSON.stringify({
       announcements,
       generated_at: new Date().toISOString(),
       total: announcements.length,
+      legacy_event_date_count: legacyDateCount,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

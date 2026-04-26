@@ -19,6 +19,7 @@ const ALL_NAV_ITEMS = [
   { to: '/howto-guides',      icon: FolderTree,      label: 'How-To Guides',    adminOnly: false },
   { to: '/announcements',     icon: Bell,            label: 'Announcements',    adminOnly: false },
   { to: '/donation-options',  icon: Star,            label: 'Donation Options', adminOnly: false, requiresEdit: true },
+  { to: '/islamic-calendar',   icon: CalendarDays,    label: 'Islamic Calendar',  adminOnly: false },
   { to: '/sunnah-reminders',  icon: Star,            label: 'Sunnah Reminders', adminOnly: false },
   { to: '/notifications',     icon: BellRing,        label: 'Notifications',    adminOnly: false },
 

@@ -295,6 +295,7 @@ export default function HowToGuidesPage() {
   const urduLabelsBackfillStartedRef = useRef(false);
   const urduLabelsBackfillRunningRef = useRef(false);
   const urduPreviewRequestRef = useRef(0);
+  const englishFilterAutoResetRef = useRef(false);
 
   const activeFilters = filtersByLanguage[activeEditingLanguage];
   const englishGuides = useMemo(() => guides.filter((guide) => guide.language === 'en'), [guides]);
@@ -407,6 +408,33 @@ export default function HowToGuidesPage() {
     setActiveFilters(() => ({ ...EMPTY_GUIDE_FILTERS }));
   };
 
+  useEffect(() => {
+    if (activeEditingLanguage !== 'en') {
+      englishFilterAutoResetRef.current = false;
+      return;
+    }
+
+    if (englishGuides.length === 0) return;
+    if (filteredGuides.length > 0) {
+      englishFilterAutoResetRef.current = false;
+      return;
+    }
+    if (!hasActiveGuideFilters) return;
+    if (englishFilterAutoResetRef.current) return;
+
+    englishFilterAutoResetRef.current = true;
+    setFiltersByLanguage((prev) => ({
+      ...prev,
+      en: { ...EMPTY_GUIDE_FILTERS },
+    }));
+    toast.warning('English guides were hidden by filters. Filters have been reset.');
+  }, [
+    activeEditingLanguage,
+    englishGuides.length,
+    filteredGuides.length,
+    hasActiveGuideFilters,
+  ]);
+
   const openCreateGroup = () => {
     setEditingGroup(null);
     setGroupForm(EMPTY_GROUP_FORM);
@@ -447,15 +475,17 @@ export default function HowToGuidesPage() {
     const preferredGroupId = activeFilters.selectedGroupFilter !== 'all' ? activeFilters.selectedGroupFilter : '';
     const initialGroupId = englishGroupMap.has(preferredGroupId) ? preferredGroupId : (englishGroups[0]?.id ?? '');
     const initialGuideId = englishGuides.find((guide) => guide.group_id === initialGroupId)?.id ?? englishGuides[0]?.id ?? '';
+    const sourceGroup = englishGroups.find((group) => group.id === initialGroupId);
 
-    setDuplicateMode('single');
+    // Default to full group copy in Urdu mode so users can duplicate existing English groups directly.
+    setDuplicateMode('all');
     setDuplicateSourceGroupId(initialGroupId);
     setDuplicateSourceGuideId(initialGuideId);
-    setDuplicateIntoNewUrduGroup(false);
-    setDuplicateTargetGroupName('');
-    setDuplicateTargetGroupUrduName('');
+    setDuplicateIntoNewUrduGroup(true);
+    setDuplicateTargetGroupName(sourceGroup ? `${sourceGroup.name} Urdu` : '');
+    setDuplicateTargetGroupUrduName(sourceGroup ? (sourceGroup.urdu_name ?? sourceGroup.name) : '');
     setDuplicatePublishNow(false);
-    setDuplicatePublishMode('single');
+    setDuplicatePublishMode('all');
     setDuplicatePublishSingleGuideId(initialGuideId);
     setDuplicateDialogOpen(true);
   };
@@ -846,20 +876,37 @@ export default function HowToGuidesPage() {
       return line;
     }
 
-    const arabicRuns: string[] = [];
-    const placeholderText = line.replace(ARABIC_RUN_REGEX, (run) => {
-      const token = `__AR_SEG_${arabicRuns.length}__`;
-      arabicRuns.push(run);
-      return token;
-    });
+    // Keep Arabic runs byte-for-byte intact and only translate English-bearing segments.
+    const translatedParts: string[] = [];
+    let lastIndex = 0;
 
-    const batch = await translateFragmentsWithCache([placeholderText]);
-    let translated = batch.get(normalizeTranslationKey(placeholderText)) || placeholderText;
-    arabicRuns.forEach((run, index) => {
-      translated = translated.replaceAll(`__AR_SEG_${index}__`, run);
-    });
+    for (const match of line.matchAll(ARABIC_RUN_REGEX)) {
+      const runIndex = match.index ?? 0;
+      const runValue = match[0] ?? '';
 
-    return translated;
+      if (runIndex > lastIndex) {
+        const nonArabicSegment = line.slice(lastIndex, runIndex);
+        if (/[A-Za-z]/.test(nonArabicSegment)) {
+          translatedParts.push(await translateFragmentWithCache(nonArabicSegment));
+        } else {
+          translatedParts.push(nonArabicSegment);
+        }
+      }
+
+      translatedParts.push(runValue);
+      lastIndex = runIndex + runValue.length;
+    }
+
+    if (lastIndex < line.length) {
+      const tail = line.slice(lastIndex);
+      if (/[A-Za-z]/.test(tail)) {
+        translatedParts.push(await translateFragmentWithCache(tail));
+      } else {
+        translatedParts.push(tail);
+      }
+    }
+
+    return translatedParts.join('');
   };
 
   const translateTextForUrdu = async (value: string): Promise<string> => {
@@ -1396,15 +1443,6 @@ export default function HowToGuidesPage() {
       await queryClient.invalidateQueries({ queryKey: GROUPS_KEY });
       await queryClient.invalidateQueries({ queryKey: GUIDES_KEY });
       setDuplicateDialogOpen(false);
-      setActiveEditingLanguage('ur');
-      setFiltersByLanguage((prev) => ({
-        ...prev,
-        ur: {
-          search: '',
-          selectedGroupFilter: duplicateResult.targetGroupId,
-          selectedStatusFilter: 'all',
-        },
-      }));
       if (duplicatedGuides.length === 1) {
         toast.success(duplicatePublishNow ? 'Urdu guide duplicated, translated, and published.' : 'Urdu guide duplicated and translated.');
         await openTreeEditor(duplicatedGuides[0]);
@@ -1424,10 +1462,16 @@ export default function HowToGuidesPage() {
 
   const removeGroup = async (group: HowToGroup) => {
     if (!canDelete) return;
+
+    if (activeEditingLanguage === 'ur') {
+      toast.error('Switch to English tab to delete groups. Group deletion removes guides across all languages.');
+      return;
+    }
+
     const guideCount = guideCountByGroup.get(group.id) ?? 0;
     const confirmed = window.confirm(
       guideCount > 0
-        ? `Delete group "${group.name}" and its ${guideCount} ${guideCount === 1 ? 'guide' : 'guides'}? This cannot be undone.`
+        ? `Delete group "${group.name}" and its ${guideCount} ${guideCount === 1 ? 'guide' : 'guides'} across all languages? This cannot be undone.`
         : `Delete group "${group.name}"? This cannot be undone.`,
     );
     if (!confirmed) return;
@@ -1458,11 +1502,17 @@ export default function HowToGuidesPage() {
 
   const removeGuide = async (guide: HowToGuide) => {
     if (!canDelete) return;
+
+    if (guide.language !== activeEditingLanguage) {
+      toast.error('Delete blocked: guide language does not match the active tab. Refresh and try again.');
+      return;
+    }
+
     const confirmed = window.confirm(`Delete guide "${guide.title}"?`);
     if (!confirmed) return;
 
     try {
-      await deleteHowToGuide(guide.id);
+      await deleteHowToGuide(guide.id, { expectedLanguage: activeEditingLanguage });
       await queryClient.invalidateQueries({ queryKey: GUIDES_KEY });
       toast.success('Guide deleted.');
     } catch (error) {
@@ -1541,7 +1591,7 @@ export default function HowToGuidesPage() {
                 size="sm"
                 variant="outline"
                 onClick={activeEditingLanguage === 'ur' ? openDuplicateGuide : openCreateGuide}
-                disabled={!canEdit || groups.length === 0 || (activeEditingLanguage === 'ur' && englishGuides.length === 0)}
+                disabled={!canEdit || (activeEditingLanguage === 'en' ? groups.length === 0 : englishGuides.length === 0)}
                 className="gap-2 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white"
               >
                 <BookOpen size={14} /> {activeEditingLanguage === 'ur' ? 'Duplicate Entries' : 'Add Guide'}
@@ -1580,9 +1630,18 @@ export default function HowToGuidesPage() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Quick start</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  <span className="font-medium text-[hsl(150_30%_25%)]">1.</span> Create a group &nbsp;·&nbsp;
-                  <span className="font-medium text-[hsl(150_30%_25%)]">2.</span> {activeEditingLanguage === 'ur' ? 'Duplicate an English guide' : 'Add a guide'} &nbsp;·&nbsp;
-                  <span className="font-medium text-[hsl(150_30%_25%)]">3.</span> Open the tree editor and add sections, steps, and content blocks.
+                  {activeEditingLanguage === 'ur' ? (
+                    <>
+                      <span className="font-medium text-[hsl(150_30%_25%)]">1.</span> Duplicate an English group or guide &nbsp;·&nbsp;
+                      <span className="font-medium text-[hsl(150_30%_25%)]">2.</span> Open the tree editor and add sections, steps, and content blocks.
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-medium text-[hsl(150_30%_25%)]">1.</span> Create a group &nbsp;·&nbsp;
+                      <span className="font-medium text-[hsl(150_30%_25%)]">2.</span> Add a guide &nbsp;·&nbsp;
+                      <span className="font-medium text-[hsl(150_30%_25%)]">3.</span> Open the tree editor and add sections, steps, and content blocks.
+                    </>
+                  )}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {activeEditingLanguage === 'en' ? (
@@ -1736,7 +1795,7 @@ export default function HowToGuidesPage() {
                         <button className="p-2 rounded-lg hover:bg-[hsl(142_50%_92%)] text-[hsl(142_40%_30%)] disabled:opacity-40" onClick={() => openEditGroup(group)} disabled={!canEdit} title="Edit group" aria-label="Edit group">
                           <Pencil size={15} />
                         </button>
-                        {canDelete ? (
+                        {canDelete && activeEditingLanguage === 'en' ? (
                           <button className="p-2 rounded-lg hover:bg-rose-50 text-rose-600" onClick={() => void removeGroup(group)} title="Delete group" aria-label="Delete group">
                             <Trash2 size={15} />
                           </button>
@@ -1767,7 +1826,7 @@ export default function HowToGuidesPage() {
                   variant="ghost"
                   className="h-8 gap-1 text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)]"
                   onClick={activeEditingLanguage === 'ur' ? openDuplicateGuide : openCreateGuide}
-                  disabled={!canEdit || groups.length === 0 || (activeEditingLanguage === 'ur' && englishGuides.length === 0)}
+                  disabled={!canEdit || (activeEditingLanguage === 'en' ? groups.length === 0 : englishGuides.length === 0)}
                 >
                   <Plus size={14} /> {activeEditingLanguage === 'ur' ? 'Duplicate Entries' : 'New'}
                 </Button>

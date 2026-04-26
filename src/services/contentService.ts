@@ -23,6 +23,11 @@ import {
   createSunnahGroup,
   updateSunnahGroup,
   deleteSunnahGroup,
+  fetchIslamicCalendarEvents,
+  createIslamicCalendarEvent,
+  updateIslamicCalendarEvent,
+  deleteIslamicCalendarEvent,
+  upsertIslamicCalendarEvents,
 } from '#/lib/api';
 import type {
   Announcement,
@@ -35,6 +40,9 @@ import type {
   SunnahReminderPayload,
   SunnahGroup,
   SunnahGroupPayload,
+  IslamicCalendarEvent,
+  IslamicCalendarEventPayload,
+  IslamicCalendarEventType,
 } from '#/types';
 
 // ─── Announcements ────────────────────────────────────────────────────────────
@@ -104,4 +112,33 @@ export const sunnahGroupsService = {
   create: (data: Partial<SunnahGroupPayload>): Promise<SunnahGroup> => createSunnahGroup(data),
   update: (id: string, data: Partial<SunnahGroupPayload>): Promise<SunnahGroup> => updateSunnahGroup(id, data),
   delete: (id: string): Promise<void> => deleteSunnahGroup(id),
+};
+
+// ─── Islamic Calendar Events ────────────────────────────────────────────────
+
+export const islamicCalendarEventsService = {
+  getAll: (options?: {
+    year?: number;
+    month?: number;
+    day?: number;
+    eventType?: IslamicCalendarEventType;
+  }): Promise<IslamicCalendarEvent[]> => fetchIslamicCalendarEvents(options),
+  create: (data: Partial<IslamicCalendarEventPayload>): Promise<IslamicCalendarEvent> => createIslamicCalendarEvent(data),
+  update: (id: string, data: Partial<IslamicCalendarEventPayload>): Promise<IslamicCalendarEvent> => updateIslamicCalendarEvent(id, data),
+  delete: (id: string): Promise<void> => deleteIslamicCalendarEvent(id),
+  bulkUpsert: (rows: Array<Partial<IslamicCalendarEventPayload>>): Promise<IslamicCalendarEvent[]> => upsertIslamicCalendarEvents(rows),
+  groupByType: (events: IslamicCalendarEvent[]): Map<IslamicCalendarEventType, IslamicCalendarEvent[]> => {
+    const grouped = new Map<IslamicCalendarEventType, IslamicCalendarEvent[]>([
+      ['important_date', []],
+      ['masjid_event', []],
+    ]);
+
+    for (const event of events) {
+      const bucket = grouped.get(event.event_type) ?? [];
+      bucket.push(event);
+      grouped.set(event.event_type, bucket);
+    }
+
+    return grouped;
+  },
 };
