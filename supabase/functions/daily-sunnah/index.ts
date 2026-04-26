@@ -1,47 +1,54 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { corsHeaders } from '../_shared/cors.ts';
 
-// Pinned to v1.2.0 — do not use main branch (format may change)
-const NAWAWI40_URL =
-  'https://raw.githubusercontent.com/AhmedBaset/hadith-json/v1.2.0/db/by_book/forties/nawawi40.json';
-
-// Cache the full JSON in-memory for the function instance lifetime
-let cachedHadiths: HadithEntry[] | null = null;
+// fawazahmed0/hadith-api served via jsDelivr CDN — no rate limits
+// Primary: minified, fallback: pretty-printed
+const BASE = 'https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions';
+const ENG_URL = `${BASE}/eng-nawawi.min.json`;
+const ARA_URL = `${BASE}/ara-nawawi.min.json`;
+const ENG_FALLBACK = `${BASE}/eng-nawawi.json`;
+const ARA_FALLBACK = `${BASE}/ara-nawawi.json`;
 
 interface HadithEntry {
-  id: number;
-  idInBook: number;
-  chapterId: number;
-  bookId: number;
-  arabic: string;
-  english: {
-    narrator: string;
-    text: string;
-  };
+  hadithnumber: number;
+  arabicnumber: number;
+  text: string;
+  grades: unknown[];
+  reference: { book: number; hadith: number };
 }
 
-interface BookJson {
+interface EditionJson {
+  metadata: { name: string };
   hadiths: HadithEntry[];
 }
+
+// In-memory cache for the function instance lifetime
+let cachedEng: HadithEntry[] | null = null;
+let cachedAra: HadithEntry[] | null = null;
 
 function dayOfYear(): number {
   const now = new Date();
   const start = new Date(now.getUTCFullYear(), 0, 0);
-  const diff = now.getTime() - start.getTime();
-  return Math.floor(diff / 86_400_000);
+  return Math.floor((now.getTime() - start.getTime()) / 86_400_000);
 }
 
-async function getHadiths(): Promise<HadithEntry[]> {
-  if (cachedHadiths) return cachedHadiths;
+async function fetchEdition(url: string, fallback: string): Promise<HadithEntry[]> {
+  let res = await fetch(url);
+  if (!res.ok) res = await fetch(fallback);
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`);
+  const data: EditionJson = await res.json();
+  return data.hadiths;
+}
 
-  const res = await fetch(NAWAWI40_URL);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch hadith-json: ${res.status} ${res.statusText}`);
-  }
-
-  const data: BookJson = await res.json();
-  cachedHadiths = data.hadiths;
-  return cachedHadiths;
+async function getData(): Promise<{ eng: HadithEntry[]; ara: HadithEntry[] }> {
+  if (cachedEng && cachedAra) return { eng: cachedEng, ara: cachedAra };
+  const [eng, ara] = await Promise.all([
+    fetchEdition(ENG_URL, ENG_FALLBACK),
+    fetchEdition(ARA_URL, ARA_FALLBACK),
+  ]);
+  cachedEng = eng;
+  cachedAra = ara;
+  return { eng, ara };
 }
 
 serve(async (req: Request) => {
@@ -50,30 +57,31 @@ serve(async (req: Request) => {
   }
 
   try {
-    const hadiths = await getHadiths();
-    const index = dayOfYear() % hadiths.length;
-    const hadith = hadiths[index];
+    const { eng, ara } = await getData();
+    const index = dayOfYear() % eng.length;
+    const hadith = eng[index];
+    const araHadith = ara[index];
 
-    const narrator = hadith.english.narrator.trim();
-    const text = hadith.english.text.trim();
+    const text = hadith.text.trim();
+    const arabic = araHadith?.text?.trim() ?? '';
     const preview = text.length > 120 ? text.slice(0, 120).trimEnd() + '…' : text;
-    const ref = `Nawawi 40, Hadith ${hadith.idInBook}`;
+    const ref = `Nawawi 40, Hadith ${hadith.hadithnumber}`;
 
     return new Response(
       JSON.stringify({
-        arabic: hadith.arabic,
-        narrator,
+        arabic,
+        // narrator is embedded in text for this API — kept for interface compat
+        narrator: '',
         preview,
         text,
         ref,
-        idInBook: hadith.idInBook,
+        idInBook: hadith.hadithnumber,
         bookTitle: 'The Forty Hadith of Imam Nawawi',
       }),
       {
         headers: {
           ...corsHeaders,
           'Content-Type': 'application/json',
-          // Cache until end of UTC day so all clients get the same hadith
           'Cache-Control': 'public, max-age=3600',
         },
       },

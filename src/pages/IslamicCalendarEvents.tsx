@@ -155,14 +155,16 @@ const IslamicCalendarEvents = () => {
             <p className="text-lg font-bold text-[hsl(150_30%_18%)]">{events.length}</p>
             <p className="text-[11px] text-muted-foreground">Total</p>
           </div>
-          {(['important_date', 'masjid_event'] as IslamicCalendarEventType[]).map((t) => (
-            <div key={t} className="rounded-lg border border-border bg-white px-4 py-2.5 text-center min-w-[80px]">
-              <p className="text-lg font-bold text-[hsl(150_30%_18%)]">
-                {events.filter((e) => e.event_type === t).length}
-              </p>
-              <p className="text-[11px] text-muted-foreground">{TYPE_LABELS[t]}</p>
-            </div>
-          ))}
+          <div className="rounded-lg border border-border bg-white px-4 py-2.5 text-center min-w-[80px]">
+            <p className="text-lg font-bold text-[hsl(150_30%_18%)]">
+              {events.filter((e) => e.event_type === 'important_date').length}
+            </p>
+            <p className="text-[11px] text-muted-foreground">Important Dates</p>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700 flex items-center gap-1.5 max-w-xs">
+            <span className="font-semibold">Masjid Events</span> (Jummah, programmes) are managed on the 
+            <a href="/announcements" className="underline font-semibold">Announcements</a> page.
+          </div>
         </div>
 
         {/* ── Filters ───────────────────────────────────────────────────────── */}
@@ -177,19 +179,19 @@ const IslamicCalendarEvents = () => {
             />
           </div>
 
-          {/* Type filter */}
+          {/* Type filter - important_date only; masjid_event entries are read-only legacy */}
           <div className="flex gap-1">
-            {(['all', 'important_date', 'masjid_event'] as const).map((t) => (
+            {(['all', 'important_date'] as const).map((t) => (
               <button
                 key={t}
-                onClick={() => setTypeFilter(t)}
+                onClick={() => setTypeFilter(t as IslamicCalendarEventType | 'all')}
                 className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
                   typeFilter === t
                     ? 'bg-[hsl(142_60%_35%)] text-white border-[hsl(142_60%_35%)]'
                     : 'bg-white text-muted-foreground border-border hover:border-[hsl(142_60%_35%)]'
                 }`}
               >
-                {t === 'all' ? 'All types' : TYPE_LABELS[t]}
+                {t === 'all' ? 'All' : 'Important Dates'}
               </button>
             ))}
           </div>

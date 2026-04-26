@@ -442,7 +442,7 @@ export async function fetchIslamicCalendarEvents(options?: {
 export async function createIslamicCalendarEvent(
   data: Partial<IslamicCalendarEventPayload>
 ): Promise<IslamicCalendarEvent> {
-  const { data: row, error } = await supabase
+  const { data: row, error } = await supabaseAdmin
     .from('islamic_calendar_events')
     .insert(data)
     .select('*')
@@ -459,7 +459,7 @@ export async function updateIslamicCalendarEvent(
   id: string,
   data: Partial<IslamicCalendarEventPayload>
 ): Promise<IslamicCalendarEvent> {
-  const { data: row, error } = await supabase
+  const { data: row, error } = await supabaseAdmin
     .from('islamic_calendar_events')
     .update(data)
     .eq('id', id)
@@ -474,7 +474,7 @@ export async function updateIslamicCalendarEvent(
 }
 
 export async function deleteIslamicCalendarEvent(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('islamic_calendar_events')
     .delete()
     .eq('id', id);
@@ -1693,7 +1693,7 @@ export async function fetchAnnouncements(): Promise<Announcement[]> {
 
 export async function createAnnouncement(data: Partial<AnnouncementPayload>): Promise<Announcement> {
   const payload: Record<string, unknown> = { is_active: true, ...mapAnnouncementPayloadToDb(data) };
-  const insertQuery = (rowPayload: Record<string, unknown>) => supabase
+  const insertQuery = (rowPayload: Record<string, unknown>) => supabaseAdmin
     .from(ANNOUNCEMENTS_TABLE)
     .insert(rowPayload)
     .select()
@@ -1716,7 +1716,7 @@ export async function createAnnouncement(data: Partial<AnnouncementPayload>): Pr
 
 export async function updateAnnouncement(id: string, data: Partial<AnnouncementPayload>): Promise<Announcement> {
   const payload: Record<string, unknown> = mapAnnouncementPayloadToDb(data);
-  const updateQuery = (rowPayload: Record<string, unknown>) => supabase
+  const updateQuery = (rowPayload: Record<string, unknown>) => supabaseAdmin
     .from(ANNOUNCEMENTS_TABLE)
     .update(rowPayload)
     .eq('id', id)
@@ -1740,7 +1740,7 @@ export async function updateAnnouncement(id: string, data: Partial<AnnouncementP
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from(ANNOUNCEMENTS_TABLE)
     .delete()
     .eq('id', id);

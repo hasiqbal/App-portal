@@ -40,7 +40,6 @@ interface IslamicCalendarEventModalProps {
 
 type FormState = {
   title: string;
-  event_type: IslamicCalendarEventType;
   hijri_day: string;
   hijri_month: string;
   field_label: string;
@@ -52,7 +51,6 @@ type FormState = {
 
 const EMPTY_FORM: FormState = {
   title: '',
-  event_type: 'important_date',
   hijri_day: '1',
   hijri_month: '1',
   field_label: '',
@@ -84,7 +82,6 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
     }
     setForm({
       title: event.title,
-      event_type: event.event_type,
       hijri_day: String(event.linked_hijri_day),
       hijri_month: String(event.linked_hijri_month),
       field_label: event.field_label ?? '',
@@ -136,16 +133,24 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
         return;
       }
 
+      // Normalize a Hijri month name string — strips Unicode diacritics (NFD decomposition)
+      // so "Rab\u012b\u02bf al-awwal" matches "Rabi al-Awwal", etc.
+      const normalizeMonth = (s: string) =>
+        s.normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[\u02b0-\u02ff]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z]/g, '');
+
       // Parse each row's hijri_date and find a match for day+month
       let matched: { gregorian_date: string; hijri_date: string } | null = null;
       for (const row of data as { gregorian_date: string; hijri_date: string }[]) {
         const m = row.hijri_date.match(/^(\d+)\s+(.+?)\s+(\d{4})\s+AH/);
         if (!m) continue;
         const rowDay = parseInt(m[1]);
-        // Map month name to number
-        const monthName = m[2].toLowerCase().trim();
+        const rowMonthNorm = normalizeMonth(m[2]);
         const rowMonth = HIJRI_MONTHS.findIndex(
-          (hm) => hm.label.toLowerCase() === monthName
+          (hm) => normalizeMonth(hm.label) === rowMonthNorm
         ) + 1;
         if (rowDay === day && rowMonth === month) {
           matched = row;
@@ -199,7 +204,7 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
     try {
       const payload = {
         title: form.title.trim(),
-        event_type: form.event_type,
+        event_type: 'important_date' as const,
         linked_hijri_day: day,
         linked_hijri_month: month,
         linked_hijri_year: resolvedHijriYear,
@@ -222,7 +227,12 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
       }
       onSaved(saved);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save event.');
+      const msg = err instanceof Error ? err.message : 'Failed to save event.';
+      if (msg.includes('duplicate') || msg.includes('unique')) {
+        toast.error(`"${form.title.trim()}" already exists for this Hijri date. Find it in the list and edit it instead.`);
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setSaving(false);
     }
@@ -237,7 +247,7 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Islamic Calendar Event' : 'Add Islamic Calendar Event'}</DialogTitle>
+          <DialogTitle>{isEdit ? 'Edit Important Date' : 'Add Important Date'}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
@@ -252,26 +262,11 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
             />
           </div>
 
-          {/* Event type */}
-          <div className="space-y-1.5">
-            <Label>Event Type</Label>
-            <div className="flex gap-2">
-              {(['important_date', 'masjid_event'] as IslamicCalendarEventType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => set('event_type', t)}
-                  className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-                    form.event_type === t
-                      ? 'bg-[hsl(142_60%_35%)] text-white border-[hsl(142_60%_35%)]'
-                      : 'bg-white text-muted-foreground border-border hover:border-[hsl(142_60%_35%)]'
-                  }`}
-                >
-                  {t === 'important_date' ? 'Important Date' : 'Masjid Event'}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Note: Masjid Events (Jummah, talks, etc.) come from the Announcements page, not here. */}
+          <p className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            This page is for <strong>recurring Islamic dates</strong> (Mawlid, Eid, Ashura, etc.).
+            For Jummah and masjid programmes, add them on the <strong>Announcements</strong> page.
+          </p>
 
           {/* Hijri Date picker */}
           <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">

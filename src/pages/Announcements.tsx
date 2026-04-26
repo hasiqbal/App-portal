@@ -333,6 +333,7 @@ function sanitizeAnnouncementHtml(html: string): string {
 
 const AnnouncementLivePreview = ({
   title,
+  urduTitle,
   body,
   imageUrl,
   linkUrl,
@@ -341,6 +342,7 @@ const AnnouncementLivePreview = ({
   startTime,
 }: {
   title: string;
+  urduTitle?: string;
   body: string;
   imageUrl: string;
   linkUrl: string;
@@ -395,6 +397,9 @@ const AnnouncementLivePreview = ({
               <h3 className="font-bold text-[#1c1c1e] leading-snug mb-2 text-[15px]">
                 {title || <span className="text-[#aeaeb2] italic">Announcement title...</span>}
               </h3>
+              {urduTitle && (
+                <p className="font-urdu text-right text-[#1c1c1e] mb-2" dir="rtl" style={{ fontSize: 17, lineHeight: '2.2' }}>{urduTitle}</p>
+              )}
 
               {previewHtml ? (
                 <div
@@ -986,6 +991,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
               <div className="p-4">
                 <AnnouncementLivePreview
                   title={form.title ?? ''}
+                  urduTitle={form.urdu_title ?? ''}
                   body={form.body ?? ''}
                   imageUrl={form.image_url ?? ''}
                   linkUrl={form.link_url ?? ''}
@@ -1051,7 +1057,12 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="font-semibold text-sm leading-snug text-[hsl(150_30%_12%)]">{item.title}</h3>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-sm leading-snug text-[hsl(150_30%_12%)]">{item.title}</h3>
+              {item.urdu_title && (
+                <p className="font-urdu text-right mt-0.5 text-[hsl(150_25%_20%)]" dir="rtl" style={{ fontSize: 16, lineHeight: 2 }}>{item.urdu_title}</p>
+              )}
+            </div>
             <div className="shrink-0 flex items-center gap-1">
               {item.type && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[hsl(8_90%_95%)] text-[hsl(8_80%_40%)] border border-[hsl(8_60%_85%)]">{item.type}</span>}
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
@@ -1060,6 +1071,9 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
             </div>
           </div>
           {plainBody && <p className="text-xs text-muted-foreground mt-1 leading-relaxed line-clamp-2">{plainBody}</p>}
+          {item.urdu_lead_names && (
+            <p className="font-urdu text-right text-[hsl(150_20%_35%)] line-clamp-1" dir="rtl" style={{ fontSize: 14, lineHeight: 2 }}>{item.urdu_lead_names}</p>
+          )}
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
             {item.lead_names && <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Users size={10} /> {item.lead_names}</span>}
             {formattedStartTime && <span className="text-[11px] text-muted-foreground flex items-center gap-1" title={formattedTimeEntries.join(' | ')}><Clock3 size={10} /> {formattedStartTime}</span>}

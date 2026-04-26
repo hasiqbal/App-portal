@@ -19,8 +19,8 @@ alter table if exists public.announcements
 alter table if exists public.announcements
   add column if not exists recurrence_until timestamptz;
 
-create index if not exists idx_announcements_is_active_published_at
-  on public.announcements (is_active, published_at desc);
+create index if not exists idx_announcements_is_active_created_at
+  on public.announcements (is_active, created_at desc);
 
 create index if not exists idx_announcements_event_date
   on public.announcements (event_date);
