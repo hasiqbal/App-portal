@@ -152,6 +152,11 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   return next;
 }
 
+function shouldBlockDragStart(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest('input, textarea, [contenteditable="true"], [data-no-drag="true"]'));
+}
+
 async function runWithConcurrency<T>(
   items: T[],
   limit: number,
@@ -2352,7 +2357,13 @@ export default function HowToGuidesPage() {
                   key={`section-${sectionIndex}`}
                   className="rounded-2xl border border-[hsl(140_20%_86%)] bg-white overflow-hidden shadow-sm"
                   draggable={canEdit}
-                  onDragStart={() => setDraggingSectionIndex(sectionIndex)}
+                  onDragStart={(event) => {
+                    if (shouldBlockDragStart(event.target)) {
+                      event.preventDefault();
+                      return;
+                    }
+                    setDraggingSectionIndex(sectionIndex);
+                  }}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={() => handleDropSection(sectionIndex)}
                   onDragEnd={() => setDraggingSectionIndex(null)}
@@ -2394,7 +2405,13 @@ export default function HowToGuidesPage() {
                         key={`step-${sectionIndex}-${stepIndex}`}
                         className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(140_30%_99%)] overflow-hidden"
                         draggable={canEdit}
-                        onDragStart={() => setDraggingStepRef({ sectionIndex, stepIndex })}
+                        onDragStart={(event) => {
+                          if (shouldBlockDragStart(event.target)) {
+                            event.preventDefault();
+                            return;
+                          }
+                          setDraggingStepRef({ sectionIndex, stepIndex });
+                        }}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={() => handleDropStep(sectionIndex, stepIndex)}
                         onDragEnd={() => setDraggingStepRef(null)}
@@ -2491,7 +2508,13 @@ export default function HowToGuidesPage() {
                             <div
                               key={`block-${sectionIndex}-${stepIndex}-${blockIndex}`}
                               draggable={canEdit}
-                              onDragStart={() => setDraggingBlockRef({ sectionIndex, stepIndex, blockIndex })}
+                              onDragStart={(event) => {
+                                if (shouldBlockDragStart(event.target)) {
+                                  event.preventDefault();
+                                  return;
+                                }
+                                setDraggingBlockRef({ sectionIndex, stepIndex, blockIndex });
+                              }}
                               onDragOver={(event) => event.preventDefault()}
                               onDrop={() => handleDropBlock(sectionIndex, stepIndex, blockIndex)}
                               onDragEnd={() => setDraggingBlockRef(null)}
@@ -2647,7 +2670,13 @@ export default function HowToGuidesPage() {
                               key={`image-${sectionIndex}-${stepIndex}-${imageIndex}`}
                               className="rounded-md border p-2 space-y-2 bg-white"
                               draggable={canEdit}
-                              onDragStart={() => setDraggingImageRef({ sectionIndex, stepIndex, imageIndex })}
+                              onDragStart={(event) => {
+                                if (shouldBlockDragStart(event.target)) {
+                                  event.preventDefault();
+                                  return;
+                                }
+                                setDraggingImageRef({ sectionIndex, stepIndex, imageIndex });
+                              }}
                               onDragOver={(event) => event.preventDefault()}
                               onDrop={() => handleDropImage(sectionIndex, stepIndex, imageIndex)}
                               onDragEnd={() => setDraggingImageRef(null)}

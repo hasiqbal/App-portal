@@ -498,6 +498,21 @@ export interface SunnahGroup {
 
 export type SunnahGroupPayload = Omit<SunnahGroup, 'id' | 'created_at' | 'updated_at'>;
 
+export type HadithIncludeScope = 'book' | 'section';
+
+export interface HadithInclusionRule {
+  id: string;
+  collection_key: string;
+  edition_key: string;
+  include_scope: HadithIncludeScope;
+  section_number: number | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type HadithInclusionRulePayload = Omit<HadithInclusionRule, 'id' | 'created_at' | 'updated_at'>;
+
 export const SUNNAH_CATEGORIES = [
   'prayer',
   'fasting',

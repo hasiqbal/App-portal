@@ -23,6 +23,7 @@ import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
 import UserManagement from "./pages/UserManagement";
+import HadithIncludes from "./pages/HadithIncludes";
 
 
 const queryClient = new QueryClient({
@@ -101,6 +102,7 @@ const AppRoutes = () => {
 
         {/* Admin-only routes */}
         <Route path="/settings" element={<ProtectedRoute adminOnly><Settings /></ProtectedRoute>} />
+        <Route path="/hadith-includes" element={<ProtectedRoute adminOnly><HadithIncludes /></ProtectedRoute>} />
         <Route path="/cloud-data" element={<ProtectedRoute adminOnly><CloudData /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute adminOnly><UserManagement /></ProtectedRoute>} />
 

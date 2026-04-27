@@ -16,6 +16,8 @@ import {
   SunnahReminderPayload,
   SunnahGroup,
   SunnahGroupPayload,
+  HadithInclusionRule,
+  HadithInclusionRulePayload,
   IslamicCalendarEvent,
   IslamicCalendarEventPayload,
   IslamicCalendarEventType,
@@ -1954,6 +1956,41 @@ export async function deleteSunnahGroup(id: string): Promise<void> {
     .delete()
     .eq('id', id);
   if (error) throw new Error(`Failed to delete sunnah group: ${error.message}`);
+}
+
+export async function fetchHadithInclusionRules(): Promise<HadithInclusionRule[]> {
+  const { data, error } = await supabase
+    .from('hadith_inclusion_rules')
+    .select('*')
+    .order('collection_key', { ascending: true })
+    .order('include_scope', { ascending: true })
+    .order('section_number', { ascending: true });
+
+  if (error) throw new Error(`Failed to fetch hadith inclusion rules: ${error.message}`);
+  return (data ?? []) as HadithInclusionRule[];
+}
+
+export async function replaceHadithInclusionRules(
+  rules: HadithInclusionRulePayload[],
+): Promise<HadithInclusionRule[]> {
+  const { error: deleteError } = await supabaseAdmin
+    .from('hadith_inclusion_rules')
+    .delete()
+    .not('id', 'is', null);
+
+  if (deleteError) {
+    throw new Error(`Failed to clear hadith inclusion rules: ${deleteError.message}`);
+  }
+
+  if (rules.length === 0) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from('hadith_inclusion_rules')
+    .insert(rules)
+    .select('*');
+
+  if (error) throw new Error(`Failed to save hadith inclusion rules: ${error.message}`);
+  return (data ?? []) as HadithInclusionRule[];
 }
 
 // ─── Bulk prayer time helpers ────────────────────────────────────────────────
