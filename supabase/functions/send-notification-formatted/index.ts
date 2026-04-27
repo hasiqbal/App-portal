@@ -179,7 +179,7 @@ serve(async (req) => {
       title,
       body,
       priority: 'high',
-      channelId: 'default',
+      channelId: 'jmn-general-v1',
       data: {
         notificationId,
         category,
