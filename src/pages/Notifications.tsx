@@ -115,6 +115,30 @@ interface NotificationAutomationEvent {
   created_at: string;
 }
 
+interface AppSettingRow {
+  key: string;
+  value: string;
+  updated_at: string;
+}
+
+type LocalNotificationTemplateKey =
+  | 'prayerStart'
+  | 'jamaatReminder'
+  | 'adhkarReminder'
+  | 'liveNow'
+  | 'livePrayerStart'
+  | 'liveJamaatReminder';
+
+type LocalNotificationTemplateEntry = {
+  title: string;
+  body: string;
+};
+
+type LocalNotificationTemplateConfig = Record<
+  LocalNotificationTemplateKey,
+  LocalNotificationTemplateEntry
+>;
+
 // â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const AUDIENCE_OPTIONS = [
@@ -140,6 +164,79 @@ const WEEKDAY_OPTIONS = [
   { value: 4, label: 'Thu' },
   { value: 5, label: 'Fri' },
   { value: 6, label: 'Sat' },
+];
+
+const NOTIFICATION_TEMPLATES_APP_SETTING_KEY = 'notification_templates_v1';
+
+const DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG: LocalNotificationTemplateConfig = {
+  prayerStart: {
+    title: '{prayerName} prayer time',
+    body: 'Azaan for {prayerName} has started.',
+  },
+  jamaatReminder: {
+    title: '{prayerName} jamaat in {minutes} minutes',
+    body: 'As-salatu khayrun minan nawm. {prayerName} jamaat starts in {minutes} minutes.',
+  },
+  adhkarReminder: {
+    title: '{prayerName} adhkar is due',
+    body: 'Open Duas for {prayerName} adhkar after jamaat.',
+  },
+  liveNow: {
+    title: 'JMN Radio is now live',
+    body: "Tap to open Jami' Masjid Noorani live stream.",
+  },
+  livePrayerStart: {
+    title: 'JMN Radio live - {prayerName} prayer time',
+    body: '{prayerName} time has started. Tap to open JMN live stream.',
+  },
+  liveJamaatReminder: {
+    title: 'JMN Radio live - {prayerName} jamaat in {minutes} min',
+    body: '{prayerName} jamaat starts in {minutes} minutes. Tap to open live stream.',
+  },
+};
+
+const TEMPLATE_EDITOR_SECTIONS: {
+  key: LocalNotificationTemplateKey;
+  label: string;
+  helper: string;
+  placeholders: string;
+}[] = [
+  {
+    key: 'prayerStart',
+    label: 'Prayer Start',
+    helper: 'Fires when prayer start notification triggers.',
+    placeholders: '{prayerName}, {minutes}',
+  },
+  {
+    key: 'jamaatReminder',
+    label: 'Jamaat Reminder',
+    helper: 'Fires for the jamaat reminder notification.',
+    placeholders: '{prayerName}, {minutes}',
+  },
+  {
+    key: 'adhkarReminder',
+    label: 'Adhkar Reminder',
+    helper: 'Fires for adhkar-due reminders after jamaat.',
+    placeholders: '{prayerName}',
+  },
+  {
+    key: 'liveNow',
+    label: 'Live Stream Start',
+    helper: 'Fires when JMN radio goes live without a combined prayer event.',
+    placeholders: 'none',
+  },
+  {
+    key: 'livePrayerStart',
+    label: 'Live + Prayer Start Combined',
+    helper: 'Used when live start overlaps a prayer-start notification.',
+    placeholders: '{prayerName}, {minutes}',
+  },
+  {
+    key: 'liveJamaatReminder',
+    label: 'Live + Jamaat Combined',
+    helper: 'Used when live start overlaps a jamaat reminder notification.',
+    placeholders: '{prayerName}, {minutes}',
+  },
 ];
 
 const BUILT_IN_TEMPLATES: Template[] = [
@@ -220,6 +317,49 @@ function getErrorMessage(error: unknown): string {
 function payloadString(payload: Record<string, unknown> | null | undefined, key: string): string {
   const value = payload?.[key];
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeTemplateLine(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed || fallback;
+}
+
+function normalizeTemplateEntry(
+  value: unknown,
+  fallback: LocalNotificationTemplateEntry,
+): LocalNotificationTemplateEntry {
+  if (!value || typeof value !== 'object') return fallback;
+
+  const source = value as Record<string, unknown>;
+  return {
+    title: normalizeTemplateLine(source.title, fallback.title),
+    body: normalizeTemplateLine(source.body, fallback.body),
+  };
+}
+
+function parseLocalNotificationTemplateConfig(
+  raw: string | null | undefined,
+): LocalNotificationTemplateConfig {
+  if (!raw || !raw.trim()) return DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG;
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      prayerStart: normalizeTemplateEntry(parsed.prayerStart, DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG.prayerStart),
+      jamaatReminder: normalizeTemplateEntry(parsed.jamaatReminder, DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG.jamaatReminder),
+      adhkarReminder: normalizeTemplateEntry(parsed.adhkarReminder, DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG.adhkarReminder),
+      liveNow: normalizeTemplateEntry(parsed.liveNow, DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG.liveNow),
+      livePrayerStart: normalizeTemplateEntry(parsed.livePrayerStart, DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG.livePrayerStart),
+      liveJamaatReminder: normalizeTemplateEntry(parsed.liveJamaatReminder, DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG.liveJamaatReminder),
+    };
+  } catch {
+    return DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG;
+  }
+}
+
+function toStoredTemplateValue(config: LocalNotificationTemplateConfig): string {
+  return JSON.stringify(config);
 }
 
 function buildNextRunAt(
@@ -1788,6 +1928,11 @@ const Notifications = () => {
   const [search, setSearch] = useState('');
   const [composeData, setComposeData] = useState<Partial<ComposeData> | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<string>('compose');
+  const [templateEditor, setTemplateEditor] = useState<LocalNotificationTemplateConfig>(
+    DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG,
+  );
+  const [templateDirty, setTemplateDirty] = useState(false);
+  const [savingTemplateEditor, setSavingTemplateEditor] = useState(false);
   const queryClient = useQueryClient();
   const { canEdit, canDelete, role } = usePermissions();
 
@@ -1840,6 +1985,31 @@ const Notifications = () => {
     queryFn: () => notificationAutomationService.getRecentEvents(40),
     refetchInterval: 30000,
   });
+
+  const {
+    data: localTemplateSetting,
+    isFetching: localTemplateSettingFetching,
+    refetch: refetchLocalTemplateSetting,
+    isError: localTemplateSettingQueryError,
+    error: localTemplateSettingError,
+  } = useQuery({
+    queryKey: ['app-setting-notification-templates-v1'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('key, value, updated_at')
+        .eq('key', NOTIFICATION_TEMPLATES_APP_SETTING_KEY)
+        .maybeSingle();
+
+      if (error) throw error;
+      return (data ?? null) as AppSettingRow | null;
+    },
+  });
+
+  useEffect(() => {
+    if (templateDirty) return;
+    setTemplateEditor(parseLocalNotificationTemplateConfig(localTemplateSetting?.value));
+  }, [localTemplateSetting?.value, templateDirty]);
 
   const handleSent = (notif: PushNotification) => {
     queryClient.setQueryData<PushNotification[]>(['push-notifications'], (old = []) => [notif, ...old]);
@@ -1902,6 +2072,60 @@ const Notifications = () => {
 
   const scheduledNotifs = notifications.filter((n) => n.status === 'scheduled');
 
+  const updateTemplateField = useCallback(
+    (
+      key: LocalNotificationTemplateKey,
+      field: keyof LocalNotificationTemplateEntry,
+      value: string,
+    ) => {
+      setTemplateDirty(true);
+      setTemplateEditor((prev) => ({
+        ...prev,
+        [key]: {
+          ...prev[key],
+          [field]: value,
+        },
+      }));
+    },
+    [],
+  );
+
+  const handleResetTemplateEditor = useCallback(() => {
+    setTemplateEditor(parseLocalNotificationTemplateConfig(localTemplateSetting?.value));
+    setTemplateDirty(false);
+  }, [localTemplateSetting?.value]);
+
+  const handleSaveTemplateEditor = useCallback(async () => {
+    if (!canEdit) {
+      toast.error('Your role is read-only for settings updates.');
+      return;
+    }
+
+    setSavingTemplateEditor(true);
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert(
+          {
+            key: NOTIFICATION_TEMPLATES_APP_SETTING_KEY,
+            value: toStoredTemplateValue(templateEditor),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'key' },
+        );
+
+      if (error) throw error;
+
+      setTemplateDirty(false);
+      await refetchLocalTemplateSetting();
+      toast.success('App notification templates updated.');
+    } catch (error) {
+      toast.error(`Failed to save templates: ${getErrorMessage(error)}`);
+    } finally {
+      setSavingTemplateEditor(false);
+    }
+  }, [canEdit, refetchLocalTemplateSetting, templateEditor]);
+
   const handleBulkCancel = async (ids: string[]) => {
     if (!canEdit) {
       toast.error('Your role is read-only for schedule updates.');
@@ -1928,6 +2152,7 @@ const Notifications = () => {
     deviceTokensQueryError ? `Devices failed to load: ${getErrorMessage(deviceTokensError)}` : null,
     automationsQueryError ? `Automation rules failed to load: ${getErrorMessage(automationsError)}` : null,
     automationEventsQueryError ? `Automation events failed to load: ${getErrorMessage(automationEventsError)}` : null,
+    localTemplateSettingQueryError ? `Template settings failed to load: ${getErrorMessage(localTemplateSettingError)}` : null,
   ].filter((entry): entry is string => Boolean(entry));
 
   const handleSaveAutomation = async (draft: AutomationDraft) => {
@@ -2115,6 +2340,9 @@ const Notifications = () => {
                 {automations.length > 0 && (
                   <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{automations.length}</span>
                 )}
+              </TabsTrigger>
+              <TabsTrigger value="app-templates" className={tabTriggerClass}>
+                <Code2 size={13} /> App Templates
               </TabsTrigger>
               <TabsTrigger value="devices" className={tabTriggerClass}>
                 <Smartphone size={13} /> Devices &amp; Setup
@@ -2333,6 +2561,95 @@ const Notifications = () => {
                 onToggle={handleToggleAutomation}
                 onDelete={handleDeleteAutomation}
               />
+            </TabsContent>
+
+            {/* â”€â”€ App Templates tab â”€â”€ */}
+            <TabsContent value="app-templates" className="mt-5 space-y-5 focus-visible:outline-none">
+              <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-border">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                        <Code2 size={14} style={{ color: 'hsl(var(--primary))' }} />
+                        App Local Notification Templates
+                      </h3>
+                      <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                        These templates power app-side prayer, adhkar, and live local notifications. Saved to app_settings key
+                        <span className="font-mono"> {NOTIFICATION_TEMPLATES_APP_SETTING_KEY}</span>.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refetchLocalTemplateSetting()}
+                        disabled={localTemplateSettingFetching || savingTemplateEditor}
+                        className="gap-2"
+                      >
+                        <RefreshCw size={13} className={localTemplateSettingFetching ? 'animate-spin' : ''} /> Reload
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleResetTemplateEditor}
+                        disabled={!templateDirty || localTemplateSettingFetching || savingTemplateEditor}
+                        className="gap-2"
+                      >
+                        <RotateCcw size={13} /> Reset
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveTemplateEditor}
+                        disabled={!canEdit || !templateDirty || localTemplateSettingFetching || savingTemplateEditor}
+                        className="gap-2 bg-[hsl(142_60%_32%)] hover:bg-[hsl(142_60%_28%)] text-white"
+                      >
+                        {savingTemplateEditor ? <RefreshCw size={13} className="animate-spin" /> : <Bookmark size={13} />}
+                        Save Templates
+                      </Button>
+                    </div>
+                  </div>
+
+                  {!canEdit && (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Your role is read-only. You can review templates but cannot save changes.
+                    </p>
+                  )}
+                </div>
+
+                <div className="px-5 py-5 space-y-4">
+                  {TEMPLATE_EDITOR_SECTIONS.map((section) => (
+                    <div key={section.key} className="rounded-xl border border-border bg-background/40 p-4 space-y-2.5">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">{section.label}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{section.helper}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Placeholders: <span className="font-mono">{section.placeholders}</span>
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px]">Title template</Label>
+                        <Input
+                          value={templateEditor[section.key].title}
+                          onChange={(e) => updateTemplateField(section.key, 'title', e.target.value)}
+                          disabled={!canEdit || savingTemplateEditor}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px]">Body template</Label>
+                        <Textarea
+                          rows={2}
+                          value={templateEditor[section.key].body}
+                          onChange={(e) => updateTemplateField(section.key, 'body', e.target.value)}
+                          disabled={!canEdit || savingTemplateEditor}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </TabsContent>
 
             {/* â”€â”€ Devices & Setup tab â”€â”€ */}

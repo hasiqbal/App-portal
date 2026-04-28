@@ -48,6 +48,21 @@ const HADITH_EXCLUDE_RANDOM_KEYWORDS = [
   'trials', 'signs of the hour', 'dajjal', 'mahdi', 'major signs', 'minor signs', 'apocalypse',
 ];
 
+// Prefer Shamaail-style reminders: the Prophet's noble character and physical description.
+const SHAMAIL_TOPIC_KEYWORDS = [
+  // Character and manners
+  'character', 'manners', 'conduct', 'behavior', 'mercy', 'compassion', 'kindness',
+  'gentle', 'gentleness', 'forbearing', 'forbearance', 'humble', 'humility',
+  'modesty', 'modest', 'truthful', 'honest', 'smile', 'smiling', 'laugh', 'laughed',
+  'patience', 'patient', 'generous', 'generosity',
+  // Physical description
+  'appearance', 'description', 'face', 'complexion', 'hair', 'beard', 'eyes',
+  'height', 'build', 'walk', 'gait', 'garment', 'clothing', 'perfume', 'fragrance',
+  'hands', 'teeth', 'voice',
+  // Common section/title markers
+  'characteristics', 'attributes', 'description of the prophet',
+];
+
 interface HadithEntry {
   hadithnumber: number;
   arabicnumber: number;
@@ -85,6 +100,13 @@ type Candidate = {
   arabic: string;
   sectionTitle: string;
   ref: string;
+  searchText: string;
+  shamailScore: number;
+};
+
+type SelectionPool = {
+  mode: 'rules+keywords' | 'rules-only' | 'all+keywords' | 'all-only';
+  candidates: Candidate[];
 };
 
 let editionCache: Map<string, EditionBundle> | null = null;
@@ -125,10 +147,19 @@ function normalizeForSearch(value: string): string {
 }
 
 function hasBlockedKeyword(candidate: Candidate): boolean {
-  const haystack = normalizeForSearch(
-    `${candidate.sectionTitle} ${candidate.hadith.text} ${candidate.ref}`,
-  );
-  return HADITH_EXCLUDE_RANDOM_KEYWORDS.some((keyword) => haystack.includes(keyword.toLowerCase()));
+  return HADITH_EXCLUDE_RANDOM_KEYWORDS.some((keyword) => candidate.searchText.includes(keyword.toLowerCase()));
+}
+
+function getShamailScore(haystack: string): number {
+
+  let score = 0;
+  for (const keyword of SHAMAIL_TOPIC_KEYWORDS) {
+    if (haystack.includes(keyword)) {
+      score += 1;
+    }
+  }
+
+  return score;
 }
 
 async function getEditionCache(): Promise<Map<string, EditionBundle>> {
@@ -236,6 +267,7 @@ function buildCandidates(
 
       const ref = `${collection.title}, Hadith ${hadith.hadithnumber}`;
       const sectionTitle = bundle.sectionTitles.get(sectionNo) ?? '';
+      const searchText = normalizeForSearch(`${sectionTitle} ${hadith.text} ${ref}`);
 
       candidates.push({
         collectionKey: collection.key,
@@ -244,11 +276,42 @@ function buildCandidates(
         arabic: bundle.arabicByHadithNo.get(hadith.hadithnumber) ?? '',
         sectionTitle,
         ref,
+        searchText,
+        shamailScore: getShamailScore(searchText),
       });
     }
   }
 
   return candidates;
+}
+
+function selectCandidatePool(
+  editionData: Map<string, EditionBundle>,
+  inclusionRules: InclusionRule[],
+): SelectionPool | null {
+  const ruleScoped = buildCandidates(editionData, inclusionRules);
+  const ruleScopedKeywordSafe = ruleScoped.filter((candidate) => !hasBlockedKeyword(candidate));
+  if (ruleScopedKeywordSafe.length > 0) {
+    return { mode: 'rules+keywords', candidates: ruleScopedKeywordSafe };
+  }
+
+  // If keyword filters over-prune, keep rule scope and relax only keyword blocking.
+  if (ruleScoped.length > 0) {
+    return { mode: 'rules-only', candidates: ruleScoped };
+  }
+
+  // If include rules produce zero rows (misconfiguration), fall back to global scope.
+  const allCandidates = buildCandidates(editionData, []);
+  const allKeywordSafe = allCandidates.filter((candidate) => !hasBlockedKeyword(candidate));
+  if (allKeywordSafe.length > 0) {
+    return { mode: 'all+keywords', candidates: allKeywordSafe };
+  }
+
+  if (allCandidates.length > 0) {
+    return { mode: 'all-only', candidates: allCandidates };
+  }
+
+  return null;
 }
 
 serve(async (req: Request) => {
@@ -260,14 +323,13 @@ serve(async (req: Request) => {
     const editionData = await getEditionCache();
     const inclusionRules = await getInclusionRules();
 
-    const allCandidates = buildCandidates(editionData, inclusionRules);
-    const filteredCandidates = allCandidates.filter((candidate) => !hasBlockedKeyword(candidate));
+    const selectionPool = selectCandidatePool(editionData, inclusionRules);
 
-    if (filteredCandidates.length === 0) {
+    if (!selectionPool || selectionPool.candidates.length === 0) {
       return new Response(
         JSON.stringify({
           noCandidate: true,
-          reason: 'All candidates filtered by include rules or keyword safety filters',
+          reason: 'No hadith candidates available after fallback selection',
         }),
         {
           headers: {
@@ -279,7 +341,22 @@ serve(async (req: Request) => {
       );
     }
 
-    const stableSorted = filteredCandidates.sort((a, b) => {
+    if (selectionPool.mode !== 'rules+keywords') {
+      console.warn('[daily-sunnah] fallback mode used:', selectionPool.mode);
+    }
+
+    const shamailPreferred = selectionPool.candidates.filter((candidate) => candidate.shamailScore > 0);
+    const activeCandidates = shamailPreferred.length > 0 ? shamailPreferred : selectionPool.candidates;
+    const resolvedSelectionMode = shamailPreferred.length > 0
+      ? `${selectionPool.mode}+shamail`
+      : selectionPool.mode;
+
+    const stableSorted = [...activeCandidates].sort((a, b) => {
+      const scoreDiff = b.shamailScore - a.shamailScore;
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+
       if (a.collectionKey !== b.collectionKey) {
         return a.collectionKey.localeCompare(b.collectionKey);
       }
@@ -301,6 +378,7 @@ serve(async (req: Request) => {
         ref: selected.ref,
         idInBook: selected.hadith.hadithnumber,
         bookTitle: selected.bookTitle,
+        selectionMode: resolvedSelectionMode,
       }),
       {
         headers: {
