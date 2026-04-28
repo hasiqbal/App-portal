@@ -100,6 +100,7 @@ export interface UpsertAutomationPayload {
 export interface SendNotificationPayload {
   title: string;
   body: string;
+  urduTitle?: string;
   urduBody?: string;
   imageUrl?: string;
   linkUrl?: string;
@@ -144,6 +145,7 @@ export const notificationService = {
         cta_label: payload.ctaLabel ?? null,
         format_version: 'v1',
         payload_json: {
+          urduTitle: payload.urduTitle ?? null,
           hasImage: Boolean(payload.imageUrl),
           hasUrl: Boolean(payload.linkUrl),
           hasUrdu: Boolean(payload.urduBody),
@@ -201,6 +203,7 @@ export const notificationService = {
       notificationId: draft.id,
       title: payload.title,
       body: payload.body,
+      urduTitle: payload.urduTitle,
       urduBody: payload.urduBody,
       imageUrl: payload.imageUrl,
       linkUrl: payload.linkUrl,
@@ -321,6 +324,10 @@ export const notificationAutomationService = {
 
   /** Create a new automation rule. */
   create: async (payload: UpsertAutomationPayload): Promise<NotificationAutomation> => {
+    if (payload.schedule_type === 'prayer') {
+      throw new Error('Prayer-linked automations are disabled to avoid duplicate mobile prayer notifications.');
+    }
+
     const { data, error } = await supabase
       .from('notification_automations')
       .insert({

@@ -35,7 +35,7 @@ import {
 import { useUrduTranslation } from '#/hooks/useUrduTranslation';
 import { usePermissions } from '#/hooks/usePermissions';
 import type { HowToGroup, HowToGuide, HowToLanguage } from '#/types';
-import type { PreviewGuideBlock } from '#/components/features/howto/guidePreviewUtils';
+import { parseDetailToBlocks, type PreviewGuideBlock } from '#/components/features/howto/guidePreviewUtils';
 import { toast } from 'sonner';
 
 type GroupForm = {
@@ -187,6 +187,166 @@ function parseGuideNotesText(value: string): string[] {
 
 function parsePreviewBlocks(blocks: BlockDraft[]): PreviewGuideBlock[] {
   return blocks.map((block) => ({ kind: block.kind, ...block.payload } as PreviewGuideBlock));
+}
+
+function toBlockDraft(block: PreviewGuideBlock, blockOrder: number): BlockDraft | null {
+  if (block.kind === 'text') {
+    if (!block.text.trim()) return null;
+    return {
+      block_order: blockOrder,
+      kind: 'text',
+      payload: { text: block.text },
+    };
+  }
+
+  if (block.kind === 'action') {
+    if (!block.text.trim()) return null;
+    return {
+      block_order: blockOrder,
+      kind: 'action',
+      payload: {
+        label: block.label?.trim() || 'Action',
+        text: block.text,
+      },
+    };
+  }
+
+  if (block.kind === 'note') {
+    if (!block.text.trim()) return null;
+    return {
+      block_order: blockOrder,
+      kind: 'note',
+      payload: {
+        variant: block.variant || 'note',
+        text: block.text,
+      },
+    };
+  }
+
+  const arabic = (block.arabic ?? []).map((line) => line.trim()).filter((line) => line.length > 0);
+  if (arabic.length === 0) return null;
+
+  return {
+    block_order: blockOrder,
+    kind: 'recitation',
+    payload: {
+      label: block.label?.trim() || undefined,
+      intro: block.intro?.trim() || undefined,
+      arabic,
+      transliteration: block.transliteration?.map((line) => line.trim()).filter((line) => line.length > 0) || undefined,
+      meaning: block.meaning?.map((line) => line.trim()).filter((line) => line.length > 0) || undefined,
+      repeat: block.repeat?.trim() || undefined,
+      source: block.source?.trim() || undefined,
+    },
+  };
+}
+
+function looksLikeLegacyMergedTitle(step: StepDraft): boolean {
+  const title = step.title.trim();
+  if (step.blocks.length > 0) return false;
+  if (title.length < 100) return false;
+  if (!title.includes(' - ')) return false;
+
+  const parts = title.split(' - ').map((part) => part.trim()).filter((part) => part.length > 0);
+  if (parts.length < 2) return false;
+
+  const tail = parts.slice(1).join(' - ').trim();
+  return tail.split(/\s+/).length >= 8;
+}
+
+function moveLegacyStepTextToBlocks(step: StepDraft, fallbackStepNumber: number): StepDraft {
+  const legacyDetail = step.detail.trim();
+  const legacyNote = step.note.trim();
+
+  if (!legacyDetail && !legacyNote) {
+    if (looksLikeLegacyMergedTitle(step)) {
+      const parts = step.title.split(' - ').map((part) => part.trim()).filter((part) => part.length > 0);
+      const [recoveredTitle, ...recoveredBodyParts] = parts;
+      const recoveredBody = recoveredBodyParts.join(' - ').trim();
+
+      if (recoveredTitle && recoveredBody) {
+        return {
+          ...step,
+          title: recoveredTitle,
+          blocks: [
+            ...step.blocks,
+            {
+              block_order: step.blocks.length,
+              kind: 'text',
+              payload: { text: recoveredBody },
+            },
+          ],
+        };
+      }
+    }
+
+    return {
+      ...step,
+      title: step.title.trim() || `Step ${fallbackStepNumber}`,
+    };
+  }
+
+  const mergedBlocks: BlockDraft[] = [...step.blocks];
+
+  if (legacyDetail) {
+    const parsedLegacyBlocks = parseDetailToBlocks(legacyDetail);
+    parsedLegacyBlocks.forEach((parsedBlock) => {
+      const next = toBlockDraft(parsedBlock, mergedBlocks.length);
+      if (next) mergedBlocks.push(next);
+    });
+  }
+
+  if (legacyNote) {
+    mergedBlocks.push({
+      block_order: mergedBlocks.length,
+      kind: 'note',
+      payload: {
+        variant: 'note',
+        text: legacyNote,
+      },
+    });
+  }
+
+  return {
+    ...step,
+    title: step.title.trim() || `Step ${fallbackStepNumber}`,
+    detail: '',
+    note: '',
+    blocks: mergedBlocks.map((block, index) => ({
+      ...block,
+      block_order: index,
+    })),
+  };
+}
+
+function migrateLegacyTextInSections(sections: SectionDraft[]): {
+  sections: SectionDraft[];
+  migratedStepCount: number;
+} {
+  let migratedStepCount = 0;
+
+  const migratedSections = sections.map((section) => ({
+    ...section,
+    steps: section.steps.map((step, stepIndex) => {
+      const migratedStep = moveLegacyStepTextToBlocks(step, stepIndex + 1);
+
+      if (
+        migratedStep.title !== step.title
+        || migratedStep.detail !== step.detail
+        || migratedStep.note !== step.note
+        || migratedStep.blocks.length !== step.blocks.length
+      ) {
+        migratedStepCount += 1;
+      }
+
+      return migratedStep;
+    }),
+  }));
+
+  return {
+    sections: migratedSections,
+    migratedStepCount,
+  };
 }
 
 function getHowToGroupDisplayName(group: HowToGroup | null | undefined, language: EditingLanguage): string {
@@ -554,7 +714,12 @@ export default function HowToGuidesPage() {
         })),
       }));
 
-      setTreeSections(nextSections);
+      const { sections: migratedSections, migratedStepCount } = migrateLegacyTextInSections(nextSections);
+      setTreeSections(migratedSections);
+
+      if (migratedStepCount > 0) {
+        toast.success(`Normalized ${migratedStepCount} ${migratedStepCount === 1 ? 'step' : 'steps'} into unified block layout.`);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load guide tree.');
       setTreeGuideIntro('');
@@ -701,13 +866,6 @@ export default function HowToGuidesPage() {
     }));
   };
 
-  const appendStepDetailTemplate = (sectionIndex: number, stepIndex: number, template: string) => {
-    updateStepDraft(sectionIndex, stepIndex, (step) => ({
-      ...step,
-      detail: step.detail.trim().length > 0 ? `${step.detail}\n\n${template}` : template,
-    }));
-  };
-
   const addTemplateBlock = (sectionIndex: number, stepIndex: number, kind: BlockKind) => {
     updateStepDraft(sectionIndex, stepIndex, (step) => ({
       ...step,
@@ -785,17 +943,19 @@ export default function HowToGuidesPage() {
     setSaving(true);
 
     try {
+      const { sections: migratedSections } = migrateLegacyTextInSections(treeSections);
+
       const treePayload = {
         guideIntro: treeGuideIntro.trim() || null,
         guideNotes: parseGuideNotesText(treeGuideNotesText),
-        sections: treeSections.map((section, sectionIndex) => ({
+        sections: migratedSections.map((section, sectionIndex) => ({
           heading: section.heading,
           section_order: sectionIndex,
           steps: section.steps.map((step, stepIndex) => ({
             step_order: stepIndex,
-            title: step.title,
+            title: step.title.trim() || `Step ${stepIndex + 1}`,
             detail: step.detail || null,
-            note: step.note || null,
+            note: null,
             rich_content_html: step.rich_content_html || null,
             blocks: step.blocks.map((block, blockIndex) => ({
               block_order: blockIndex,
@@ -814,6 +974,8 @@ export default function HowToGuidesPage() {
       };
 
       await saveHowToGuideTree(treeGuide.id, treePayload);
+
+      setTreeSections(migratedSections);
 
       if (treeGuide.language === 'en') {
         const shouldMirror = window.confirm('Also mirror this English tree content to linked Urdu guides?');
@@ -2565,83 +2727,6 @@ export default function HowToGuidesPage() {
                           ))}
                         </div>
 
-                        <details className="rounded-md border border-[hsl(140_20%_90%)] bg-white">
-                          <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-[hsl(150_30%_20%)]">
-                            Advanced: legacy free-text fields (optional)
-                          </summary>
-                          <div className="px-3 pb-3 pt-1 space-y-3">
-                            <p className="text-[11px] text-muted-foreground">
-                              Prefer structured blocks above. These fields still render in the app but are harder to format consistently. Use them only when you need to migrate long-form text or inject raw HTML.
-                            </p>
-                            <div>
-                              <Label>Step Note (legacy)</Label>
-                              <Textarea
-                                rows={2}
-                                className="mt-1 min-h-[60px]"
-                                value={step.note}
-                                onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
-                                  if (idx !== sectionIndex) return item;
-                                  return {
-                                    ...item,
-                                    steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, note: event.target.value } : stepItem),
-                                  };
-                                }))}
-                                placeholder='Prefer a "Highlighted note" block instead.'
-                              />
-                            </div>
-                            <div>
-                              <Label>Step Detail (legacy free-text)</Label>
-                              <div className="mt-1 mb-2 flex flex-wrap gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => appendStepDetailTemplate(sectionIndex, stepIndex, 'Section Title\n-------------')}
-                                  disabled={!canEdit}
-                                >
-                                  Insert Section Title
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => appendStepDetailTemplate(sectionIndex, stepIndex, '- Point one\n- Point two\n- Point three')}
-                                  disabled={!canEdit}
-                                >
-                                  Insert Bullet List
-                                </Button>
-                              </div>
-                              <Textarea
-                                rows={6}
-                                className="min-h-[140px]"
-                                value={step.detail}
-                                onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
-                                  if (idx !== sectionIndex) return item;
-                                  return {
-                                    ...item,
-                                    steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, detail: event.target.value } : stepItem),
-                                  };
-                                }))}
-                                placeholder="Long-form prose. Will be parsed into text/note/recitation blocks at render time."
-                              />
-                            </div>
-                            <div>
-                              <Label>Rich HTML (advanced)</Label>
-                              <Textarea
-                                rows={6}
-                                className="min-h-[140px] font-mono text-xs"
-                                value={step.rich_content_html}
-                                onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
-                                  if (idx !== sectionIndex) return item;
-                                  return {
-                                    ...item,
-                                    steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, rich_content_html: event.target.value } : stepItem),
-                                  };
-                                }))}
-                                placeholder="<p>Raw HTML rendered as-is. Only use if structured blocks can't express your layout.</p>"
-                              />
-                            </div>
-                          </div>
-                        </details>
-
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <Label>Images</Label>
@@ -2882,7 +2967,6 @@ export default function HowToGuidesPage() {
                         step: stepIndex + 1,
                         title: step.title,
                         detail: step.detail,
-                        note: step.note,
                         blocks: parsePreviewBlocks(step.blocks),
                         images: step.images.map((image) => ({
                           image_url: image.image_url,

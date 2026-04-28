@@ -6,6 +6,7 @@ interface NotificationPayload {
   notificationId: string;
   title: string;
   body: string;
+  urduTitle?: string;
   urduBody?: string;
   imageUrl?: string;
   linkUrl?: string;
@@ -43,6 +44,28 @@ interface JwtClaims {
   portal_role?: string;
   app_metadata?: { role?: string };
   user_metadata?: { role?: string; portal_role?: string };
+}
+
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildBilingualTitle(english: string, urdu?: string): string {
+  const englishTrimmed = english.trim();
+  const urduTrimmed = asTrimmedString(urdu);
+  if (!urduTrimmed) return englishTrimmed;
+  return `${englishTrimmed} - ${urduTrimmed}`;
+}
+
+function buildBilingualBody(english: string, urdu?: string): string {
+  const englishTrimmed = english.trim();
+  const urduTrimmed = asTrimmedString(urdu);
+  if (!urduTrimmed) return englishTrimmed;
+
+  // Keep English and Urdu visually separated in the system notification body.
+  return `${englishTrimmed}\n\n${urduTrimmed}`;
 }
 
 function decodeJwtClaims(token: string): JwtClaims | null {
@@ -102,6 +125,7 @@ serve(async (req) => {
       notificationId,
       title,
       body,
+      urduTitle,
       urduBody,
       imageUrl,
       linkUrl,
@@ -148,6 +172,7 @@ serve(async (req) => {
       formatVersion,
       category,
       audience,
+      urduTitle: urduTitle ?? null,
       ctaLabel: ctaLabel ?? null,
       imageUrl: imageUrl ?? null,
       linkUrl: linkUrl ?? null,
@@ -176,17 +201,22 @@ serve(async (req) => {
 
     const buildMessage = (token: string): ExpoMessage => ({
       to: token,
-      title,
-      body,
+      title: buildBilingualTitle(title, urduTitle),
+      body: buildBilingualBody(body, urduBody),
       priority: 'high',
       channelId: 'jmn-general-v1',
       data: {
         notificationId,
+        route: '/push-notification',
         category,
         audience,
+        title,
+        body,
+        urduTitle: urduTitle ?? null,
         url: linkUrl ?? null,
         ctaLabel: ctaLabel ?? null,
         urduBody: urduBody ?? null,
+        imageUrl: imageUrl ?? null,
         formatVersion,
       },
       ...(imageUrl ? { image: imageUrl } : {}),

@@ -12,7 +12,6 @@ type PreviewStep = {
   step: number;
   title: string;
   detail?: string;
-  note?: string;
   blocks?: PreviewGuideBlock[];
   images?: PreviewImage[];
 };
@@ -168,11 +167,6 @@ export function HowToGuidePreview({
                         <div className="space-y-3">
                           {resolvedBlocks.map((block, blockIndex) => renderBlock(block, blockIndex, previewLanguage))}
                         </div>
-                        {step.note ? (
-                          <div className="rounded-lg border-l-4 bg-slate-50 p-3 text-sm leading-6 text-slate-700" style={{ borderLeftColor: `${accentColor || '#2e7d32'}` }}>
-                            {step.note}
-                          </div>
-                        ) : null}
                         {step.images && step.images.length > 0 ? (
                           <div className="grid gap-3 sm:grid-cols-2">
                             {step.images.map((image, imageIndex) => (

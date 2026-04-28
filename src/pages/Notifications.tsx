@@ -66,6 +66,7 @@ interface Template {
 
 interface ComposeData {
   title: string;
+  urduTitle: string;
   body: string;
   urduBody: string;
   imageUrl: string;
@@ -141,8 +142,6 @@ const WEEKDAY_OPTIONS = [
   { value: 6, label: 'Sat' },
 ];
 
-const PRAYER_OPTIONS = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'] as const;
-
 const BUILT_IN_TEMPLATES: Template[] = [
   {
     id: 'bt-jummah', label: "Jumu'ah Reminder", icon: 'JM', category: 'prayer', builtIn: true,
@@ -191,7 +190,7 @@ const automationEventStatusStyles: Record<NotificationAutomationEvent['status'],
 };
 
 const EMPTY_COMPOSE: ComposeData = {
-  title: '', body: '', urduBody: '', imageUrl: '', linkUrl: '',
+  title: '', urduTitle: '', body: '', urduBody: '', imageUrl: '', linkUrl: '',
   audience: 'all', category: 'general', scheduledFor: '', scheduleEnabled: false,
 };
 
@@ -216,6 +215,11 @@ function getCategoryMeta(value: string) {
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   return 'Unexpected network error. Please refresh and try again.';
+}
+
+function payloadString(payload: Record<string, unknown> | null | undefined, key: string): string {
+  const value = payload?.[key];
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function buildNextRunAt(
@@ -287,7 +291,7 @@ const EMPTY_AUTOMATION_DRAFT: AutomationDraft = {
   oneTimeAt: '',
   scheduleTime: '13:00',
   recurrenceDays: [5],
-  prayerNames: ['dhuhr'],
+  prayerNames: [],
   title: '',
   body: '',
   urduBody: '',
@@ -528,9 +532,11 @@ const ComposePanel = ({
     link_url: form.linkUrl.trim() || null,
     payload_json: {
       formatVersion: 'v1',
+      urduTitle: form.urduTitle.trim() || null,
       hasImage: Boolean(form.imageUrl.trim()),
       hasUrl: Boolean(form.linkUrl.trim()),
       hasUrdu: Boolean(form.urduBody.trim()),
+      hasUrduTitle: Boolean(form.urduTitle.trim()),
     },
     audience: form.audience,
     category: form.category,
@@ -576,6 +582,7 @@ const ComposePanel = ({
         notificationId: draft.id,
         title: form.title.trim(),
         body: form.body.trim(),
+        urduTitle: form.urduTitle.trim() || undefined,
         urduBody: form.urduBody.trim() || undefined,
         imageUrl: form.imageUrl.trim() || undefined,
         linkUrl: form.linkUrl.trim() || undefined,
@@ -684,6 +691,23 @@ const ComposePanel = ({
               onChange={(e) => set('title', e.target.value.slice(0, 65))}
               placeholder="e.g. Jumu'ah Reminder - Friday Prayer"
               className="text-sm"
+            />
+          </div>
+
+          {/* Urdu title */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="notif-urdu-title" className="flex items-center gap-1.5">Urdu Title <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+              <UrduAutoTranslateBtn sourceText={form.title} onResult={(v) => set('urduTitle', v)} />
+            </div>
+            <Input
+              id="notif-urdu-title"
+              value={form.urduTitle}
+              onChange={(e) => set('urduTitle', e.target.value)}
+              placeholder="Write Urdu title here..."
+              dir="rtl"
+              className="text-sm text-right"
+              style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.1' }}
             />
           </div>
 
@@ -853,7 +877,23 @@ const ComposePanel = ({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-foreground leading-snug">{form.title || 'Notification title'}</p>
+                  {form.urduTitle.trim() ? (
+                    <p
+                      className="text-xs mt-0.5 leading-relaxed text-right"
+                      style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.1' }}
+                    >
+                      {form.urduTitle}
+                    </p>
+                  ) : null}
                   <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{form.body || 'Notification body will appear here.'}</p>
+                  {form.urduBody.trim() ? (
+                    <p
+                      className="text-xs mt-0.5 leading-relaxed text-right"
+                      style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2.4' }}
+                    >
+                      {form.urduBody}
+                    </p>
+                  ) : null}
                   {form.scheduleEnabled && form.scheduledFor && (
                     <p className="text-[10px] text-blue-600 mt-1 flex items-center gap-1">
                       <Calendar size={9} /> Scheduled for {new Date(form.scheduledFor).toLocaleString()}
@@ -996,6 +1036,7 @@ const HistoryRow = ({
             <div className="px-4 py-3 space-y-2">
               {[
                 { label: 'Title',     value: notif.title },
+                ...(payloadString(notif.payload_json, 'urduTitle') ? [{ label: 'Urdu title', value: payloadString(notif.payload_json, 'urduTitle') }] : []),
                 { label: 'Message',   value: notif.body  },
                 ...(notif.urdu_body ? [{ label: 'Urdu', value: notif.urdu_body }] : []),
                 { label: 'Audience',  value: AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience },
@@ -1239,18 +1280,6 @@ const AutomationsPanel = ({
     });
   };
 
-  const togglePrayer = (prayer: string) => {
-    setDraft((prev) => {
-      const exists = prev.prayerNames.includes(prayer);
-      return {
-        ...prev,
-        prayerNames: exists
-          ? prev.prayerNames.filter((value) => value !== prayer)
-          : [...prev.prayerNames, prayer],
-      };
-    });
-  };
-
   const submit = async () => {
     if (!canEdit) return;
     if (!draft.name.trim() || !draft.title.trim() || !draft.body.trim()) {
@@ -1288,7 +1317,7 @@ const AutomationsPanel = ({
       {expanded && (
         <div className="px-5 py-4 space-y-4">
           <p className="text-[11px] text-amber-900/80 leading-relaxed">
-            Automated sends run in Europe/London timezone. Prayer-linked rules use live prayer times and compute the next run automatically after each execution.
+            Automated sends run in Europe/London timezone.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1307,7 +1336,6 @@ const AutomationsPanel = ({
                 <option value="one_time">One-time</option>
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
-                <option value="prayer">Prayer-linked</option>
               </select>
             </div>
           </div>
@@ -1350,35 +1378,6 @@ const AutomationsPanel = ({
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {draft.scheduleType === 'prayer' && (
-            <div className="space-y-2">
-              <Label>Prayers</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {PRAYER_OPTIONS.map((prayer) => {
-                  const selected = draft.prayerNames.includes(prayer);
-                  return (
-                    <button
-                      key={prayer}
-                      type="button"
-                      onClick={() => togglePrayer(prayer)}
-                      disabled={!canEdit || saving}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
-                        selected
-                          ? 'bg-primary/10 border-primary text-primary'
-                          : 'bg-background border-border text-muted-foreground hover:bg-muted'
-                      }`}
-                    >
-                      {prayer}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="rounded-lg border border-amber-200 bg-amber-100/60 px-2.5 py-2 text-[11px] text-amber-900/90 leading-relaxed">
-                Choose one or more prayers. The scheduler looks up each selected prayer in <span className="font-semibold">prayer_times</span> and always advances to the next valid prayer slot.
-              </div>
             </div>
           )}
 
@@ -1437,7 +1436,7 @@ const AutomationsPanel = ({
           <div className="rounded-xl border border-amber-200 bg-white overflow-hidden">
             <div className="px-3 py-2 border-b border-amber-100 text-xs font-bold text-amber-800">Existing rules</div>
             {automations.length === 0 ? (
-              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation rules yet. Create one above to schedule daily, weekly, or prayer-linked sends.</p>
+              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation rules yet. Create one above to schedule one-time, daily, or weekly sends.</p>
             ) : (
               <div className="divide-y divide-amber-100 bg-amber-50/30">
                 {automations.slice(0, 20).map((automation) => (
@@ -1865,6 +1864,7 @@ const Notifications = () => {
     }
     setComposeData({
       title: notif.title,
+      urduTitle: payloadString(notif.payload_json, 'urduTitle'),
       body: notif.body,
       urduBody: notif.urdu_body ?? '',
       imageUrl: notif.image_url ?? '',
@@ -1884,7 +1884,7 @@ const Notifications = () => {
       toast.error('Your role is read-only for composing notifications.');
       return;
     }
-    setComposeData({ title: t.title, body: t.body, category: t.category });
+    setComposeData({ title: t.title, urduTitle: '', body: t.body, urduBody: '', category: t.category });
     setActiveTab('compose');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast.info(`Template "${t.label}" loaded.`);
@@ -1951,8 +1951,8 @@ const Notifications = () => {
       throw new Error('Please provide a valid schedule time.');
     }
 
-    if (draft.scheduleType === 'prayer' && draft.prayerNames.length === 0) {
-      throw new Error('Select at least one prayer for prayer-linked automation.');
+    if (draft.scheduleType === 'prayer') {
+      throw new Error('Prayer-linked automations are disabled to avoid duplicate mobile prayer notifications.');
     }
 
     const payload = {
@@ -1961,9 +1961,9 @@ const Notifications = () => {
       schedule_type: draft.scheduleType,
       schedule_timezone: 'Europe/London',
       one_time_at: draft.scheduleType === 'one_time' ? nextRunAt : null,
-      next_run_at: draft.scheduleType === 'prayer' ? (nextRunAt ?? new Date().toISOString()) : nextRunAt,
+      next_run_at: nextRunAt,
       recurrence_days: draft.scheduleType === 'weekly' ? draft.recurrenceDays : [],
-      prayer_names: draft.scheduleType === 'prayer' ? draft.prayerNames : [],
+      prayer_names: [],
       title: draft.title.trim(),
       body: draft.body.trim(),
       urdu_body: draft.urduBody.trim() || null,

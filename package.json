@@ -9,7 +9,9 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "verify:announcements-contract": "node scripts/verify-announcements-contract.mjs"
+    "verify:announcements-contract": "node scripts/verify-announcements-contract.mjs",
+    "howto:normalize-layout:dry": "node scripts/normalize-howto-layout.mjs --dry-run",
+    "howto:normalize-layout": "node scripts/normalize-howto-layout.mjs --apply"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -7,6 +7,7 @@ type ScheduledNotificationRow = {
   title: string;
   body: string;
   urdu_body: string | null;
+  payload_json: Record<string, unknown> | null;
   image_url: string | null;
   link_url: string | null;
   cta_label: string | null;
@@ -60,6 +61,12 @@ type SendFormattedResponse = {
   errors?: string[];
   error?: string;
 };
+
+function asOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -282,7 +289,7 @@ async function processScheduledNotifications(args: {
   const { data: dueRows, error: dueError } = await admin
     .from('push_notifications')
     .select(
-      'id, title, body, urdu_body, image_url, link_url, cta_label, audience, category, format_version, scheduled_for, automation_id',
+      'id, title, body, urdu_body, payload_json, image_url, link_url, cta_label, audience, category, format_version, scheduled_for, automation_id',
     )
     .eq('status', 'scheduled')
     .lte('scheduled_for', nowIso)
@@ -310,7 +317,7 @@ async function processScheduledNotifications(args: {
     .in('id', dueIds)
     .eq('status', 'scheduled')
     .select(
-      'id, title, body, urdu_body, image_url, link_url, cta_label, audience, category, format_version, scheduled_for, automation_id',
+      'id, title, body, urdu_body, payload_json, image_url, link_url, cta_label, audience, category, format_version, scheduled_for, automation_id',
     );
 
   if (claimError) {
@@ -323,10 +330,13 @@ async function processScheduledNotifications(args: {
   let failedCount = 0;
 
   for (const row of claimed) {
+    const urduTitle = asOptionalString(row.payload_json?.urduTitle);
+
     const sendResult = await invokeSendFormatted(supabaseUrl, accessToken, {
       notificationId: row.id,
       title: row.title,
       body: row.body,
+      urduTitle,
       urduBody: row.urdu_body ?? undefined,
       imageUrl: row.image_url ?? undefined,
       linkUrl: row.link_url ?? undefined,
@@ -417,6 +427,29 @@ async function processRecurringAutomations(args: {
   for (const automation of due) {
     if (!automation.next_run_at) {
       skippedCount += 1;
+      continue;
+    }
+
+    if (automation.schedule_type === 'prayer') {
+      skippedCount += 1;
+
+      await admin
+        .from('notification_automations')
+        .update({
+          enabled: false,
+          next_run_at: null,
+          last_error: 'Prayer-linked automations are disabled to avoid duplicate mobile prayer notifications.',
+        })
+        .eq('id', automation.id);
+
+      await logAutomationEvent(admin, {
+        automationId: automation.id,
+        scheduledFor: automation.next_run_at,
+        status: 'skipped',
+        errorMessage: 'Prayer-linked automations disabled by processor guard.',
+        payloadJson: { schedule_type: automation.schedule_type, reason: 'prayer_automation_disabled' },
+      });
+
       continue;
     }
 
