@@ -129,25 +129,46 @@ const TimeField = ({ label, value, onChange }: TimeFieldProps) => {
           type="button"
           onClick={() => onChange(adjustTime(value, -1))}
           disabled={!canStep}
-          className="w-7 h-9 flex items-center justify-center rounded-md border border-[hsl(140_20%_88%)] bg-white hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+          className="w-10 h-10 flex items-center justify-center rounded-xl border border-[hsl(140_20%_88%)] bg-white hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
           title="Subtract 1 minute"
         >
-          <Minus size={11} className="text-[hsl(142_60%_32%)]" />
+          <Minus size={14} className="text-[hsl(142_60%_32%)]" />
         </button>
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="HH:MM"
-          className="font-mono text-sm h-9 text-center min-w-0 border-[hsl(140_20%_88%)] focus:border-[hsl(142_50%_70%)]"
+          inputMode="numeric"
+          className="font-mono text-sm h-10 text-center min-w-0 border-[hsl(140_20%_88%)] focus:border-[hsl(142_50%_70%)]"
         />
         <button
           type="button"
           onClick={() => onChange(adjustTime(value, +1))}
           disabled={!canStep}
-          className="w-7 h-9 flex items-center justify-center rounded-md border border-[hsl(140_20%_88%)] bg-white hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+          className="w-10 h-10 flex items-center justify-center rounded-xl border border-[hsl(140_20%_88%)] bg-white hover:bg-[hsl(142_50%_95%)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
           title="Add 1 minute"
         >
-          <Plus size={11} className="text-[hsl(142_60%_32%)]" />
+          <Plus size={14} className="text-[hsl(142_60%_32%)]" />
+        </button>
+      </div>
+      <div className="flex items-center justify-between gap-1.5">
+        <button
+          type="button"
+          onClick={() => onChange(adjustTime(value, -5))}
+          disabled={!canStep}
+          className="h-7 px-2 rounded-md border border-[hsl(140_20%_88%)] bg-white text-[10px] font-semibold text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)] disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Subtract 5 minutes"
+        >
+          -5m
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(adjustTime(value, +5))}
+          disabled={!canStep}
+          className="h-7 px-2 rounded-md border border-[hsl(140_20%_88%)] bg-white text-[10px] font-semibold text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_95%)] disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Add 5 minutes"
+        >
+          +5m
         </button>
       </div>
     </div>
@@ -273,8 +294,8 @@ const EditPrayerTimeModal = ({ row, year, hijriEntry, deferSave = false, onClose
 
   return (
     <Dialog open={!!row} onOpenChange={onClose}>
-      <DialogContent className="w-full max-w-2xl max-h-[92vh] overflow-y-auto mx-2 sm:mx-auto">
-        <DialogHeader>
+      <DialogContent className="w-[100vw] sm:w-full max-w-2xl h-[100dvh] sm:max-h-[92vh] overflow-hidden mx-0 sm:mx-auto p-0 rounded-none sm:rounded-lg flex flex-col">
+        <DialogHeader className="px-4 sm:px-6 pt-4 pb-3 border-b border-[hsl(140_20%_88%)] bg-white">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
               <Clock size={17} className="text-[hsl(142_60%_32%)]" />
@@ -290,7 +311,7 @@ const EditPrayerTimeModal = ({ row, year, hijriEntry, deferSave = false, onClose
           </div>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <div className="space-y-5 py-2 px-4 sm:px-6 overflow-y-auto flex-1 pb-24 sm:pb-6">
           {/* Starting times */}
           <div className="rounded-xl border border-[hsl(140_20%_88%)] overflow-hidden">
             <div className="px-4 py-2.5 bg-[hsl(142_30%_97%)] border-b border-[hsl(140_20%_88%)]">
@@ -373,13 +394,14 @@ const EditPrayerTimeModal = ({ row, year, hijriEntry, deferSave = false, onClose
           </div>
         </div>
 
-        <DialogFooter className="pt-2 gap-2 flex-col sm:flex-row">
-          <Button variant="outline" onClick={onClose} disabled={saving} className="border-[hsl(140_20%_88%)]">
+        <DialogFooter className="mt-auto border-t border-[hsl(140_20%_88%)] bg-white/95 backdrop-blur px-4 sm:px-6 py-3 gap-2 flex-col sm:flex-row">
+          <Button variant="outline" onClick={onClose} disabled={saving} className="border-[hsl(140_20%_88%)] w-full sm:w-auto">
             Cancel
           </Button>
           <Button
             onClick={handleSave}
             disabled={saving}
+            className="w-full sm:w-auto"
             style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
           >
             {saving ? 'Saving…' : deferSave ? 'Queue Changes' : 'Save Changes'}

@@ -77,10 +77,10 @@ const DonationOptionRow = ({
 }) => {
   return (
     <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1 min-w-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold text-[hsl(150_30%_18%)] truncate">{option.title}</p>
+            <p className="font-semibold text-[hsl(150_30%_18%)] break-words sm:truncate">{option.title}</p>
             <Badge variant={option.is_active ? 'default' : 'secondary'}>
               {option.is_active ? 'Active' : 'Inactive'}
             </Badge>
@@ -102,7 +102,7 @@ const DonationOptionRow = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button
             variant="outline"
             size="sm"
@@ -154,13 +154,13 @@ const DonationOptionRow = ({
         </div>
       </div>
 
-      <div className="mt-3 pt-3 border-t border-[hsl(140_20%_90%)] flex items-center gap-2">
+      <div className="mt-3 pt-3 border-t border-[hsl(140_20%_90%)] flex flex-col items-start gap-2 sm:flex-row sm:items-center">
         <label className="text-xs text-muted-foreground">Global Order</label>
         <Input
           type="number"
           min={0}
           defaultValue={option.global_order}
-          className="h-8 w-24"
+          className="h-8 w-full sm:w-24"
           onBlur={(event) => {
             const next = Number(event.currentTarget.value);
             if (!Number.isFinite(next) || next < 0 || next === option.global_order) return;

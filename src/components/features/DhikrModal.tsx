@@ -380,6 +380,71 @@ const mergeFieldValue = (existing: string, incoming: string, mode: 'replace' | '
   return `${current}${separator}${next}`;
 };
 
+type QuickPasteFields = {
+  title?: string;
+  arabic_title?: string;
+  arabic?: string;
+  transliteration?: string;
+  translation?: string;
+  urdu_translation?: string;
+  reference?: string;
+};
+
+const parseQuickPasteFields = (raw: string): QuickPasteFields => {
+  const out: QuickPasteFields = {};
+  const lines = raw.replace(/\r/g, '').split('\n');
+  let currentKey: keyof QuickPasteFields | null = null;
+
+  const resolveKey = (label: string): keyof QuickPasteFields | null => {
+    const normalized = label.trim().toLowerCase();
+    if (normalized === 'title') return 'title';
+    if (normalized === 'arabic title' || normalized === 'arabictitle') return 'arabic_title';
+    if (normalized === 'arabic' || normalized === 'ar') return 'arabic';
+    if (normalized === 'transliteration' || normalized === 'translit') return 'transliteration';
+    if (normalized === 'english' || normalized === 'translation') return 'translation';
+    if (normalized === 'urdu' || normalized === 'urdu translation' || normalized === 'urdu_translation') return 'urdu_translation';
+    if (normalized === 'reference' || normalized === 'ref') return 'reference';
+    return null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const match = line.match(/^\s*([A-Za-z _]+)\s*[:\-]\s*(.*)$/);
+    if (match) {
+      const key = resolveKey(match[1]);
+      if (key) {
+        currentKey = key;
+        out[key] = (out[key] ? `${out[key]}\n` : '') + (match[2] ?? '');
+        continue;
+      }
+    }
+
+    if (currentKey) {
+      out[currentKey] = `${out[currentKey] ?? ''}\n${line}`;
+    }
+  }
+
+  // Fallback: if no labels detected, map paragraph blocks by common order.
+  if (Object.keys(out).length === 0) {
+    const blocks = raw
+      .split(/\n\s*\n+/)
+      .map((block) => block.trim())
+      .filter(Boolean);
+
+    if (blocks[0]) out.arabic = blocks[0];
+    if (blocks[1]) out.transliteration = blocks[1];
+    if (blocks[2]) out.translation = blocks[2];
+    if (blocks[3]) out.urdu_translation = blocks[3];
+    if (blocks[4]) out.reference = blocks[4];
+  }
+
+  (Object.keys(out) as Array<keyof QuickPasteFields>).forEach((key) => {
+    out[key] = out[key]?.trim() || undefined;
+  });
+
+  return out;
+};
+
 const QuranPicker = ({ onImport, onClose }: QuranPickerProps) => {
   const [state, setState] = useState<QuranPickerState>({
     surah: 1, ayahFrom: '', ayahTo: '', translationId: 131, tafsirIds: [], importTafsir: false,
@@ -999,6 +1064,8 @@ const DhikrModal = ({
   const [generatedUrdu, setGeneratedUrdu] = useState(false);
   const [editorTab, setEditorTab] = useState<'content' | 'translations' | 'advanced'>('content');
   const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+  const [showQuickFill, setShowQuickFill] = useState(false);
+  const [quickPasteText, setQuickPasteText] = useState('');
   const groupInputRef = useRef<HTMLInputElement>(null);
   const entryContentType: AdhkarContentType | null = forcedContentType ?? row?.content_type ?? null;
   const scopedGroups = useMemo(() => {
@@ -1049,6 +1116,8 @@ const DhikrModal = ({
       setGeneratedUrdu(false);
       setEditorTab('content');
       setShowAdvancedTools(false);
+      setShowQuickFill(false);
+      setQuickPasteText('');
     } else {
       setForm({
         ...EMPTY,
@@ -1065,6 +1134,8 @@ const DhikrModal = ({
       setUploadingFile(false);
       setEditorTab('content');
       setShowAdvancedTools(false);
+      setShowQuickFill(false);
+      setQuickPasteText('');
     }
   }, [defaultPrayerTime, row, open, presetGroup]);
 
@@ -1317,6 +1388,36 @@ const DhikrModal = ({
     toast.success(hadExistingUrdu ? 'Updated Urdu translation from English.' : 'Filled Urdu translation from English.');
   };
 
+  const applyQuickPaste = (mode: 'fill-empty' | 'replace') => {
+    const parsed = parseQuickPasteFields(quickPasteText);
+    const keys = Object.keys(parsed) as Array<keyof QuickPasteFields>;
+    if (keys.length === 0) {
+      toast.error('No recognizable content found. Use labels like Arabic:, Transliteration:, English:, Urdu:, Reference:.');
+      return;
+    }
+
+    setForm((prev) => {
+      const next = { ...prev };
+      const setIfNeeded = (key: keyof FormState, value?: string) => {
+        if (!value) return;
+        if (mode === 'replace' || !String(next[key] ?? '').trim()) {
+          (next as Record<string, unknown>)[key] = value;
+        }
+      };
+
+      setIfNeeded('title', parsed.title);
+      setIfNeeded('arabic_title', parsed.arabic_title);
+      setIfNeeded('arabic', parsed.arabic);
+      setIfNeeded('transliteration', parsed.transliteration);
+      setIfNeeded('translation', parsed.translation);
+      setIfNeeded('urdu_translation', parsed.urdu_translation);
+      setIfNeeded('reference', parsed.reference);
+      return next;
+    });
+
+    toast.success(mode === 'replace' ? 'Replaced fields from pasted content.' : 'Filled empty fields from pasted content.');
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl max-h-[94vh] overflow-y-auto border-[hsl(140_20%_88%)]" onKeyDown={handleModalKeyDown}>
@@ -1484,6 +1585,37 @@ const DhikrModal = ({
               >
                 {showAdvancedTools ? 'Hide advanced tools' : 'Show advanced tools'}
               </button>
+            </div>
+
+            <div className="rounded-md border border-[hsl(142_20%_85%)] bg-[hsl(142_30%_97%)] px-3 py-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold text-[hsl(150_30%_24%)]">Quick Fill (paste once)</p>
+                <button
+                  type="button"
+                  onClick={() => setShowQuickFill((v) => !v)}
+                  className="text-[11px] font-semibold text-[hsl(142_60%_32%)] hover:underline"
+                >
+                  {showQuickFill ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              {showQuickFill && (
+                <>
+                  <Textarea
+                    value={quickPasteText}
+                    onChange={(e) => setQuickPasteText(e.target.value)}
+                    placeholder={'Paste with labels, e.g. Arabic:, Transliteration:, English:, Urdu:, Reference: or paste 5 paragraphs in this order.'}
+                    className="min-h-[110px] text-xs bg-white"
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button type="button" variant="outline" size="sm" onClick={() => applyQuickPaste('fill-empty')}>
+                      Fill Empty Fields
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => applyQuickPaste('replace')}>
+                      Replace From Paste
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
 
             {editorTab !== 'advanced' && (

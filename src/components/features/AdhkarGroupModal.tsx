@@ -8,7 +8,7 @@ import { AdhkarContentType, AdhkarGroup, GROUP_ICON_OPTIONS, GROUP_COLOR_PRESETS
 import { createAdhkarGroup, updateAdhkarGroup } from '#/lib/api';
 import { supabase, supabaseAdmin, onspaceCloud } from '#/lib/supabase';
 import { toast } from 'sonner';
-import { Upload, X, Loader2, ImageIcon, Image, Database } from 'lucide-react';
+import { Upload, X, Loader2, ImageIcon, Image, Database, Eye } from 'lucide-react';
 
 // ─── Helper: is the icon value a URL (image) or an emoji/text? ────────────────
 export function isIconUrl(icon: string | null | undefined): boolean {
@@ -468,7 +468,7 @@ const AdhkarGroupModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto border-[hsl(140_20%_88%)]">
+      <DialogContent className="w-[calc(100vw-1.25rem)] sm:w-auto max-w-2xl max-h-[94dvh] overflow-y-auto border-[hsl(140_20%_88%)] p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="text-base font-bold text-[hsl(150_30%_12%)] flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
@@ -480,47 +480,59 @@ const AdhkarGroupModal = ({
 
         {bgColMissing && <BgImageSetupBanner onDismiss={() => setBgColMissing(false)} />}
 
-        {/* ── Live preview card ── */}
-        <div
-          className="rounded-xl p-4 border border-border flex items-start gap-4 overflow-hidden relative"
-          style={{ background: preview.bgImg ? 'transparent' : '#1a2233', minHeight: 88 }}
-        >
-          {preview.bgImg && (
-            <>
-              <img src={preview.bgImg} alt="background" className="absolute inset-0 w-full h-full object-cover" style={{ filter: 'brightness(0.45)' }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.35)' }} />
-            </>
-          )}
-          {!preview.bgImg && <div className="absolute inset-0 rounded-xl" style={{ background: '#1a2233' }} />}
-          <div className="relative z-10 flex items-start gap-4 w-full">
-            <GroupIconDisplay icon={preview.icon || '☪️'} bg={preview.iconBg} size={48} />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-white font-bold text-base">{preview.name}</span>
-                {preview.badge && (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ background: preview.badgeBg }}>
-                    {preview.badge}
-                  </span>
-                )}
-              </div>
-              {preview.arabicTitle && (
-                <p className="text-sm text-right mt-0.5" dir="rtl" style={{ color: '#CBD5E1' }}>{preview.arabicTitle}</p>
-              )}
-              {preview.subtitle && <p className="text-xs mt-0.5" style={{ color: '#E2E8F0' }}>{preview.subtitle}</p>}
-              <p className="text-sm mt-0.5" style={{ color: '#94a3b8' }}>{preview.desc}</p>
-              {preview.reference && <p className="text-[11px] mt-0.5" style={{ color: '#A7B6CC' }}>Ref: {preview.reference}</p>}
+        {/* ── Live preview panel (Qaseedah/HowTo style) ── */}
+        <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white overflow-hidden">
+          <div className="border-b border-[hsl(140_20%_92%)] bg-[hsl(140_30%_98%)] px-3 py-2 flex items-center gap-2">
+            <Eye size={14} className="text-[hsl(142_60%_32%)]" />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Live Preview</p>
+              <p className="text-[10px] text-muted-foreground">Mirrors how this group renders in the app.</p>
+            </div>
+          </div>
+
+          <div className="max-h-[320px] overflow-y-auto bg-[hsl(140_25%_98%)] p-3 sm:p-4">
+            <div
+              className="rounded-xl p-4 border border-border flex items-start gap-3 sm:gap-4 overflow-hidden relative"
+              style={{ background: preview.bgImg ? 'transparent' : '#1a2233', minHeight: 88 }}
+            >
               {preview.bgImg && (
-                <span className="text-[10px] font-semibold text-white/60 flex items-center gap-1 mt-1">
-                  <Image size={10} /> Background image active
-                </span>
+                <>
+                  <img src={preview.bgImg} alt="background" className="absolute inset-0 w-full h-full object-cover" style={{ filter: 'brightness(0.45)' }} />
+                  <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.35)' }} />
+                </>
               )}
+              {!preview.bgImg && <div className="absolute inset-0 rounded-xl" style={{ background: '#1a2233' }} />}
+              <div className="relative z-10 flex items-start gap-3 sm:gap-4 w-full">
+                <GroupIconDisplay icon={preview.icon || '☪️'} bg={preview.iconBg} size={44} className="sm:w-12 sm:h-12" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-white font-bold text-base leading-tight">{preview.name}</span>
+                    {preview.badge && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ background: preview.badgeBg }}>
+                        {preview.badge}
+                      </span>
+                    )}
+                  </div>
+                  {preview.arabicTitle && (
+                    <p className="text-sm text-right mt-0.5" dir="rtl" style={{ color: '#CBD5E1' }}>{preview.arabicTitle}</p>
+                  )}
+                  {preview.subtitle && <p className="text-xs mt-0.5" style={{ color: '#E2E8F0' }}>{preview.subtitle}</p>}
+                  <p className="text-sm mt-1 leading-relaxed" style={{ color: '#94a3b8' }}>{preview.desc}</p>
+                  {preview.reference && <p className="text-[11px] mt-1" style={{ color: '#A7B6CC' }}>Ref: {preview.reference}</p>}
+                  {preview.bgImg && (
+                    <span className="text-[10px] font-semibold text-white/60 inline-flex items-center gap-1 mt-1.5">
+                      <Image size={10} /> Background image active
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="space-y-5 pt-1">
           {/* Name + Prayer Time */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name *</Label>
               <div className="relative" ref={nameDropRef}>
@@ -540,7 +552,7 @@ const AdhkarGroupModal = ({
                   >▾</button>
                 </div>
                 {nameDropOpen && mergeTargets.length > 0 && (
-                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-64 overflow-y-auto">
                     <div className="px-2 py-1.5 border-b border-border bg-muted/40">
                       <input
                         type="text"
@@ -556,13 +568,17 @@ const AdhkarGroupModal = ({
                       .filter((g) => !nameSearch || g.name.toLowerCase().includes(nameSearch.toLowerCase()))
                       .map((g) => (
                         <button key={g.id ?? g.name} type="button"
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-secondary/60 flex items-center gap-2 transition-colors"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-secondary/60 transition-colors"
                           onClick={() => { set('name', g.name); setNameDropOpen(false); setNameSearch(''); }}>
-                          <span className="text-base">{isIconUrl(g.icon) ? '🖼' : (g.icon ?? '📋')}</span>
-                          <span className="font-medium text-foreground">{g.name}</span>
-                          {g.prayer_time && (
-                            <span className="ml-auto text-[10px] text-muted-foreground shrink-0">{PRAYER_TIME_LABELS[g.prayer_time] ?? g.prayer_time}</span>
-                          )}
+                          <div className="flex items-start gap-2">
+                            <span className="text-base shrink-0 mt-0.5">{isIconUrl(g.icon) ? '🖼' : (g.icon ?? '📋')}</span>
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground leading-tight break-words">{g.name}</div>
+                              {g.prayer_time && (
+                                <div className="text-[10px] text-muted-foreground mt-0.5">{PRAYER_TIME_LABELS[g.prayer_time] ?? g.prayer_time}</div>
+                              )}
+                            </div>
+                          </div>
                         </button>
                       ))}
                     {mergeTargets.filter((g) => !nameSearch || g.name.toLowerCase().includes(nameSearch.toLowerCase())).length === 0 && (
@@ -740,7 +756,7 @@ const AdhkarGroupModal = ({
           </div>
 
           {/* Badge */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Badge Text</Label>
               <Input value={form.badge_text} onChange={(e) => set('badge_text', e.target.value)} placeholder="e.g. Morning Sunnah" />

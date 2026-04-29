@@ -644,7 +644,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-[92vh] sm:max-h-[92vh] overflow-hidden p-0 rounded-none sm:rounded-lg flex flex-col">
-        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] text-white">
+        <DialogHeader className="px-4 pr-12 sm:px-6 sm:pr-6 pt-4 sm:pt-5 pb-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] text-white">
           <DialogTitle className="text-sm sm:text-base font-bold flex items-start gap-3">
             <div className="w-8 h-8 rounded-xl bg-white/20 ring-1 ring-white/30 flex items-center justify-center shrink-0">
               <Bell size={15} className="text-white" />
@@ -656,7 +656,7 @@ const AnnouncementModal = ({ item, open, onClose, onSaved }: { item: Announcemen
             <Button
               size="sm"
               variant="outline"
-              className="lg:hidden gap-1 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white h-8"
+              className="lg:hidden mr-1 gap-1 bg-white/10 border-white/25 text-white hover:bg-white/20 hover:text-white h-8"
               onClick={() => setShowMobilePreview((value) => !value)}
             >
               {showMobilePreview ? <EyeOff size={14} /> : <Eye size={14} />} {showMobilePreview ? 'Editor' : 'Preview'}
@@ -1048,7 +1048,7 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
           <img src={item.image_url} alt={item.title} className="w-full object-cover" style={{ maxHeight: 180 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         </div>
       )}
-      <div className="flex items-start gap-3 px-5 py-4">
+      <div className="flex items-start gap-2 px-3 py-4 sm:gap-3 sm:px-5">
         <button {...attributes} {...listeners} className="shrink-0 mt-1 touch-none cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground transition-colors p-0.5 rounded" tabIndex={-1}>
           <GripVertical size={14} />
         </button>
@@ -1056,14 +1056,14 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
           {item.is_active ? <Bell size={14} className="text-[hsl(142_60%_32%)]" /> : <BellOff size={14} className="text-muted-foreground" />}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
             <div className="min-w-0 flex-1">
               <h3 className="font-semibold text-sm leading-snug text-[hsl(150_30%_12%)]">{item.title}</h3>
               {item.urdu_title && (
                 <p className="font-urdu text-right mt-0.5 text-[hsl(150_25%_20%)]" dir="rtl" style={{ fontSize: 16, lineHeight: 2 }}>{item.urdu_title}</p>
               )}
             </div>
-            <div className="shrink-0 flex items-center gap-1">
+            <div className="flex items-center gap-1 self-start sm:shrink-0 sm:self-auto">
               {item.type && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[hsl(8_90%_95%)] text-[hsl(8_80%_40%)] border border-[hsl(8_60%_85%)]">{item.type}</span>}
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
                 {item.is_active ? 'LIVE' : 'OFF'}
@@ -1083,7 +1083,7 @@ const AnnouncementCard = ({ item, onEdit, onToggle, onDelete, isDragOverlay }: {
           </div>
           <p className="text-[10px] text-muted-foreground/60 mt-1.5">Order: {item.display_order} · Updated {new Date(item.updated_at).toLocaleDateString()}</p>
         </div>
-        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex flex-col gap-1 shrink-0 sm:flex-row sm:items-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
           <button onClick={handleToggle} disabled={toggling} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[hsl(140_20%_94%)] transition-colors disabled:opacity-40">
             {toggling ? <Loader2 size={13} className="animate-spin text-muted-foreground" /> : item.is_active ? <ToggleRight size={15} className="text-emerald-600" /> : <ToggleLeft size={15} className="text-muted-foreground" />}
           </button>

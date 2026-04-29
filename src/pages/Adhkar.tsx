@@ -115,7 +115,7 @@ const SortableEntryRow = ({
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
       className={`${isDragOverlay ? 'bg-white shadow-lg rounded-lg border border-border/70 mx-2 my-1' : 'bg-[#FAFAFA] rounded-md border border-slate-200 mx-2 my-1'} ${isDragging ? 'ring-2 ring-[hsl(142_55%_55%/0.35)] shadow-md' : ''}`}
     >
-      <div className="px-3 py-2.5 flex items-center gap-2 hover:bg-gray-100 transition-colors select-none rounded-md">
+      <div className="px-3 py-3 flex flex-wrap sm:flex-nowrap items-start sm:items-center gap-2 hover:bg-gray-100 transition-colors select-none rounded-md">
         {!isDragOverlay && (
           <input
             type="checkbox"
@@ -148,12 +148,12 @@ const SortableEntryRow = ({
 
         {/* Title + badges */}
         <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap cursor-pointer" onClick={() => setExpanded((e) => !e)}>
-          <span className="font-medium text-sm text-foreground leading-snug">{highlightMatch(row.title, searchTerm)}</span>
+          <span className="font-semibold text-[15px] sm:text-sm text-foreground leading-snug">{highlightMatch(row.title, searchTerm)}</span>
           <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[hsl(145_55%_93%)] text-[hsl(145_60%_26%)] border border-[hsl(145_40%_80%)]">
             Repeat {row.count}x
           </span>
           {row.arabic_title && (
-            <span className="text-sm text-muted-foreground leading-snug" dir="rtl" style={{ fontFamily: 'serif' }}>{highlightMatch(row.arabic_title, searchTerm)}</span>
+            <span className="hidden sm:inline text-sm text-muted-foreground leading-snug" dir="rtl" style={{ fontFamily: 'serif' }}>{highlightMatch(row.arabic_title, searchTerm)}</span>
           )}
           {!row.arabic && !isQuranGroupEntry && (
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">Needs Content</span>
@@ -163,15 +163,15 @@ const SortableEntryRow = ({
               <ImageIcon size={9} /> media
             </span>
           )}
-          <span className="text-[10px] text-slate-500">Used in: {PRAYER_TIME_LABELS[row.prayer_time] ?? row.prayer_time} (App)</span>
+          <span className="text-[10px] text-slate-500 hidden sm:inline">Used in: {PRAYER_TIME_LABELS[row.prayer_time] ?? row.prayer_time} (App)</span>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0 relative" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1 shrink-0 relative w-full sm:w-auto justify-end" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={() => onToggleActive(row)}
             disabled={toggling === row.id}
-            className={`h-8 px-2 rounded-md border text-[11px] font-medium transition-colors inline-flex items-center gap-1.5 ${row.is_active ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-border/70 bg-white text-muted-foreground hover:bg-secondary/60'}`}
+            className={`hidden sm:inline-flex h-8 px-2 rounded-md border text-[11px] font-medium transition-colors items-center gap-1.5 ${row.is_active ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-border/70 bg-white text-muted-foreground hover:bg-secondary/60'}`}
             title={row.is_active ? 'Set entry inactive' : 'Set entry active'}
             aria-label={row.is_active ? 'Set entry inactive' : 'Set entry active'}
           >
@@ -181,12 +181,12 @@ const SortableEntryRow = ({
 
           <button
             onClick={() => onEditEntry(row)}
-            className="h-8 px-2.5 rounded-md border border-[hsl(142_45%_55%)] bg-[hsl(142_45%_95%)] text-[hsl(142_60%_24%)] hover:bg-[hsl(142_45%_90%)] transition-colors inline-flex items-center gap-1.5 text-[11px] font-semibold"
+            className="h-8 px-3 rounded-md border border-[hsl(142_45%_55%)] bg-[hsl(142_45%_95%)] text-[hsl(142_60%_24%)] hover:bg-[hsl(142_45%_90%)] transition-colors inline-flex items-center gap-1.5 text-[11px] font-semibold"
             title="Edit entry"
             aria-label="Edit entry"
           >
             <Pencil size={14} className="text-[hsl(142_70%_30%)]" />
-            <span>Edit</span>
+            <span>Edit Entry</span>
           </button>
 
           <div className="relative" ref={rowMenuRef}>
@@ -197,10 +197,19 @@ const SortableEntryRow = ({
               aria-label="More entry actions"
             >
               <MoreHorizontal size={14} className="text-muted-foreground" />
-              <span>More</span>
+              <span className="hidden sm:inline">More</span>
             </button>
             {rowMenuOpen && (
-              <div className="absolute right-0 bottom-full mb-1 w-48 rounded-lg border border-border bg-popover shadow-xl z-50 overflow-hidden">
+              <div className="absolute right-0 bottom-full mb-1 w-52 max-w-[calc(100vw-2.5rem)] rounded-lg border border-border bg-popover shadow-xl z-50 overflow-hidden">
+                <button
+                  onClick={() => { onToggleActive(row); setRowMenuOpen(false); }}
+                  disabled={toggling === row.id}
+                  className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {row.is_active
+                    ? <ToggleLeft size={12} className="text-muted-foreground" />
+                    : <ToggleRight size={12} className="text-emerald-600" />} {row.is_active ? 'Set Inactive' : 'Set Active'}
+                </button>
                 <button
                   onClick={() => { onMoveEntry(row); setRowMenuOpen(false); }}
                   className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
@@ -385,7 +394,7 @@ const SortableGroupSection = ({
           </>
         )}
       {/* Top row: drag + collapse + icon + name + actions */}
-      <div className="flex items-center gap-1.5 px-2.5 py-2.5 relative z-10">
+      <div className="flex items-center flex-wrap gap-1.5 px-2 py-2 relative z-10">
 
         {/* Drag handle */}
         <button
@@ -407,7 +416,7 @@ const SortableGroupSection = ({
         )}
 
         {/* Group name + badge + description */}
-        <div className="flex-1 min-w-0" onClick={() => !renaming && setCollapsed((c) => !c)}>
+        <div className="flex-1 min-w-[140px]" onClick={() => !renaming && setCollapsed((c) => !c)}>
           <div className="flex items-center gap-2 flex-wrap">
             {renaming ? (
               <form
@@ -502,19 +511,20 @@ const SortableGroupSection = ({
         </div>
 
         {/* ── Right-side controls ── */}
-        <div className="flex items-center gap-1.5 shrink-0 relative z-10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1.5 shrink-0 relative z-10 ml-auto" onClick={(e) => e.stopPropagation()}>
 
           {/* Secondary + overflow actions */}
           {!isUngrouped && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap justify-end">
               <button
                 onClick={() => onEditGroup(groupName, groupMeta)}
-                className="h-8 px-2.5 rounded-md border border-border/80 bg-white text-foreground hover:bg-secondary/70 transition-colors inline-flex items-center gap-1.5 text-[11px] font-semibold shrink-0"
+                className="h-8 px-2 rounded-md border border-border/80 bg-white text-foreground hover:bg-secondary/70 transition-colors inline-flex items-center gap-1.5 text-[11px] font-semibold shrink-0"
                 title="Edit group settings"
                 aria-label="Edit group settings"
               >
                 <Pencil size={14} className="text-muted-foreground" />
-                <span>Edit Group</span>
+                <span className="hidden sm:inline">Edit Group</span>
+                <span className="sm:hidden">Edit</span>
               </button>
 
               <div className="relative" ref={moreMenuRef}>
@@ -525,10 +535,16 @@ const SortableGroupSection = ({
                   aria-label="More group actions"
                 >
                   <MoreHorizontal size={14} />
-                  <span>More</span>
+                  <span className="hidden sm:inline">More</span>
                 </button>
                 {moreMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-border bg-popover shadow-xl z-30 overflow-hidden">
+                  <div className="absolute right-0 top-full mt-1 w-56 sm:w-52 max-w-[calc(100vw-2.5rem)] rounded-lg border border-border bg-popover shadow-xl z-30 overflow-hidden">
+                    <button
+                      onClick={() => { handleToggleGroupSelection(); setMoreMenuOpen(false); }}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
+                    >
+                      <CheckCheck size={12} className="text-muted-foreground" /> {allGroupSelected ? 'Unselect Group' : 'Select Group'}
+                    </button>
                     <button
                       onClick={() => { onDuplicateGroup(groupName, items, groupMeta); setMoreMenuOpen(false); }}
                       className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
@@ -579,19 +595,21 @@ const SortableGroupSection = ({
           {/* Add entry */}
           <button
             onClick={() => onAddToGroup(groupName, items[0]?.prayer_time ?? 'after-fajr')}
-            className="h-8 px-3 rounded-lg text-[12px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 inline-flex items-center gap-1.5"
+            className="h-8 px-2.5 sm:px-3 rounded-lg text-[12px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 inline-flex items-center gap-1.5"
             title="Add entry to this group"
             aria-label="Add entry to this group"
           >
-            <Plus size={13} /> Add Entry
+            <Plus size={13} />
+            <span className="hidden sm:inline">Add Entry</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
       </div>
 
       {/* Second row: prayer-time tag */}
       {!isUngrouped && !renaming && (
-        <div className="flex items-start justify-between gap-3 px-2.5 pb-2.5 relative z-10" onClick={(e) => e.stopPropagation()}>
-          <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-2 px-2 pb-2 relative z-10" onClick={(e) => e.stopPropagation()}>
+          <div className="hidden sm:block flex-1 min-w-0">
             {descEditing ? (
               <div className="mt-0.5 flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
                 <textarea
@@ -639,7 +657,7 @@ const SortableGroupSection = ({
             <button
               type="button"
               onClick={handleToggleGroupSelection}
-              className="h-7 px-2 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-[11px] font-medium text-slate-700"
+              className="hidden sm:inline-flex h-7 px-2 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-[11px] font-medium text-slate-700"
               title={allGroupSelected ? 'Unselect all entries in this group' : 'Select all entries in this group'}
             >
               {allGroupSelected ? 'Unselect Group' : 'Select Group'}
@@ -808,7 +826,7 @@ const PrayerTimeSection = ({
           onDragEnd={handleGroupDragEnd}
         >
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               {sortedGroupNames.map((groupName) => (
                 <SortableGroupSection
                   key={`${cat}-${groupName}`} groupName={groupName} groupMeta={groupMap[groupName]}
@@ -1858,7 +1876,7 @@ const Adhkar = () => {
 
         <div className="px-4 sm:px-8 py-5">
           {/* Filters */}
-          <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 mb-5">
+          <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2.5 mb-4">
             <div className="flex items-center gap-2 text-xs text-slate-600">
               <input
                 type="checkbox"
@@ -1915,9 +1933,9 @@ const Adhkar = () => {
                 );
               })}
             </div>
-            <div className="flex items-center gap-2 ml-auto">
+            <div className="flex items-center gap-2 w-full sm:w-auto ml-0 sm:ml-auto justify-end flex-wrap">
               {selectedDhikrIds.length > 0 && (
-                <div className="flex items-center gap-2 p-1 rounded-md border border-slate-300 bg-white">
+                <div className="flex items-center gap-2 p-1 rounded-md border border-slate-300 bg-white flex-wrap justify-end">
                   <span className="text-xs font-semibold text-slate-700 px-1">{selectedDhikrIds.length} selected</span>
                   <Button size="sm" className="h-8" onClick={handleBulkActivate}>Activate</Button>
                   <Button size="sm" variant="outline" className="h-8" onClick={() => {
@@ -1930,10 +1948,10 @@ const Adhkar = () => {
                   <Button size="sm" variant="ghost" className="h-8" onClick={() => setSelectedDhikrIds([])}>Clear</Button>
                 </div>
               )}
-              <Button variant="outline" size="sm" className="h-9" onClick={() => setCollapseMode('expand')}>
+              <Button variant="outline" size="sm" className="h-9 flex-1 sm:flex-none min-w-[140px]" onClick={() => setCollapseMode('expand')}>
                 Expand All
               </Button>
-              <Button variant="outline" size="sm" className="h-9" onClick={() => setCollapseMode('collapse')}>
+              <Button variant="outline" size="sm" className="h-9 flex-1 sm:flex-none min-w-[140px]" onClick={() => setCollapseMode('collapse')}>
                 Collapse All
               </Button>
             </div>

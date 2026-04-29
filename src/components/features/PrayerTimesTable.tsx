@@ -4,6 +4,21 @@ import { Pencil, ChevronDown, ChevronRight, Star } from 'lucide-react';
 import { getDayInfo } from '#/lib/dateUtils';
 import { EidPrayer, EidType } from '#/components/features/EidTimesModal';
 
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
 interface PrayerTimesTableProps {
   data: PrayerTime[];
   year: number;
@@ -14,6 +29,7 @@ interface PrayerTimesTableProps {
   eidPrayers: EidPrayer[];
   onEdit: (row: PrayerTime) => void;
   highlightDay?: number | null;
+  showHijriCoverageBar?: boolean;
 }
 
 // ─── Eid detection from Hijri date string ──────────────────────────────────────
@@ -274,15 +290,27 @@ const MobileRow = ({
       style={cardStyle}
     >
       {/* ── Summary row ── */}
-      <div className="flex items-center gap-1.5 px-2.5 py-2">
+      <div
+        className="flex flex-wrap items-start gap-1.5 px-2.5 py-2 cursor-pointer"
+        role="button"
+        tabIndex={0}
+        onClick={() => onEdit(row)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onEdit(row);
+          }
+        }}
+        title={`Edit day ${row.day}`}
+      >
 
         {/* Day number */}
-        <div className="w-10 shrink-0">
-          <div className="text-base font-extrabold tabular-nums leading-none"
+        <div className="w-12 shrink-0 rounded-lg border border-border/20 bg-white/70 px-1.5 py-1">
+          <div className="text-lg font-extrabold tabular-nums leading-none"
             style={{ color: eidCfg ? eidCfg.color : info.isFriday ? '#d97706' : isToday ? '#2563eb' : 'hsl(150 30% 12%)' }}>
             {row.day}
           </div>
-          <div className="text-[9px] font-bold uppercase"
+          <div className="text-[10px] font-bold uppercase"
             style={{ color: eidCfg ? eidCfg.color + 'aa' : info.isFriday ? '#f59e0b' : isToday ? '#3b82f6' : 'hsl(var(--muted-foreground))' }}>
             {info.shortName}
           </div>
@@ -297,7 +325,7 @@ const MobileRow = ({
         </span>
 
         {/* 5 main prayer times */}
-        <div className="flex-1 grid grid-cols-5 gap-0.5 min-w-0">
+        <div className="basis-full order-last mt-1 grid grid-cols-5 gap-x-1 gap-y-1 min-w-0">
           {[
             { label: 'Fajr', value: row.fajr, jamat: row.fajr_jamat },
             { label: 'Zuhr', value: row.zuhr, jamat: row.zuhr_jamat },
@@ -306,8 +334,8 @@ const MobileRow = ({
             { label: 'Isha', value: row.isha, jamat: row.isha_jamat },
           ].map(({ label, value, jamat }) => (
             <div key={label} className="text-center flex flex-col items-center">
-              <div className="text-[8px] font-bold text-muted-foreground uppercase tracking-wide">{label}</div>
-              <div className="text-[11px] font-bold tabular-nums leading-tight" style={{ color: value ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground) / 0.4)' }}>
+              <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide">{label}</div>
+              <div className="text-[12px] font-bold tabular-nums leading-tight" style={{ color: value ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground) / 0.4)' }}>
                 {value ?? '—'}
               </div>
               {jamat && <div className="text-[10px] tabular-nums leading-tight text-muted-foreground">J: {jamat}</div>}
@@ -316,11 +344,20 @@ const MobileRow = ({
         </div>
 
         {/* Jumu'ah on Fridays */}
-        {info.isFriday && row.jumu_ah_1 && (
-          <div className="shrink-0 flex flex-col text-center">
-            <div className="text-[8px] font-bold text-[#0e7490] uppercase">J1</div>
-            <div className="text-[11px] font-bold tabular-nums text-[#0e7490]">{row.jumu_ah_1}</div>
-            {row.jumu_ah_2 && <div className="text-[10px] tabular-nums text-[#0e7490]/70">{row.jumu_ah_2}</div>}
+        {info.isFriday && (row.jumu_ah_1 || row.jumu_ah_2) && (
+          <div className="shrink-0 flex flex-col gap-1 min-w-[68px]">
+            {row.jumu_ah_1 && (
+              <div className="flex items-center justify-between gap-1 rounded-md border border-[#0e7490]/25 bg-[#0e7490]/5 px-1.5 py-0.5">
+                <span className="text-[8px] font-bold text-[#0e7490] uppercase">J1</span>
+                <span className="text-[11px] font-bold tabular-nums text-[#0e7490]">{row.jumu_ah_1}</span>
+              </div>
+            )}
+            {row.jumu_ah_2 && (
+              <div className="flex items-center justify-between gap-1 rounded-md border border-[#0e7490]/20 bg-white px-1.5 py-0.5">
+                <span className="text-[8px] font-bold text-[#0e7490]/80 uppercase">J2</span>
+                <span className="text-[11px] font-bold tabular-nums text-[#0e7490]/85">{row.jumu_ah_2}</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -358,10 +395,14 @@ const MobileRow = ({
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          <button onClick={(e) => { e.stopPropagation(); onEdit(row); }} className="p-1.5 rounded-lg hover:bg-[hsl(142_50%_93%)] transition-colors" title="Edit">
-            <Pencil size={13} className="text-[hsl(142_60%_32%)]" />
-          </button>
-          <button onClick={() => setExpanded(e => !e)} className="p-1.5 rounded-lg hover:bg-[hsl(140_20%_93%)] transition-colors" title={expanded ? 'Collapse' : 'Expand'}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((value) => !value);
+            }}
+            className="p-1.5 rounded-lg hover:bg-[hsl(140_20%_93%)] transition-colors"
+            title={expanded ? 'Collapse' : 'Expand'}
+          >
             {expanded ? <ChevronDown size={13} className="text-muted-foreground" /> : <ChevronRight size={13} className="text-muted-foreground" />}
           </button>
         </div>
@@ -441,7 +482,7 @@ const MobileRow = ({
 
 // ─── Main table component ──────────────────────────────────────────────────────
 const PrayerTimesTable = ({
-  data, year, hijriOffset, hijriCalendar, previewHijri = new Map(), pendingChanges = {}, eidPrayers, onEdit, highlightDay,
+  data, year, hijriOffset, hijriCalendar, previewHijri = new Map(), pendingChanges = {}, eidPrayers, onEdit, highlightDay, showHijriCoverageBar = true,
 }: PrayerTimesTableProps) => {
   if (data.length === 0) {
     return (
@@ -466,19 +507,25 @@ const PrayerTimesTable = ({
   return (
     <>
       {/* ── Hijri coverage bar ── */}
-      {data.length > 0 && (
-        <div className="mb-3 flex items-center gap-3 px-1 flex-wrap">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[#7c3aed]/60 shrink-0">Hijri coverage</span>
-            <div className="flex-1 h-1.5 rounded-full bg-[#7c3aed]/10 overflow-hidden">
-              <div className="h-full rounded-full bg-[#7c3aed] transition-all duration-500" style={{ width: `${Math.round((hijriCount / data.length) * 100)}%` }} />
+      {showHijriCoverageBar && data.length > 0 && (
+        <div className="mb-2 px-1">
+          <div className="rounded-lg border border-[#7c3aed]/15 bg-[#7c3aed]/[0.03] px-2.5 py-1.5 sm:rounded-lg sm:px-2 sm:py-1.5 sm:bg-transparent sm:border-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[#7c3aed]/60">Hijri coverage</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] sm:text-[10px] font-bold tabular-nums text-[#7c3aed]">{hijriCount}/{data.length}</span>
+                {hijriCount === data.length && <span className="text-[10px] sm:text-[9px] font-bold text-emerald-600 shrink-0">Complete</span>}
+              </div>
             </div>
-            <span className="text-[10px] font-bold tabular-nums text-[#7c3aed] shrink-0">{hijriCount}/{data.length}</span>
-            {hijriCount === data.length && <span className="text-[9px] font-bold text-emerald-600 shrink-0">Complete</span>}
-            {hijriCount === 0 && <span className="text-[9px] font-medium text-muted-foreground/60 shrink-0">Use Fill Month to populate</span>}
+            <div className="mt-1 sm:mt-1 flex items-center gap-2">
+              <div className="flex-1 h-1.5 rounded-full bg-[#7c3aed]/10 overflow-hidden">
+                <div className="h-full rounded-full bg-[#7c3aed] transition-all duration-500" style={{ width: `${Math.round((hijriCount / data.length) * 100)}%` }} />
+              </div>
+              {hijriCount === 0 && <span className="text-[10px] sm:text-[9px] font-medium text-muted-foreground/60 shrink-0">Use Fill Month</span>}
+            </div>
           </div>
           {previewCount > 0 && (
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-[#7c3aed]/70 border border-dashed border-[#7c3aed]/30 rounded-lg px-2 py-1 bg-[#7c3aed]/5">
+            <div className="hidden sm:flex mt-1 items-center gap-1.5 text-[10px] font-semibold text-[#7c3aed]/70 border border-dashed border-[#7c3aed]/30 rounded-lg px-2 py-1 bg-[#7c3aed]/5">
               <span>DB → Preview: {previewCount} days</span>
               {diffCount > 0 && <span className="text-amber-600 font-bold">· {diffCount} pending</span>}
             </div>
@@ -488,6 +535,10 @@ const PrayerTimesTable = ({
 
       {/* ── Mobile layout ── */}
       <div className="md:hidden space-y-2">
+        <div className="rounded-lg border border-[hsl(142_30%_86%)] bg-[hsl(142_55%_97%)] px-3 py-2 flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[hsl(150_35%_28%)]">Current Month</span>
+          <span className="text-sm font-bold text-[hsl(150_40%_20%)]">{MONTH_NAMES[month - 1]} {year}</span>
+        </div>
         {data.map((row) => {
           const isToday = year === today.getFullYear() && month === today.getMonth() + 1 && row.day === today.getDate();
           return (
