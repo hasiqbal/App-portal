@@ -4,47 +4,47 @@
 
 @layer base {
   :root {
-    /* ── Backgrounds ── */
-    --background: 140 30% 97%;          /* very light mint-white */
-    --foreground: 150 30% 12%;          /* deep green text */
+    /* ── Backgrounds — clean slate neutral (green as accent only) ── */
+    --background: 220 20% 98%;          /* clean near-white slate */
+    --foreground: 220 15% 12%;          /* near-black with slate cast */
 
     --card: 0 0% 100%;
-    --card-foreground: 150 30% 12%;
+    --card-foreground: 220 15% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 150 30% 12%;
+    --popover-foreground: 220 15% 12%;
 
-    /* ── Brand Green — lighter, fresher ── */
-    --primary: 142 60% 35%;            /* fresh mid-green #239147 */
+    /* ── Brand Green ── */
+    --primary: 142 60% 35%;            /* fresh mid-green */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 140 25% 93%;          /* very light sage */
-    --secondary-foreground: 150 30% 18%;
+    --secondary: 220 20% 94%;          /* neutral slate tint */
+    --secondary-foreground: 220 15% 20%;
 
-    --muted: 140 20% 94%;
-    --muted-foreground: 150 15% 45%;
+    --muted: 220 15% 95%;
+    --muted-foreground: 220 10% 45%;
 
-    /* ── Accent: soft green tint ── */
+    /* ── Accent: soft green tint (kept for green highlights) ── */
     --accent: 142 50% 92%;             /* pale mint */
     --accent-foreground: 142 60% 28%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 140 20% 88%;
-    --input: 140 20% 88%;
+    --border: 220 15% 89%;
+    --input: 220 15% 89%;
     --ring: 142 60% 35%;
 
     --radius: 0.75rem;
 
-    /* ── Sidebar — WHITE with light green accents ── */
+    /* ── Sidebar — WHITE with green accents ── */
     --sidebar-background: 0 0% 100%;       /* pure white */
-    --sidebar-foreground: 150 20% 35%;     /* medium green-grey text */
+    --sidebar-foreground: 220 10% 38%;     /* neutral slate text */
     --sidebar-primary: 142 60% 35%;        /* brand green */
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 142 50% 95%;         /* pale mint hover */
     --sidebar-accent-foreground: 142 55% 28%;
-    --sidebar-border: 140 20% 90%;         /* very light border */
+    --sidebar-border: 220 15% 91%;         /* neutral border */
     --sidebar-ring: 142 60% 35%;
   }
 

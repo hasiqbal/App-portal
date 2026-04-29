@@ -1135,7 +1135,7 @@ const Announcements = () => {
   const activeItem = activeId ? (data ?? []).find((a) => a.id === activeId) : null;
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="flex-1 flex flex-col min-w-0 pt-14 md:pt-0">
         {/* Banner */}
@@ -1146,7 +1146,7 @@ const Announcements = () => {
                 <Bell size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Announcements</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Announcements</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {data ? `${data.filter((a) => a.is_active).length} live · ${data.filter((a) => !a.is_active).length} inactive · drag to reorder` : 'Manage app announcements'}
                 </p>

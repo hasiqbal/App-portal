@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   CalendarDays, BookOpen, Database, Bell, BellRing,
-  Menu, X, Home, FileSpreadsheet, Star, FileText, FolderTree,
+  Menu, X, Home, Star, FileText, FolderTree,
   LogOut, Settings2, Users,
 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
@@ -20,14 +20,12 @@ const ALL_NAV_ITEMS = [
   { to: '/announcements',     icon: Bell,            label: 'Announcements',    adminOnly: false },
   { to: '/donation-options',  icon: Star,            label: 'Donation Options', adminOnly: false, requiresEdit: true },
   { to: '/islamic-calendar',   icon: CalendarDays,    label: 'Islamic Calendar',  adminOnly: false },
-  { to: '/sunnah-reminders',  icon: Star,            label: 'Sunnah Reminders', adminOnly: false },
   { to: '/notifications',     icon: BellRing,        label: 'Notifications',    adminOnly: false },
 
   { to: '/users',             icon: Users,           label: 'User Management',  adminOnly: true  },
   { to: '/hadith-includes',   icon: BookOpen,        label: 'Hadith Includes',  adminOnly: true  },
   { to: '/settings',          icon: Settings2,       label: 'Settings',         adminOnly: true  },
   { to: '/cloud-data',        icon: Database,        label: 'Cloud Data',       adminOnly: true  },
-  { to: '/excel-converter',   icon: FileSpreadsheet, label: 'Excel → CSV',      adminOnly: false },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -132,7 +130,7 @@ const NavContent = ({ onNavClick }: { onNavClick?: () => void }) => {
             end={to === '/'}
             onClick={onNavClick}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all relative ${
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all relative ${
                 isActive
                   ? 'nav-active-glow bg-[hsl(142_50%_95%)] text-[hsl(142_60%_28%)]'
                   : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-accent-foreground))]'
@@ -241,7 +239,7 @@ const Sidebar = () => {
 
       {/* ── Desktop sidebar ── */}
       <aside
-        className="hidden md:flex w-52 min-h-screen flex-col shrink-0 border-r shadow-sm bg-white"
+        className="hidden md:flex w-52 min-h-screen flex-col shrink-0 border-r shadow-md bg-white"
         style={{ borderColor: 'hsl(var(--sidebar-border))' }}
       >
         <NavContent />

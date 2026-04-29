@@ -179,7 +179,7 @@ export default function HadithIncludes() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
 
       <main className="flex-1 min-w-0 pt-14 md:pt-0">
@@ -190,7 +190,7 @@ export default function HadithIncludes() {
                 <BookOpenCheck size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Hadith Include Controls</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Hadith Include Controls</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Daily random hadith will be selected only from included books and sections.
                 </p>

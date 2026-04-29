@@ -471,48 +471,6 @@ export interface DonationOptionAudit {
   created_at: string;
 }
 
-// ─── Sunnah Reminders ────────────────────────────────────────────────────────
-
-export interface SunnahReminder {
-  id: string;
-  title: string;
-  arabic_title: string | null;
-  arabic: string | null;
-  transliteration: string | null;
-  translation: string | null;
-  urdu_translation: string | null;
-  description: string | null;
-  reference: string | null;
-  count: string;
-  category: string;
-  group_name: string | null;
-  group_order: number | null;
-  display_order: number | null;
-  is_active: boolean;
-  file_url: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export type SunnahReminderPayload = Omit<SunnahReminder, 'id' | 'created_at' | 'updated_at'>;
-
-export interface SunnahGroup {
-  id: string;
-  name: string;
-  category: string | null;
-  icon: string;
-  icon_color: string;
-  icon_bg_color: string;
-  badge_text: string | null;
-  badge_color: string;
-  description: string | null;
-  display_order: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export type SunnahGroupPayload = Omit<SunnahGroup, 'id' | 'created_at' | 'updated_at'>;
-
 export type HadithIncludeScope = 'book' | 'section';
 
 export interface HadithInclusionRule {
@@ -527,47 +485,6 @@ export interface HadithInclusionRule {
 }
 
 export type HadithInclusionRulePayload = Omit<HadithInclusionRule, 'id' | 'created_at' | 'updated_at'>;
-
-export const SUNNAH_CATEGORIES = [
-  'prayer',
-  'fasting',
-  'morning',
-  'evening',
-  'eating',
-  'sleep',
-  'friday',
-  'social',
-  'worship',
-  'general',
-] as const;
-
-export type SunnahCategory = typeof SUNNAH_CATEGORIES[number];
-
-export const SUNNAH_CATEGORY_LABELS: Record<string, string> = {
-  'prayer':   'Prayer (Salah)',
-  'fasting':  'Fasting (Sawm)',
-  'morning':  'Morning Routines',
-  'evening':  'Evening Routines',
-  'eating':   'Eating & Drinking',
-  'sleep':    'Sleep & Waking',
-  'friday':   "Jumu'ah (Friday)",
-  'social':   'Social Conduct',
-  'worship':  'Worship & Dhikr',
-  'general':  'General Sunnah',
-};
-
-export const SUNNAH_CATEGORY_COLORS: Record<string, { pill: string; dot: string }> = {
-  'prayer':   { pill: 'bg-teal-100 text-teal-800 border-teal-200',     dot: '#0d9488' },
-  'fasting':  { pill: 'bg-orange-100 text-orange-800 border-orange-200', dot: '#f97316' },
-  'morning':  { pill: 'bg-amber-100 text-amber-800 border-amber-200',   dot: '#f59e0b' },
-  'evening':  { pill: 'bg-indigo-100 text-indigo-800 border-indigo-200', dot: '#6366f1' },
-  'eating':   { pill: 'bg-green-100 text-green-800 border-green-200',   dot: '#22c55e' },
-  'sleep':    { pill: 'bg-violet-100 text-violet-800 border-violet-200', dot: '#8b5cf6' },
-  'friday':   { pill: 'bg-emerald-100 text-emerald-800 border-emerald-200', dot: '#10b981' },
-  'social':   { pill: 'bg-sky-100 text-sky-800 border-sky-200',         dot: '#0ea5e9' },
-  'worship':  { pill: 'bg-rose-100 text-rose-800 border-rose-200',      dot: '#f43f5e' },
-  'general':  { pill: 'bg-gray-100 text-gray-700 border-gray-200',      dot: '#6b7280' },
-};
 
 export const GROUP_COLOR_PRESETS = [
   { bg: '#6366f1', label: 'Indigo' },

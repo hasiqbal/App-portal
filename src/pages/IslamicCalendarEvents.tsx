@@ -1,13 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, RefreshCw, Pencil, Trash2, Search, CalendarDays, Loader2, AlertTriangle } from 'lucide-react';
+import { Plus, RefreshCw, Pencil, Trash2, Search, CalendarDays, Loader2, AlertTriangle, Upload, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { Button } from '#/components/ui/button';
 import { Input } from '#/components/ui/input';
 import { Badge } from '#/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
+import { Textarea } from '#/components/ui/textarea';
 import Sidebar from '#/components/layout/Sidebar';
 import IslamicCalendarEventModal from '#/components/features/IslamicCalendarEventModal';
-import { fetchIslamicCalendarEvents, deleteIslamicCalendarEvent } from '#/lib/api';
-import type { IslamicCalendarEvent, IslamicCalendarEventType } from '#/types';
+import { fetchIslamicCalendarEvents, deleteIslamicCalendarEvent, upsertIslamicCalendarEvents, fetchAnnouncements } from '#/lib/api';
+import type { IslamicCalendarEvent, IslamicCalendarEventType, Announcement } from '#/types';
 import { toast } from 'sonner';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -28,6 +30,80 @@ const TYPE_COLORS: Record<IslamicCalendarEventType, string> = {
   masjid_event: 'bg-blue-50 text-blue-700 border-blue-200',
 };
 
+const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// ─── Hijri parsing (for seed import) ─────────────────────────────────────────
+
+const HIJRI_MONTH_ALIAS_TO_INDEX: Record<string, number> = {
+  muharram:1,muharam:1,moharram:1,safar:2,rabialawwal:3,rabialthani:4,rabiulawwal:3,rabiulthani:4,
+  rabialakhir:4,rabiulakhir:4,jumadaalawwal:5,jumadaalula:5,jumadaula:5,jumadaalulaa:5,
+  jumadaalthani:6,jumadaalthania:6,jumadaalakhira:6,jumadaalakhirah:6,jumadaakhira:6,jumadaakhirah:6,
+  rajab:7,shaban:8,shaaban:8,ramadan:9,shawwal:10,dhualqidah:11,dhulqidah:11,dhualqadah:11,
+  dhulqadah:11,dhulqaadah:11,dhualqaadah:11,dhualhijjah:12,dhulhijjah:12,
+};
+
+type HijriParts = { day: number; month: number; year: number };
+
+function normalizeHijriMonthKey(raw: string): string {
+  return raw.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+
+function parseHijriDate(raw: string): HijriParts | null {
+  const trimmed = (raw ?? '').trim();
+  const m = trimmed.match(/(\d{1,2})\s+([A-Za-z'\u0600-\u06FF\u00C0-\u024F\s]+?)\s+(\d{3,4})\s*(?:A\.?H\.?|B\.?H\.?)/i);
+  if (m) {
+    const day = parseInt(m[1], 10);
+    const month = HIJRI_MONTH_ALIAS_TO_INDEX[normalizeHijriMonthKey(m[2])];
+    const year = parseInt(m[3], 10);
+    if (month && day >= 1 && day <= 30 && year > 0) return { day, month, year };
+  }
+  return null;
+}
+
+type IslamicSeedRow = {
+  title: string; fieldLabel: string; region: string; notes: string;
+  hijriDay: number; hijriMonth: number; originalHijriYear: number;
+};
+
+function parseIslamicSeedText(raw: string): { rows: IslamicSeedRow[]; skipped: number } {
+  const rows: IslamicSeedRow[] = [];
+  let skipped = 0;
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('=') || trimmed.startsWith('-') || trimmed.endsWith(':')) continue;
+    if (!trimmed.includes('|')) continue;
+    const parts = trimmed.split('|').map((p) => p.trim());
+    if (parts.length < 5) { skipped += 1; continue; }
+    const [title, fieldLabel, hijriRaw, region, ...notesParts] = parts;
+    if (/^name$/i.test(title) && /^field$/i.test(fieldLabel) && /full\s*hijri\s*date/i.test(hijriRaw)) continue;
+    if (!title || !fieldLabel || !hijriRaw) { skipped += 1; continue; }
+    if (!/\b(?:A\.?\s*H\.?|B\.?\s*H\.?)\b/i.test(hijriRaw)) { skipped += 1; continue; }
+    const parsed = parseHijriDate(hijriRaw);
+    if (!parsed) { skipped += 1; continue; }
+    rows.push({ title, fieldLabel, region, notes: notesParts.join('|').trim(),
+      hijriDay: parsed.day, hijriMonth: parsed.month, originalHijriYear: parsed.year });
+  }
+  return { rows, skipped };
+}
+
+// ─── Announcement event filter ────────────────────────────────────────────────
+
+function isEventLikeType(value: string | null | undefined): boolean {
+  const n = (value ?? '').trim().toLowerCase();
+  if (!n) return false;
+  if (n.includes('event')) return true;
+  return ['jalsa','class','special','ramadan','eid','jumuah',"jumu'ah",'lecture','workshop','community','youth','funeral','nikah'].includes(n);
+}
+
+function eventFallsInMonth(ann: Announcement, year: number, month: number): boolean {
+  if (ann.recurrence_type === 'weekly' || ann.recurrence_type === 'monthly') return true;
+  if (ann.event_date) {
+    const d = new Date(ann.event_date);
+    if (!isNaN(d.getTime()) && d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month) return true;
+  }
+  return false;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const IslamicCalendarEvents = () => {
@@ -40,10 +116,38 @@ const IslamicCalendarEvents = () => {
   const [deleting, setDeleting] = useState<IslamicCalendarEvent | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Seed import
+  const [seedImportOpen, setSeedImportOpen] = useState(false);
+  const [seedText, setSeedText] = useState('');
+  const [seedParsed, setSeedParsed] = useState<{ rows: IslamicSeedRow[]; skipped: number } | null>(null);
+  const [seedImporting, setSeedImporting] = useState(false);
+
+  // Masjid events view
+  const now = new Date();
+  const [masjidYear, setMasjidYear] = useState(now.getFullYear());
+  const [masjidMonth, setMasjidMonth] = useState(now.getMonth() + 1);
+
   const { data: events = [], isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['islamic-calendar-events'],
     queryFn: () => fetchIslamicCalendarEvents(),
   });
+
+  const { data: announcements = [] } = useQuery({
+    queryKey: ['announcements'],
+    queryFn: fetchAnnouncements,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const masjidEvents = useMemo(() => {
+    return announcements
+      .filter((a) => a.is_active && isEventLikeType(a.type))
+      .filter((a) => eventFallsInMonth(a, masjidYear, masjidMonth))
+      .sort((a, b) => {
+        const da = a.event_date ? new Date(a.event_date).getTime() : 0;
+        const db = b.event_date ? new Date(b.event_date).getTime() : 0;
+        return da - db;
+      });
+  }, [announcements, masjidYear, masjidMonth]);
 
   // ── Filtering ──────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -105,6 +209,53 @@ const IslamicCalendarEvents = () => {
   const openAdd = () => { setEditing(null); setModalOpen(true); };
   const openEdit = (e: IslamicCalendarEvent) => { setEditing(e); setModalOpen(true); };
 
+  const handleParseSeed = useCallback(() => {
+    if (!seedText.trim()) return;
+    setSeedParsed(parseIslamicSeedText(seedText));
+  }, [seedText]);
+
+  const handleConfirmSeedImport = async () => {
+    if (!seedParsed || seedParsed.rows.length === 0) return;
+    setSeedImporting(true);
+    try {
+      const payload = seedParsed.rows.map((row) => ({
+        title: row.title,
+        event_type: 'important_date' as IslamicCalendarEventType,
+        field_label: row.fieldLabel || null,
+        region: row.region || null,
+        notes: row.notes || null,
+        source_name: 'Seed Import',
+        linked_hijri_day: row.hijriDay,
+        linked_hijri_month: row.hijriMonth,
+        linked_hijri_year: null,
+        linked_hijri_label: `${row.hijriDay} ${HIJRI_MONTH_NAMES[row.hijriMonth] ?? ''}`,
+        linked_gregorian_date: null,
+        original_hijri_year: row.originalHijriYear,
+        auto_delete_grace_days: 0,
+        created_by: null,
+      }));
+      const imported = await upsertIslamicCalendarEvents(payload);
+      toast.success(`Imported ${imported.length} event${imported.length !== 1 ? 's' : ''}.`);
+      queryClient.invalidateQueries({ queryKey: ['islamic-calendar-events'] });
+      setSeedImportOpen(false);
+      setSeedText('');
+      setSeedParsed(null);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Import failed.');
+    } finally {
+      setSeedImporting(false);
+    }
+  };
+
+  const prevMasjidMonth = () => {
+    if (masjidMonth === 1) { setMasjidMonth(12); setMasjidYear((y) => y - 1); }
+    else setMasjidMonth((m) => m - 1);
+  };
+  const nextMasjidMonth = () => {
+    if (masjidMonth === 12) { setMasjidMonth(1); setMasjidYear((y) => y + 1); }
+    else setMasjidMonth((m) => m + 1);
+  };
+
   // ── Month filter options (only months that have data) ─────────────────────
   const availableMonths = useMemo(() => {
     const monthSet = new Set(events.map((e) => e.linked_hijri_month));
@@ -112,14 +263,14 @@ const IslamicCalendarEvents = () => {
   }, [events]);
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
-      <main className="flex-1 min-w-0 p-6 space-y-5">
+      <main className="flex-1 min-w-0 pt-14 md:pt-0 px-4 sm:px-8 py-4 sm:py-6 space-y-5 overflow-x-hidden">
 
         {/* ── Header ────────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-[hsl(150_30%_18%)] flex items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground flex items-center gap-2">
               <CalendarDays className="w-5 h-5 text-[hsl(142_60%_35%)]" />
               Islamic Calendar Events
             </h1>
@@ -137,6 +288,15 @@ const IslamicCalendarEvents = () => {
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
               Refresh
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setSeedText(''); setSeedParsed(null); setSeedImportOpen(true); }}
+              className="gap-1.5"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Import Seed
             </Button>
             <Button
               size="sm"
@@ -169,7 +329,7 @@ const IslamicCalendarEvents = () => {
 
         {/* ── Filters ───────────────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-56">
+          <div className="relative w-full sm:w-56">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
               value={search}
@@ -312,6 +472,53 @@ const IslamicCalendarEvents = () => {
             ))}
           </div>
         )}
+
+        {/* ── Masjid Events (read-only reference) ─────────────────────────── */}
+        <div className="border-t border-border pt-5 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-blue-500" />
+                Masjid Events
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Read-only view. Managed on the{' '}
+                <a href="/announcements" className="underline text-[hsl(142_60%_35%)] hover:text-[hsl(142_60%_28%)]">Announcements</a> page.
+              </p>
+            </div>
+            {/* Month/year navigator */}
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 px-2 py-1">
+              <button onClick={prevMasjidMonth} className="p-1 rounded hover:bg-muted transition-colors"><ChevronLeft className="w-3.5 h-3.5 text-muted-foreground" /></button>
+              <span className="text-xs font-semibold text-foreground min-w-[110px] text-center">{MONTHS_FULL[masjidMonth - 1]} {masjidYear}</span>
+              <button onClick={nextMasjidMonth} className="p-1 rounded hover:bg-muted transition-colors"><ChevronRight className="w-3.5 h-3.5 text-muted-foreground" /></button>
+            </div>
+          </div>
+
+          {masjidEvents.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center">
+              <p className="text-xs text-muted-foreground">No events for {MONTHS_FULL[masjidMonth - 1]} {masjidYear}.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-white overflow-hidden divide-y divide-border">
+              {masjidEvents.map((ann) => (
+                <div key={ann.id} className="flex items-start gap-3 px-4 py-3">
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-foreground">{ann.title}</span>
+                      {ann.type && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">{ann.type}</span>}
+                      {(ann.recurrence_type === 'weekly' || ann.recurrence_type === 'monthly') && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border capitalize">{ann.recurrence_type}</span>
+                      )}
+                    </div>
+                    {ann.event_date && <p className="text-[11px] text-muted-foreground">{new Date(ann.event_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})}</p>}
+                    {ann.start_time && <p className="text-[11px] text-muted-foreground">{ann.start_time}</p>}
+                  </div>
+                  <ExternalLink className="w-3 h-3 text-muted-foreground/50 shrink-0 mt-1" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </main>
 
       {/* ── Add / Edit modal ─────────────────────────────────────────────────── */}
@@ -325,7 +532,7 @@ const IslamicCalendarEvents = () => {
       {/* ── Delete confirmation ───────────────────────────────────────────────── */}
       {confirmDeleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-xl border border-border shadow-lg p-6 w-full max-w-sm space-y-4">
+          <div className="bg-white rounded-xl border border-border shadow-lg p-6 w-full max-w-sm mx-4 space-y-4">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-4 h-4 text-red-600" />
@@ -354,6 +561,67 @@ const IslamicCalendarEvents = () => {
           </div>
         </div>
       )}
+
+      {/* ── Seed Import dialog ───────────────────────────────────────────────── */}
+      <Dialog open={seedImportOpen} onOpenChange={(v) => { if (!seedImporting) { setSeedImportOpen(v); if (!v) { setSeedParsed(null); setSeedText(''); } } }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90dvh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <FileText className="w-4 h-4 text-[hsl(142_60%_35%)]" />
+              Import from Seed Text
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground pt-0.5">
+              Paste pipe-delimited seed rows: <code className="bg-muted px-1 rounded text-[10px]">Name | Field | 15 Muharram 1447 AH | Region | Notes</code>
+            </p>
+          </DialogHeader>
+
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 py-1">
+            <Textarea
+              value={seedText}
+              onChange={(e) => { setSeedText(e.target.value); setSeedParsed(null); }}
+              placeholder="Paste seed text here…"
+              className="font-mono text-xs h-40 resize-none"
+            />
+
+            {seedParsed && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-foreground">{seedParsed.rows.length} row{seedParsed.rows.length !== 1 ? 's' : ''} parsed</span>
+                  {seedParsed.skipped > 0 && <span className="text-xs text-amber-600">{seedParsed.skipped} skipped</span>}
+                </div>
+                <div className="rounded-lg border border-border bg-muted/20 divide-y divide-border max-h-52 overflow-y-auto">
+                  {seedParsed.rows.map((row, i) => (
+                    <div key={i} className="flex items-center gap-3 px-3 py-2">
+                      <div className="w-7 h-7 rounded bg-[hsl(142_60%_95%)] border border-[hsl(142_60%_80%)] flex items-center justify-center shrink-0">
+                        <span className="text-xs font-bold text-[hsl(142_60%_35%)]">{row.hijriDay}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">{row.title}</p>
+                        <p className="text-[10px] text-muted-foreground">{HIJRI_MONTH_NAMES[row.hijriMonth]} · {row.fieldLabel}{row.region ? ` · ${row.region}` : ''}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 pt-1 border-t border-border">
+            <Button variant="outline" size="sm" onClick={() => setSeedImportOpen(false)} disabled={seedImporting}>Cancel</Button>
+            {!seedParsed ? (
+              <Button size="sm" onClick={handleParseSeed} disabled={!seedText.trim()} className="gap-1.5 bg-[hsl(142_60%_35%)] hover:bg-[hsl(142_60%_28%)] text-white">
+                <FileText className="w-3.5 h-3.5" />
+                Parse
+              </Button>
+            ) : (
+              <Button size="sm" onClick={handleConfirmSeedImport} disabled={seedImporting || seedParsed.rows.length === 0} className="gap-1.5 bg-[hsl(142_60%_35%)] hover:bg-[hsl(142_60%_28%)] text-white">
+                {seedImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                {seedImporting ? 'Importing…' : `Import ${seedParsed.rows.length} event${seedParsed.rows.length !== 1 ? 's' : ''}`}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

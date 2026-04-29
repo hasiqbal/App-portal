@@ -1842,7 +1842,7 @@ export default function HowToGuidesPage() {
     : treeSections;
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-[hsl(140_30%_97%)] via-[hsl(160_30%_97%)] to-[hsl(180_25%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
         <div className="relative overflow-hidden border-b border-[hsl(140_20%_88%)] bg-gradient-to-br from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] px-4 sm:px-8 pt-6 pb-6 text-white">
@@ -1855,7 +1855,7 @@ export default function HowToGuidesPage() {
                 <FolderTree size={22} className="text-white" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl font-bold leading-tight truncate">How-To Guides</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">How-To Guides</h1>
                 <p className="text-[11px] sm:text-xs text-white/80 mt-0.5">Author parent groups and step-by-step guides for English and Urdu app content</p>
                 <p className="text-[10px] mt-1 text-white/70">Signed in as <span className="font-medium text-white">{role ?? 'guest'}</span></p>
               </div>
@@ -2214,7 +2214,7 @@ export default function HowToGuidesPage() {
       </main>
 
       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingGroup ? 'Edit Group' : 'Create Group'}</DialogTitle>
           </DialogHeader>
@@ -2231,7 +2231,7 @@ export default function HowToGuidesPage() {
               <Label>Slug</Label>
               <Input value={groupForm.slug} onChange={(event) => setGroupForm((prev) => ({ ...prev, slug: normalizeSlug(event.target.value) }))} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Icon</Label>
                 <Input value={groupForm.icon} onChange={(event) => setGroupForm((prev) => ({ ...prev, icon: event.target.value }))} />
@@ -2258,7 +2258,7 @@ export default function HowToGuidesPage() {
       </Dialog>
 
       <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Duplicate English Entries to Urdu</DialogTitle>
           </DialogHeader>
@@ -2445,7 +2445,7 @@ export default function HowToGuidesPage() {
       </Dialog>
 
       <Dialog open={guideDialogOpen} onOpenChange={setGuideDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90dvh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingGuide ? 'Edit Guide' : 'Create Guide'}</DialogTitle>
           </DialogHeader>
@@ -2997,6 +2997,13 @@ export default function HowToGuidesPage() {
                                   }))}
                                 />
                               </div>
+                              {image.image_url ? (
+                                <img
+                                  src={image.image_url}
+                                  alt={image.caption || 'Step image'}
+                                  className="w-full max-h-48 object-contain rounded border bg-muted"
+                                />
+                              ) : null}
                               {uploadingByStepKey[`${sectionIndex}-${stepIndex}`] ? (
                                 <p className="text-xs text-muted-foreground">Uploading image...</p>
                               ) : null}

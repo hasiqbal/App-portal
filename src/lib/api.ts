@@ -12,10 +12,6 @@ import {
   DonationOption,
   DonationOptionAudit,
   DonationOptionPayload,
-  SunnahReminder,
-  SunnahReminderPayload,
-  SunnahGroup,
-  SunnahGroupPayload,
   HadithInclusionRule,
   HadithInclusionRulePayload,
   IslamicCalendarEvent,
@@ -1889,88 +1885,6 @@ export async function fetchDonationOptionAudit(limit = 100): Promise<DonationOpt
 
   if (error) throw new Error(`Failed to fetch donation option audit: ${error.message}`);
   return (data ?? []) as DonationOptionAudit[];
-}
-
-// ─── Sunnah Reminders ────────────────────────────────────────────────────────
-
-export async function fetchSunnahReminders(_category?: string): Promise<SunnahReminder[]> {
-  const { data, error } = await supabase
-    .from('sunnah_reminders')
-    .select('*')
-    .order('display_order', { ascending: true })
-    .order('created_at', { ascending: true });
-  if (error) throw new Error(`Failed to fetch sunnah reminders: ${error.message}`);
-  return data as SunnahReminder[];
-}
-
-export async function createSunnahReminder(data: Partial<SunnahReminderPayload>): Promise<SunnahReminder> {
-  const { data: rows, error } = await supabase
-    .from('sunnah_reminders')
-    .insert(data)
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to create sunnah reminder: ${error.message}`);
-  return rows as SunnahReminder;
-}
-
-export async function updateSunnahReminder(id: string, data: Partial<SunnahReminderPayload>): Promise<SunnahReminder> {
-  const { data: rows, error } = await supabase
-    .from('sunnah_reminders')
-    .update(data)
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to update sunnah reminder: ${error.message}`);
-  return rows as SunnahReminder;
-}
-
-export async function deleteSunnahReminder(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('sunnah_reminders')
-    .delete()
-    .eq('id', id);
-  if (error) throw new Error(`Failed to delete sunnah reminder: ${error.message}`);
-}
-
-// ─── Sunnah Groups ───────────────────────────────────────────────────────────
-
-export async function fetchSunnahGroups(): Promise<SunnahGroup[]> {
-  const { data, error } = await supabase
-    .from('sunnah_groups')
-    .select('*')
-    .order('display_order', { ascending: true })
-    .order('name', { ascending: true });
-  if (error) throw new Error(`Failed to fetch sunnah groups: ${error.message}`);
-  return data as SunnahGroup[];
-}
-
-export async function createSunnahGroup(data: Partial<SunnahGroupPayload>): Promise<SunnahGroup> {
-  const { data: rows, error } = await supabase
-    .from('sunnah_groups')
-    .insert(data)
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to create sunnah group: ${error.message}`);
-  return rows as SunnahGroup;
-}
-
-export async function updateSunnahGroup(id: string, data: Partial<SunnahGroupPayload>): Promise<SunnahGroup> {
-  const { data: rows, error } = await supabase
-    .from('sunnah_groups')
-    .update(data)
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to update sunnah group: ${error.message}`);
-  return rows as SunnahGroup;
-}
-
-export async function deleteSunnahGroup(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('sunnah_groups')
-    .delete()
-    .eq('id', id);
-  if (error) throw new Error(`Failed to delete sunnah group: ${error.message}`);
 }
 
 export async function fetchHadithInclusionRules(): Promise<HadithInclusionRule[]> {

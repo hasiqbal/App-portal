@@ -77,27 +77,6 @@ const TABLES: TableDef[] = [
     ],
   },
   {
-    name: 'sunnah_reminders',
-    description: 'Sunnah practices and reminders for the app',
-    columns: [
-      { name: 'id', type: 'uuid', notes: 'Primary key' },
-      { name: 'title', type: 'text', notes: 'Short English title' },
-      { name: 'arabic_title', type: 'text', notes: 'Nullable' },
-      { name: 'arabic', type: 'text', notes: 'Nullable' },
-      { name: 'transliteration', type: 'text', notes: 'Nullable' },
-      { name: 'translation', type: 'text', notes: 'Nullable' },
-      { name: 'description', type: 'text', notes: 'Nullable' },
-      { name: 'reference', type: 'text', notes: 'Nullable' },
-      { name: 'count', type: 'text', notes: 'Repetitions' },
-      { name: 'category', type: 'text', notes: 'e.g. prayer, fasting' },
-      { name: 'group_name', type: 'text', notes: 'Nullable' },
-      { name: 'display_order', type: 'integer', notes: 'Sort order' },
-      { name: 'is_active', type: 'boolean', notes: 'Visible in app' },
-      { name: 'created_at', type: 'timestamptz', notes: 'Auto-set' },
-      { name: 'updated_at', type: 'timestamptz', notes: 'Auto-set' },
-    ],
-  },
-  {
     name: 'adhkar_groups',
     description: 'Group metadata for adhkar (icons, colors, badges)',
     columns: [
@@ -198,7 +177,7 @@ const CloudData = () => {
   const totalRows = Object.values(stats).reduce((sum, s) => sum + (s.count ?? 0), 0);
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
 
@@ -210,7 +189,7 @@ const CloudData = () => {
                 <Database size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Cloud Data</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Cloud Data</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">{TABLES.length} tables · {totalRows.toLocaleString()} total rows</p>
               </div>
             </div>
@@ -307,7 +286,8 @@ const CloudData = () => {
                           <button onClick={() => { navigator.clipboard.writeText(`${REST_URL}/${table.name}`); toast.success('Copied'); }} className="p-1 rounded hover:bg-[hsl(140_20%_88%)]"><Copy size={12} className="text-muted-foreground" /></button>
                         </div>
                       </div>
-                      <table className="w-full text-sm">
+                      <div className="overflow-x-auto">
+                      <table className="w-full text-sm min-w-[400px]">
                         <thead>
                           <tr className="border-b border-[hsl(140_20%_88%)] bg-[hsl(140_30%_97%)]">
                             <th className="px-5 py-2.5 text-left text-xs font-semibold text-muted-foreground">Column</th>
@@ -325,6 +305,7 @@ const CloudData = () => {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                       <div className="px-5 py-3 border-t border-[hsl(140_20%_88%)] bg-[hsl(140_30%_97%)] flex items-center gap-3">
                         <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
                         <p className="text-xs text-muted-foreground">RLS enabled · anon read/write policies active</p>

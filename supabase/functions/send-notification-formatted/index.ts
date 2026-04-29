@@ -204,7 +204,7 @@ serve(async (req) => {
       title: buildBilingualTitle(title, urduTitle),
       body: buildBilingualBody(body, urduBody),
       priority: 'high',
-      channelId: 'jmn-general-v1',
+      channelId: 'jmn-general-v2',
       data: {
         notificationId,
         route: '/push-notification',

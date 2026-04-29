@@ -65,6 +65,14 @@ let inclusionRulesCache: InclusionRule[] | null = null;
 let inclusionRulesUpdatedAt = 0;
 const RULES_CACHE_TTL_MS = 60_000;
 
+function normalizeEnglishHonorifics(value: string): string {
+  return value
+    .replace(/\bS\.?\s*A\.?\s*W\.?\b/gi, 'ﷺ')
+    .replace(/\bP\.?\s*B\.?\s*U\.?\s*H\.?\b/gi, 'ﷺ')
+    .replace(/\(\s*SAW\s*\)/gi, '(ﷺ)')
+    .replace(/\(\s*PBUH\s*\)/gi, '(ﷺ)');
+}
+
 function dayOfYear(): number {
   const now = new Date();
   const start = new Date(now.getUTCFullYear(), 0, 0);
@@ -169,10 +177,10 @@ async function resolveChapterNumber(collection: CollectionDef, sectionRules: num
 
 function mapHadithRow(row: HadithApiRow, collection: CollectionDef): Candidate | null {
   const hadithNo = Number(row.hadithNumber ?? 0);
-  const english = String(row.hadithEnglish ?? '').trim();
+  const english = normalizeEnglishHonorifics(String(row.hadithEnglish ?? '').trim());
   const arabic = String(row.hadithArabic ?? '').trim();
   const heading = String(row.headingEnglish ?? '').trim();
-  const narrator = String(row.englishNarrator ?? '').trim();
+  const narrator = normalizeEnglishHonorifics(String(row.englishNarrator ?? '').trim());
   if (!Number.isFinite(hadithNo) || hadithNo <= 0 || english.length === 0) return null;
 
   const text = [narrator, english].filter(Boolean).join('\n\n');

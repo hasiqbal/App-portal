@@ -2142,7 +2142,7 @@ export default function QaseedahNaats() {
   const roleLabel = role ? role[0].toUpperCase() + role.slice(1) : 'Guest';
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
         <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
@@ -2152,7 +2152,7 @@ export default function QaseedahNaats() {
                 <BookOpen size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Qaseedahs and Naats</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Qaseedahs and Naats</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {entries.length} entries · {qaseedahCount} qaseedahs · {naatCount} naats
                 </p>
@@ -2459,7 +2459,7 @@ export default function QaseedahNaats() {
       </main>
 
       <Dialog open={modalOpen} onOpenChange={(open) => { if (!open) closeModal(); }}>
-        <DialogContent className="max-w-6xl w-[96vw] max-h-[94vh] p-0 gap-0 overflow-hidden flex flex-col">
+        <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-[92vh] sm:max-h-[92vh] p-0 gap-0 overflow-hidden rounded-none sm:rounded-lg flex flex-col">
           <DialogHeader className="border-b border-[hsl(140_20%_90%)] bg-white px-5 py-3">
             <DialogTitle className="flex items-center gap-2">
               <BookOpen size={16} className="text-[hsl(142_60%_32%)]" />

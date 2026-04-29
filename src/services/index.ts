@@ -12,8 +12,6 @@ export { notificationService, deviceTokenService } from './notificationService';
 export {
 	announcementsService,
 	donationOptionsService,
-	sunnahService,
-	sunnahGroupsService,
 	islamicCalendarEventsService,
 } from './contentService';
 

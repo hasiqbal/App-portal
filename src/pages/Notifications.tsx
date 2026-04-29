@@ -2256,7 +2256,7 @@ const Notifications = () => {
     'gap-1.5 flex-1 min-w-[7rem] data-[state=active]:bg-[hsl(142_50%_93%)] data-[state=active]:text-[hsl(142_60%_24%)] data-[state=active]:shadow-sm';
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
 
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
@@ -2270,7 +2270,7 @@ const Notifications = () => {
                   <Bell size={20} />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-[hsl(150_30%_12%)] tracking-tight">Push Notifications</h1>
+                  <h1 className="text-2xl font-semibold tracking-tight text-foreground">Push Notifications</h1>
                   <p className="text-xs text-muted-foreground mt-1">
                     Compose, schedule and automate push messages to the masjid community.
                   </p>
@@ -2381,7 +2381,7 @@ const Notifications = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-5 min-w-0">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5 min-w-0">
                 <div className="min-w-0">{composeCard}</div>
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-border bg-card shadow-sm px-5 py-4">

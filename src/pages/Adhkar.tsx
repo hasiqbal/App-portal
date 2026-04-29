@@ -1795,7 +1795,7 @@ const Adhkar = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#F7F9F8]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
 
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
@@ -1807,7 +1807,7 @@ const Adhkar = () => {
                 <BookOpen size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Adhkar Management</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Adhkar Management</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {adhkar.length} adhkar · {groupsList.length} groups · drag to reorder
                 </p>
@@ -2051,7 +2051,7 @@ const Adhkar = () => {
         open={moveDialogOpen}
         onOpenChange={(v) => { if (!moveSaving) { setMoveDialogOpen(v); if (!v) setMoveTarget(null); } }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <ArrowRightLeft size={15} className="text-purple-500" />
@@ -2157,7 +2157,7 @@ const Adhkar = () => {
       </Dialog>
 
       <Dialog open={bulkMoveOpen} onOpenChange={(v) => { if (!bulkSaving) setBulkMoveOpen(v); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Bulk Move Selected Dhikr</DialogTitle>
             <p className="text-xs text-muted-foreground pt-1">Move {selectedDhikrIds.length} selected entr{selectedDhikrIds.length === 1 ? 'y' : 'ies'} together.</p>
@@ -2189,7 +2189,7 @@ const Adhkar = () => {
 
       {/* ── Bulk Description Editor ── */}
       <Dialog open={bulkDescOpen} onOpenChange={(v) => { if (!bulkSavingAll && !aiGenerating) setBulkDescOpen(v); }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-[92vh] sm:max-h-[92vh] overflow-hidden p-0 rounded-none sm:rounded-lg flex flex-col gap-0">
           <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-bold flex items-center gap-2">
@@ -2335,7 +2335,7 @@ const Adhkar = () => {
 
       {/* ── Duplicate Group Dialog ── */}
       <Dialog open={duplicateDialogOpen} onOpenChange={(v) => { if (!dupSaving) { setDuplicateDialogOpen(v); if (!v) setDuplicateSource(null); } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Copy size={15} className="text-blue-500" />

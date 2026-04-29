@@ -569,7 +569,7 @@ const UserModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
@@ -580,7 +580,7 @@ const UserModal = ({
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Username *</Label>
               <Input
@@ -787,8 +787,10 @@ const UserManagement = () => {
       const exists = old.some((u) => u.id === saved.id);
       return exists ? old.map((u) => (u.id === saved.id ? saved : u)) : [saved, ...old];
     });
+    void queryClient.invalidateQueries({ queryKey: ['portal-users'] });
     setModalOpen(false);
     setEditUser(null);
+    void refetchLogs();
   };
 
   const handleRoleChange = async (u: PortalUser, role: PortalUser['role']) => {
@@ -803,6 +805,7 @@ const UserManagement = () => {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
         old.map((x) => (x.id === u.id ? data as PortalUser : x)));
       toast.success(`${u.name}'s role updated to ${role}.`);
+      void refetchLogs();
     } catch {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
         old.map((x) => (x.id === u.id ? { ...x, role: prev } : x)));
@@ -824,6 +827,7 @@ const UserManagement = () => {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
         old.map((x) => (x.id === u.id ? data as PortalUser : x)));
       toast.success(`${u.name} ${newActive ? 'activated' : 'deactivated'}.`);
+      void refetchLogs();
     } catch {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
         old.map((x) => (x.id === u.id ? u : x)));
@@ -842,6 +846,7 @@ const UserManagement = () => {
       const { error } = await supabaseAdmin.from('portal_users').delete().eq('id', u.id);
       if (error) throw error;
       toast.success(`User "${u.name}" deleted.`);
+      void refetchLogs();
     } catch {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) => [u, ...old]);
       toast.error('Failed to delete user.');
@@ -851,7 +856,7 @@ const UserManagement = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
         {/* Banner */}
@@ -862,7 +867,7 @@ const UserManagement = () => {
                 <Users size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">User Management</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">User Management</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {stats.total} user{stats.total !== 1 ? 's' : ''} · {stats.active} active · {stats.admins} admin{stats.admins !== 1 ? 's' : ''}
                 </p>

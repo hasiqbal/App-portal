@@ -12,8 +12,6 @@ import PrayerTimes from "./pages/PrayerTimes";
 import Adhkar from "./pages/Adhkar";
 import CloudData from "./pages/CloudData";
 import Announcements from "./pages/Announcements";
-import ExcelConverter from "./pages/ExcelConverter";
-import SunnahReminders from "./pages/SunnahReminders";
 import QaseedahNaats from "./pages/QaseedahNaats";
 import Notifications from "./pages/Notifications";
 import HowToGuides from "./pages/HowToGuides";
@@ -64,9 +62,9 @@ const ProtectedRoute = ({
 
   if (adminOnly && user.role !== 'admin') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[hsl(140_30%_97%)]">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center space-y-2 p-8">
-          <p className="text-lg font-bold text-[hsl(150_30%_18%)]">Access Restricted</p>
+          <p className="text-lg font-semibold text-foreground">Access Restricted</p>
           <p className="text-sm text-muted-foreground">
             This section requires admin privileges.
           </p>
@@ -93,12 +91,10 @@ const AppRoutes = () => {
         <Route path="/adhkar" element={<ProtectedRoute><Adhkar /></ProtectedRoute>} />
         <Route path="/qaseedah-naats" element={<ProtectedRoute><QaseedahNaats /></ProtectedRoute>} />
         <Route path="/announcements" element={<ProtectedRoute><Announcements /></ProtectedRoute>} />
-        <Route path="/sunnah-reminders" element={<ProtectedRoute><SunnahReminders /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/howto-guides" element={<ProtectedRoute><HowToGuides /></ProtectedRoute>} />
         <Route path="/donation-options" element={<ProtectedRoute><DonationOptions /></ProtectedRoute>} />
         <Route path="/islamic-calendar" element={<ProtectedRoute><IslamicCalendarEvents /></ProtectedRoute>} />
-        <Route path="/excel-converter" element={<ProtectedRoute><ExcelConverter /></ProtectedRoute>} />
 
         {/* Admin-only routes */}
         <Route path="/settings" element={<ProtectedRoute adminOnly><Settings /></ProtectedRoute>} />

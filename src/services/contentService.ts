@@ -15,14 +15,6 @@ import {
   deleteDonationOption,
   bulkReorderDonationOptions,
   fetchDonationOptionAudit,
-  fetchSunnahReminders,
-  createSunnahReminder,
-  updateSunnahReminder,
-  deleteSunnahReminder,
-  fetchSunnahGroups,
-  createSunnahGroup,
-  updateSunnahGroup,
-  deleteSunnahGroup,
   fetchIslamicCalendarEvents,
   fetchCalendarEventsForMonth,
   createIslamicCalendarEvent,
@@ -37,10 +29,6 @@ import type {
   DonationOption,
   DonationOptionAudit,
   DonationOptionPayload,
-  SunnahReminder,
-  SunnahReminderPayload,
-  SunnahGroup,
-  SunnahGroupPayload,
   IslamicCalendarEvent,
   IslamicCalendarEventPayload,
   IslamicCalendarEventType,
@@ -84,36 +72,6 @@ export const donationOptionsService = {
 
     return grouped;
   },
-};
-
-// ─── Sunnah Reminders ─────────────────────────────────────────────────────────
-
-export const sunnahService = {
-  getAll: (category?: string): Promise<SunnahReminder[]> => fetchSunnahReminders(category),
-  create: (data: Partial<SunnahReminderPayload>): Promise<SunnahReminder> => createSunnahReminder(data),
-  update: (id: string, data: Partial<SunnahReminderPayload>): Promise<SunnahReminder> => updateSunnahReminder(id, data),
-  delete: (id: string): Promise<void> => deleteSunnahReminder(id),
-  filterActive: (reminders: SunnahReminder[]): SunnahReminder[] =>
-    reminders.filter((r) => r.is_active),
-  groupByCategory: (reminders: SunnahReminder[]): Map<string, SunnahReminder[]> => {
-    const map = new Map<string, SunnahReminder[]>();
-    for (const r of reminders) {
-      const key = r.category ?? 'general';
-      const existing = map.get(key) ?? [];
-      existing.push(r);
-      map.set(key, existing);
-    }
-    return map;
-  },
-};
-
-// ─── Sunnah Groups ────────────────────────────────────────────────────────────
-
-export const sunnahGroupsService = {
-  getAll: (): Promise<SunnahGroup[]> => fetchSunnahGroups(),
-  create: (data: Partial<SunnahGroupPayload>): Promise<SunnahGroup> => createSunnahGroup(data),
-  update: (id: string, data: Partial<SunnahGroupPayload>): Promise<SunnahGroup> => updateSunnahGroup(id, data),
-  delete: (id: string): Promise<void> => deleteSunnahGroup(id),
 };
 
 // ─── Islamic Calendar Events ────────────────────────────────────────────────

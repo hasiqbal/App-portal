@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+﻿import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Sidebar from '#/components/layout/Sidebar';
@@ -13,24 +13,12 @@ import {
   fetchPrayerTimes,
   bulkUpdatePrayerTimes,
   updatePrayerTime,
-  fetchAnnouncements,
-  fetchIslamicCalendarEvents,
-  createIslamicCalendarEvent,
-  updateIslamicCalendarEvent,
-  deleteIslamicCalendarEvent,
-  upsertIslamicCalendarEvents,
-  fetchHijriCalendarForHijriYear,
-  type HijriCalendarLookupRow,
 } from '#/lib/api';
 import {
   PrayerTime,
   HijriCalendarEntry,
   PrayerTimeUpdate,
   HijriMonthOverride,
-  Announcement,
-  AnnouncementRecurrenceType,
-  IslamicCalendarEvent,
-  IslamicCalendarEventType,
 } from '#/types';
 import { toast } from 'sonner';
 import {
@@ -39,7 +27,7 @@ import {
 } from 'lucide-react';
 import { isBST } from '#/lib/dateUtils';
 import { supabaseAdmin } from '#/lib/supabase';
-import { SolarTimesCard } from '#/pages/Dashboard';
+import React from 'react';
 import EidTimesModal, { fetchEidPrayers, EidPrayer } from '#/components/features/EidTimesModal';
 import {
   DropdownMenu,
@@ -52,7 +40,7 @@ import {
 } from '#/components/ui/dropdown-menu';
 import { usePermissions } from '#/hooks/usePermissions';
 
-// ─── External Supabase config (same as supabase.ts) ───────────────────────────
+// â”€â”€â”€ External Supabase config (same as supabase.ts) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
 const EXT_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
 
@@ -90,14 +78,14 @@ async function runExternalSql(sql: string): Promise<{ ok: boolean; error?: strin
   }
 }
 
-// ─── Schema migration: ensure hijri_calendar has all required columns ─────────
+// â”€â”€â”€ Schema migration: ensure hijri_calendar has all required columns â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 let schemaMigrated = false; // run once per session
 
 async function ensureHijriCalendarSchema(): Promise<{ ok: boolean; message: string }> {
   if (schemaMigrated) return { ok: true, message: 'Already checked' };
 
-  // Step 1: probe the table — try a SELECT to see what columns exist
+  // Step 1: probe the table â€” try a SELECT to see what columns exist
   const { data: probe, error: probeErr } = await supabaseAdmin
     .from('hijri_calendar')
     .select('*')
@@ -107,14 +95,14 @@ async function ensureHijriCalendarSchema(): Promise<{ ok: boolean; message: stri
 
   if (probeErr) {
     const msg = probeErr.message ?? '';
-    // Table doesn't exist at all — we can't create it via supabaseAdmin (no DDL)
+    // Table doesn't exist at all â€” we can't create it via supabaseAdmin (no DDL)
     if (msg.includes('does not exist') || msg.includes('relation')) {
       return {
         ok: false,
         message: 'Table hijri_calendar does not exist. Run the SQL setup in your Supabase dashboard.',
       };
     }
-    // Column missing — need ALTER TABLE
+    // Column missing â€” need ALTER TABLE
     if (msg.includes('column') || msg.includes('schema cache')) {
       console.warn('[hijri_calendar] Column missing, attempting to probe columns via empty insert...');
     }
@@ -143,7 +131,7 @@ async function ensureHijriCalendarSchema(): Promise<{ ok: boolean; message: stri
       .eq('gregorian_month', 1)
       .eq('gregorian_day', 1);
     schemaMigrated = true;
-    console.log('[hijri_calendar] ✓ Schema OK — all columns present');
+    console.log('[hijri_calendar] âœ“ Schema OK â€” all columns present');
     return { ok: true, message: 'Schema OK' };
   }
 
@@ -166,7 +154,7 @@ async function ensureHijriCalendarSchema(): Promise<{ ok: boolean; message: stri
   };
 }
 
-// ─── Aladhan API — accurate Hijri dates, API only ─────────────────────────────
+// â”€â”€â”€ Aladhan API â€” accurate Hijri dates, API only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Fetch a SINGLE day's Hijri date (used for EditPrayerTimeModal).
@@ -264,7 +252,7 @@ async function fetchHijriMonthFromApi(
     });
   }
 
-  console.log(`[Aladhan Calendar ✓] ${year}-${month} offset=${offset}: ${map.size} days (app-shift)`);
+  console.log(`[Aladhan Calendar âœ“] ${year}-${month} offset=${offset}: ${map.size} days (app-shift)`);
   return map;
 }
 
@@ -328,7 +316,7 @@ type HijriParts = {
 };
 
 function normalizeHijriMonthKey(raw: string): string {
-  // Convert accented month names (e.g., "Shawwāl") to ASCII before key matching.
+  // Convert accented month names (e.g., "ShawwÄl") to ASCII before key matching.
   return raw
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -355,149 +343,6 @@ function parseHijriDate(raw: string): HijriParts | null {
 function formatHijriDate(parts: HijriParts): string {
   const monthName = HIJRI_MONTHS_CANONICAL[parts.month - 1] ?? '';
   return `${parts.day} ${monthName} ${parts.year} AH`;
-}
-
-type IslamicSeedRow = {
-  title: string;
-  fieldLabel: string;
-  region: string;
-  notes: string;
-  hijriDay: number;
-  hijriMonth: number;
-  originalHijriYear: number;
-};
-
-function parseIslamicSeedText(raw: string): { rows: IslamicSeedRow[]; skipped: number } {
-  const rows: IslamicSeedRow[] = [];
-  let skipped = 0;
-
-  const lines = raw.split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (trimmed.startsWith('=') || trimmed.startsWith('-') || trimmed.endsWith(':')) continue;
-    if (!trimmed.includes('|')) continue;
-
-    const parts = trimmed.split('|').map((part) => part.trim());
-    if (parts.length < 5) {
-      skipped += 1;
-      continue;
-    }
-
-    const [title, fieldLabel, hijriRaw, region, ...notesParts] = parts;
-
-    // Skip schema/header lines from seed docs without counting them as bad rows.
-    if (
-      /^name$/i.test(title) &&
-      /^field$/i.test(fieldLabel) &&
-      /full\s*hijri\s*date/i.test(hijriRaw)
-    ) {
-      continue;
-    }
-
-    if (!title || !fieldLabel || !hijriRaw) {
-      skipped += 1;
-      continue;
-    }
-
-    if (!/\b(?:A\.?\s*H\.?|B\.?\s*H\.?)\b/i.test(hijriRaw)) {
-      skipped += 1;
-      continue;
-    }
-
-    const parsedHijri = parseHijriDate(hijriRaw);
-    if (!parsedHijri) {
-      skipped += 1;
-      continue;
-    }
-
-    rows.push({
-      title,
-      fieldLabel,
-      region,
-      notes: notesParts.join('|').trim(),
-      hijriDay: parsedHijri.day,
-      hijriMonth: parsedHijri.month,
-      originalHijriYear: parsedHijri.year,
-    });
-  }
-
-  return { rows, skipped };
-}
-
-function hijriDayMonthKey(day: number, month: number): string {
-  return `${day}-${month}`;
-}
-
-function toIsoGregorianDate(row: HijriCalendarLookupRow): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(row.gregorian_date)) {
-    return row.gregorian_date;
-  }
-
-  const dmy = row.gregorian_date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (dmy) {
-    return `${dmy[3]}-${String(parseInt(dmy[2], 10)).padStart(2, '0')}-${String(parseInt(dmy[1], 10)).padStart(2, '0')}`;
-  }
-
-  return `${row.gregorian_year}-${String(row.gregorian_month).padStart(2, '0')}-${String(row.gregorian_day).padStart(2, '0')}`;
-}
-
-type IslamicEventFormState = {
-  title: string;
-  eventType: IslamicCalendarEventType;
-  fieldLabel: string;
-  region: string;
-  notes: string;
-  linkedGregorianDate: string;
-};
-
-function buildDefaultIslamicEventForm(year: number, month: number): IslamicEventFormState {
-  return {
-    title: '',
-    eventType: 'important_date',
-    fieldLabel: '',
-    region: '',
-    notes: '',
-    linkedGregorianDate: `${year}-${String(month).padStart(2, '0')}-01`,
-  };
-}
-
-function normalizeUiDateToIso(value: string): string {
-  const normalized = value.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
-  const match = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!match) return normalized;
-  return `${match[3]}-${String(parseInt(match[2], 10)).padStart(2, '0')}-${String(parseInt(match[1], 10)).padStart(2, '0')}`;
-}
-
-type CalendarMasjidEvent = {
-  id: string;
-  title: string;
-  type: string | null;
-  leadNames: string | null;
-  startTime: string | null;
-  linkedGregorianDate: string;
-};
-
-function formatGregorianDateForMasjidCard(raw: string): { day: string; month: string; year: string } {
-  const normalized = normalizeUiDateToIso(raw);
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return {
-      day: normalized,
-      month: '',
-      year: '',
-    };
-  }
-
-  const year = match[1];
-  const monthNumber = parseInt(match[2], 10);
-  const day = String(parseInt(match[3], 10));
-  return {
-    day,
-    month: MONTHS_SHORT[monthNumber - 1] ?? match[2],
-    year,
-  };
 }
 
 function parseUtcDateParts(raw: string | null | undefined): { year: number; month: number; day: number; iso: string } | null {
@@ -656,183 +501,6 @@ function parseDatePartsFromText(
   return null;
 }
 
-function hasLikelyDateToken(raw: string): boolean {
-  const text = raw.trim();
-  if (!text) return false;
-
-  if (/\b\d{4}-\d{1,2}-\d{1,2}\b/.test(text)) return true;
-  if (/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(text)) return true;
-  if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\b/i.test(text)) return true;
-  if (/\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\b/i.test(text)) return true;
-  if (/\b[A-Za-z]{3,9}\.?(?:\s+)\d{1,2}(?:st|nd|rd|th)?\b/i.test(text)) return true;
-
-  return false;
-}
-
-function resolveAnnouncementEventDateParts(
-  item: Announcement,
-  fallbackYear?: number,
-  fallbackMonth?: number,
-): { year: number; month: number; day: number; iso: string } | null {
-  const parseCandidate = (value: string | null | undefined) => (
-    parseDatePartsFromText(value, { defaultYear: fallbackYear, defaultMonth: fallbackMonth })
-    ?? parseUtcDateParts(value)
-  );
-
-  const explicitEventDate = parseCandidate(item.event_date);
-  if (explicitEventDate) return explicitEventDate;
-
-  const startTimeEntries = (item.start_time ?? '')
-    .split(/\s*\|\s*|\n+/)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-
-  for (const entry of startTimeEntries) {
-    if (!hasLikelyDateToken(entry)) continue;
-    const parsed = parseDatePartsFromText(entry, { defaultYear: fallbackYear, defaultMonth: fallbackMonth })
-      ?? parseUtcDateParts(entry);
-    if (parsed) return parsed;
-  }
-
-  const textCandidates = [item.title, item.body];
-  for (const candidate of textCandidates) {
-    const parsed = parseDatePartsFromText(candidate, { defaultYear: fallbackYear, defaultMonth: fallbackMonth });
-    if (parsed) return parsed;
-  }
-
-  const publishedDate = parseCandidate(item.published_at);
-  if (publishedDate) return publishedDate;
-
-  const expiresDate = parseCandidate(item.expires_at);
-  if (expiresDate) return expiresDate;
-
-  return parseCandidate(item.created_at);
-}
-
-function normalizeAnnouncementRecurrenceType(value: string | null | undefined): AnnouncementRecurrenceType {
-  const normalized = (value ?? '').trim().toLowerCase();
-  if (normalized === 'weekly' || normalized === 'monthly') return normalized;
-  return 'none';
-}
-
-function isoFromUtcTimestamp(utcTimestamp: number): string {
-  const date = new Date(utcTimestamp);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-}
-
-function resolveAnnouncementOccurrenceDatesForMonth(
-  item: Announcement,
-  year: number,
-  month: number,
-): string[] {
-  const baseDate = resolveAnnouncementEventDateParts(item, year, month);
-  if (!baseDate) return [];
-
-  const recurrenceType = normalizeAnnouncementRecurrenceType(item.recurrence_type ?? null);
-  const recurrenceInterval = Math.max(1, Math.min(52, Number(item.recurrence_interval) || 1));
-  const untilParts = parseUtcDateParts(item.recurrence_until ?? null);
-
-  const dayMs = 24 * 60 * 60 * 1000;
-  const baseUtc = Date.UTC(baseDate.year, baseDate.month - 1, baseDate.day);
-  const monthDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const monthStartUtc = Date.UTC(year, month - 1, 1);
-  const monthEndUtc = Date.UTC(year, month - 1, monthDays);
-  const untilUtc = untilParts ? Date.UTC(untilParts.year, untilParts.month - 1, untilParts.day) : null;
-
-  if (recurrenceType === 'none') {
-    if (baseDate.year !== year || baseDate.month !== month) return [];
-    if (untilUtc !== null && baseUtc > untilUtc) return [];
-    return [baseDate.iso];
-  }
-
-  if (recurrenceType === 'weekly') {
-    const weekdayRaw = typeof item.recurrence_weekday === 'number' ? item.recurrence_weekday : null;
-    const targetWeekday = weekdayRaw !== null && weekdayRaw >= 0 && weekdayRaw <= 6
-      ? weekdayRaw
-      : new Date(baseUtc).getUTCDay();
-
-    const baseWeekday = new Date(baseUtc).getUTCDay();
-    const weekdayShift = (targetWeekday - baseWeekday + 7) % 7;
-    const anchorUtc = baseUtc + (weekdayShift * dayMs);
-
-    const occurrenceDates: string[] = [];
-    for (let day = 1; day <= monthDays; day += 1) {
-      const occurrenceUtc = Date.UTC(year, month - 1, day);
-      if (occurrenceUtc < monthStartUtc || occurrenceUtc > monthEndUtc) continue;
-      if (occurrenceUtc < baseUtc) continue;
-      if (untilUtc !== null && occurrenceUtc > untilUtc) continue;
-      if (new Date(occurrenceUtc).getUTCDay() !== targetWeekday) continue;
-
-      const diffDays = Math.floor((occurrenceUtc - anchorUtc) / dayMs);
-      if (diffDays < 0 || diffDays % 7 !== 0) continue;
-
-      const diffWeeks = diffDays / 7;
-      if (diffWeeks % recurrenceInterval !== 0) continue;
-
-      occurrenceDates.push(isoFromUtcTimestamp(occurrenceUtc));
-    }
-
-    return occurrenceDates;
-  }
-
-  const monthDayRaw = typeof item.recurrence_month_day === 'number' ? item.recurrence_month_day : null;
-  const targetDay = monthDayRaw !== null && monthDayRaw >= 1 && monthDayRaw <= 31
-    ? monthDayRaw
-    : baseDate.day;
-
-  if (targetDay > monthDays) return [];
-
-  const occurrenceUtc = Date.UTC(year, month - 1, targetDay);
-  if (occurrenceUtc < baseUtc) return [];
-  if (untilUtc !== null && occurrenceUtc > untilUtc) return [];
-
-  const baseMonthIndex = (baseDate.year * 12) + (baseDate.month - 1);
-  const targetMonthIndex = (year * 12) + (month - 1);
-  const diffMonths = targetMonthIndex - baseMonthIndex;
-  if (diffMonths < 0 || diffMonths % recurrenceInterval !== 0) return [];
-
-  if (diffMonths === 0 && targetDay < baseDate.day) return [];
-
-  return [isoFromUtcTimestamp(occurrenceUtc)];
-}
-
-function isAnnouncementEvent(item: Announcement): boolean {
-  if (item.tag) return true;
-
-  const hasExplicitEventDate = Boolean((item.event_date ?? '').trim());
-  if (hasExplicitEventDate) return true;
-
-  const hasTimeSlots = Boolean((item.start_time ?? '').trim());
-  if (hasTimeSlots) return true;
-
-  const normalizedType = (item.type ?? '').trim().toLowerCase();
-  if (!normalizedType) return false;
-
-  if (normalizedType.includes('event')) return true;
-
-  const eventLikeTypes = new Set([
-    'event',
-    'events',
-    'jalsa',
-    'class',
-    'special',
-    'ramadan',
-    'eid',
-    'jumuah',
-    'jumu\'ah',
-    'lecture',
-    'workshop',
-    'community',
-    'youth',
-    'funeral',
-    'nikah',
-  ]);
-
-  if (eventLikeTypes.has(normalizedType)) return true;
-
-  return normalizedType === 'event';
-}
-
 function compareHijriMonth(aYear: number, aMonth: number, bYear: number, bMonth: number): number {
   if (aYear !== bYear) return aYear - bYear;
   return aMonth - bMonth;
@@ -953,7 +621,7 @@ function applyMonthLengthOverrides(
   return out;
 }
 
-// ─── Hijri Calendar DB helpers ────────────────────────────────────────────────
+// â”€â”€â”€ Hijri Calendar DB helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function fetchHijriCalendarMonth(
   year: number,
@@ -1000,10 +668,10 @@ async function upsertHijriCalendarEntries(
 
     if (error) {
       errors.push(`Day ${entry.gregorian_day}: ${error.message}`);
-      console.error(`[hijri_calendar ✗] Day ${entry.gregorian_day}:`, error.message);
+      console.error(`[hijri_calendar âœ—] Day ${entry.gregorian_day}:`, error.message);
     } else {
       saved++;
-      console.log(`[hijri_calendar ✓] Day ${entry.gregorian_day}: ${entry.gregorian_date} → ${entry.hijri_date}`);
+      console.log(`[hijri_calendar âœ“] Day ${entry.gregorian_day}: ${entry.gregorian_date} â†’ ${entry.hijri_date}`);
     }
   }
 
@@ -1089,7 +757,7 @@ async function saveMonthOverridesForYear(
   }
 }
 
-// ─── Hijri offset DB helpers ──────────────────────────────────────────────────
+// â”€â”€â”€ Hijri offset DB helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function saveOffsetToDb(n: number): Promise<{ ok: boolean }> {
   try {
@@ -1184,7 +852,7 @@ function writeOffsetToStorage(n: number): void {
   }
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const MONTHS_SHORT  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTHS_FULL   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -1199,7 +867,7 @@ function fridayCount(year: number, month: number): number {
   return count;
 }
 
-// ─── SQL setup banner ─────────────────────────────────────────────────────────
+// â”€â”€â”€ SQL setup banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const SQL_SETUP = `-- Run this in your Supabase SQL Editor (lhaqqqatdztuijgdfdcf):
 -- Step 1: Create table if it doesn't exist
@@ -1297,7 +965,7 @@ const DbSetupBanner = ({ onDismiss }: { onDismiss: () => void }) => {
           <p className="text-sm font-bold text-red-700">hijri_calendar table needs setup</p>
           <p className="text-xs text-red-600 mt-1">
             The table is missing required columns. Copy and run this SQL in your{' '}
-            <strong>Supabase dashboard → SQL Editor</strong> (project: lhaqqqatdztuijgdfdcf):
+            <strong>Supabase dashboard â†’ SQL Editor</strong> (project: lhaqqqatdztuijgdfdcf):
           </p>
           <pre className="mt-2 p-3 bg-white border border-red-200 rounded-lg text-[10px] font-mono text-slate-700 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed">
             {SQL_SETUP}
@@ -1307,7 +975,7 @@ const DbSetupBanner = ({ onDismiss }: { onDismiss: () => void }) => {
               onClick={copy}
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
             >
-              {copied ? '✓ Copied!' : 'Copy SQL'}
+              {copied ? 'âœ“ Copied!' : 'Copy SQL'}
             </button>
             <button
               onClick={onDismiss}
@@ -1322,7 +990,7 @@ const DbSetupBanner = ({ onDismiss }: { onDismiss: () => void }) => {
   );
 };
 
-// ─── Jumu'ah year modal ───────────────────────────────────────────────────────
+// â”€â”€â”€ Jumu'ah year modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface JumuahYearModalProps {
   open: boolean; onClose: () => void; year: number;
@@ -1349,7 +1017,7 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
       const bst = monthIsBST(year, month);
       const payload = bst ? bstPayload : gmtPayload;
       if (!payload.jumu_ah_1 && !payload.jumu_ah_2) continue;
-      setProgress(`Updating ${MONTHS_SHORT[month - 1]}…`);
+      setProgress(`Updating ${MONTHS_SHORT[month - 1]}â€¦`);
       try {
         let rows = queryClient.getQueryData<PrayerTime[]>(['prayer_times', month]);
         if (!rows) { rows = await fetchPrayerTimes(month); queryClient.setQueryData(['prayer_times', month], rows); }
@@ -1371,19 +1039,19 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="text-base font-bold flex items-center gap-2">
             <CalendarCheck size={16} className="text-[hsl(142_60%_35%)]" />
-            Set Jumu'ah Times — {year}
+            Set Jumu'ah Times â€” {year}
           </DialogTitle>
           <p className="text-xs text-muted-foreground pt-1">Set separate times for GMT (winter) and BST (summer) months.</p>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 uppercase">GMT</span>
-              <span className="text-xs text-slate-500">Nov – Mar</span>
+              <span className="text-xs text-slate-500">Nov â€“ Mar</span>
             </div>
             <div className="space-y-2">
               <div><Label className="text-xs text-slate-600">Jumu'ah 1</Label><Input value={gmt1} onChange={(e) => setGmt1(e.target.value)} placeholder="12:45" className="font-mono text-sm h-8 mt-1 bg-white" /></div>
@@ -1393,7 +1061,7 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-200 text-emerald-800 uppercase">BST</span>
-              <span className="text-xs text-emerald-600">Apr – Oct</span>
+              <span className="text-xs text-emerald-600">Apr â€“ Oct</span>
             </div>
             <div className="space-y-2">
               <div><Label className="text-xs text-emerald-700">Jumu'ah 1</Label><Input value={bst1} onChange={(e) => setBst1(e.target.value)} placeholder="13:30" className="font-mono text-sm h-8 mt-1 bg-white" /></div>
@@ -1406,17 +1074,17 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Apply to months</span>
             <button onClick={toggleAll} className="text-xs text-[hsl(142_60%_35%)] hover:underline font-medium">{selectedMonths.size === 12 ? 'Deselect all' : 'Select all'}</button>
           </div>
-          <div className="grid grid-cols-6 gap-1.5">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
             {MONTHS_SHORT.map((abbr, i) => {
               const month = i + 1; const bst = monthIsBST(year, month); const isMixed = month === 3 || month === 10;
               const selected = selectedMonths.has(month); const fridays = fridayCount(year, month);
               return (
-                <button key={month} onClick={() => toggleMonth(month)} title={`${MONTHS_FULL[i]} — ${fridays}F`}
+                <button key={month} onClick={() => toggleMonth(month)} title={`${MONTHS_FULL[i]} â€” ${fridays}F`}
                   className={`relative flex flex-col items-center py-2 px-1 rounded-lg border text-xs font-medium transition-all ${selected ? bst ? 'border-emerald-400 bg-emerald-100 text-emerald-800' : 'border-slate-400 bg-slate-200 text-slate-800' : 'border-border bg-card text-muted-foreground opacity-50'}`}>
-                  {isMixed && <span className="absolute -top-1 -right-1 text-[9px]">⚡</span>}
+                  {isMixed && <span className="absolute -top-1 -right-1 text-[9px]">âš¡</span>}
                   <span className="font-semibold">{abbr}</span>
                   <span className="text-[9px] mt-0.5">{fridays}F</span>
-                  <span className={`text-[8px] font-bold mt-0.5 ${bst ? 'text-emerald-600' : 'text-slate-500'}`}>{isMixed ? '⚡' : bst ? 'BST' : 'GMT'}</span>
+                  <span className={`text-[8px] font-bold mt-0.5 ${bst ? 'text-emerald-600' : 'text-slate-500'}`}>{isMixed ? 'âš¡' : bst ? 'BST' : 'GMT'}</span>
                 </button>
               );
             })}
@@ -1426,7 +1094,7 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
         <DialogFooter className="gap-2 pt-1">
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={handleApply} disabled={saving || selectedMonths.size === 0} className="gap-2" style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
-            {saving ? <><Loader2 size={13} className="animate-spin" /> Applying…</> : <>Apply to {selectedMonths.size} Month{selectedMonths.size !== 1 ? 's' : ''}</>}
+            {saving ? <><Loader2 size={13} className="animate-spin" /> Applyingâ€¦</> : <>Apply to {selectedMonths.size} Month{selectedMonths.size !== 1 ? 's' : ''}</>}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1469,7 +1137,7 @@ const HijriMonthLengthModal = ({
 }: HijriMonthLengthModalProps) => {
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-base font-bold flex items-center gap-2">
             <SlidersHorizontal size={16} className="text-[#7c3aed]" />
@@ -1535,7 +1203,7 @@ const HijriMonthLengthModal = ({
         </div>
 
         <div className="text-[11px] text-muted-foreground">
-          {loading ? 'Loading saved month-length overrides…' : dirty ? 'Unsaved changes.' : 'No pending changes.'}
+          {loading ? 'Loading saved month-length overridesâ€¦' : dirty ? 'Unsaved changes.' : 'No pending changes.'}
         </div>
 
         {schemaError && (
@@ -1558,7 +1226,7 @@ const HijriMonthLengthModal = ({
                 disabled={loading}
                 className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md border border-red-300 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-60"
               >
-                {loading ? 'Rechecking…' : 'Recheck Setup'}
+                {loading ? 'Recheckingâ€¦' : 'Recheck Setup'}
               </button>
             </div>
           </div>
@@ -1567,7 +1235,7 @@ const HijriMonthLengthModal = ({
         <DialogFooter className="gap-2 pt-1">
           <Button variant="outline" onClick={onClose} disabled={saving}>Close</Button>
           <Button onClick={onSave} disabled={saving || loading || !dirty || !!schemaError} className="gap-2">
-            {saving ? <><Loader2 size={13} className="animate-spin" /> Saving…</> : 'Save Month Lengths'}
+            {saving ? <><Loader2 size={13} className="animate-spin" /> Savingâ€¦</> : 'Save Month Lengths'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1575,7 +1243,7 @@ const HijriMonthLengthModal = ({
   );
 };
 
-// ─── Prayer Times page ────────────────────────────────────────────────────────
+// â”€â”€â”€ Prayer Times page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const PrayerTimes = () => {
   const { canEdit, canDelete } = usePermissions();
@@ -1586,7 +1254,6 @@ const PrayerTimes = () => {
   const [editingRow,      setEditingRow]      = useState<PrayerTime | null>(null);
   const [jumuahModal,     setJumuahModal]     = useState(false);
   const [csvModal,        setCsvModal]        = useState(false);
-  const [csvPreload,      setCsvPreload]      = useState<string | undefined>(undefined);
   const [monthLengthModal, setMonthLengthModal] = useState(false);
   const [hijriOffset,     setHijriOffset]     = useState<number>(initialOffset);
   const [populatingHijri,    setPopulatingHijri]    = useState(false);
@@ -1596,7 +1263,7 @@ const PrayerTimes = () => {
   const [exportingCsv,          setExportingCsv]          = useState(false);
   // Hijri offset save status: 'idle' | 'saving' | 'saved' | 'error'
   const [offsetStatus,          setOffsetStatus]          = useState<'idle'|'saving'|'saved'|'error'>('idle');
-  // Track the offset at which hijri_calendar was last filled — warn user when they change offset but haven't re-filled
+  // Track the offset at which hijri_calendar was last filled â€” warn user when they change offset but haven't re-filled
   const [loadedOffset,          setLoadedOffset]          = useState<number>(initialOffset);
   const [offsetDirty,           setOffsetDirty]           = useState(false);
   const [offsetReady,           setOffsetReady]           = useState(false);
@@ -1627,18 +1294,10 @@ const PrayerTimes = () => {
   const [pendingPrayerChanges, setPendingPrayerChanges] = useState<Record<string, PrayerTimeUpdate>>({});
   const [savingPendingPrayerChanges, setSavingPendingPrayerChanges] = useState(false);
   const [showLegend,      setShowLegend]      = useState(true);
-  const [showSolarCard,   setShowSolarCard]   = useState(true);
   const [showPreviewHint, setShowPreviewHint] = useState(true);
-  const [islamicEventModalOpen, setIslamicEventModalOpen] = useState(false);
-  const [editingIslamicEvent, setEditingIslamicEvent] = useState<IslamicCalendarEvent | null>(null);
-  const [islamicEventSaving, setIslamicEventSaving] = useState(false);
-  const [seedImporting, setSeedImporting] = useState(false);
-  const [islamicEventForm, setIslamicEventForm] = useState<IslamicEventFormState>(() =>
-    buildDefaultIslamicEventForm(CURRENT_YEAR, CURRENT_MONTH)
-  );
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Hijri calendar data: day → entry
+  // Hijri calendar data: day â†’ entry
   const [hijriCalendar, setHijriCalendar] = useState<Map<number, HijriCalendarEntry>>(new Map());
   const [hijriLoading,  setHijriLoading]  = useState(false);
 
@@ -1669,8 +1328,7 @@ const PrayerTimes = () => {
   // Handle CSV import from URL param
   useEffect(() => {
     if (searchParams.get('import') === '1') {
-      const stored = sessionStorage.getItem('csv_import_payload');
-      if (stored) { setCsvPreload(stored); sessionStorage.removeItem('csv_import_payload'); setCsvModal(true); }
+      setCsvModal(true);
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
@@ -1766,7 +1424,7 @@ const PrayerTimes = () => {
     });
   }, [selectedYear, selectedMonth, schemaChecked, schemaError]);
 
-  // Load Eid prayers once on mount (permanent — no year filter)
+  // Load Eid prayers once on mount (permanent â€” no year filter)
   useEffect(() => {
     fetchEidPrayers().then(setEidPrayers);
   }, []);
@@ -1795,7 +1453,7 @@ const PrayerTimes = () => {
     };
   }, []);
 
-  // ── Auto-preview on offset or month/year change (1s debounce) ──────────────
+  // â”€â”€ Auto-preview on offset or month/year change (1s debounce) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (!offsetReady) return;
     const shouldAutoPreview = offsetChangedByUser || monthOverridesDirty || hijriMonthOverrides.size > 0;
@@ -1823,7 +1481,7 @@ const PrayerTimes = () => {
     };
   }, [hijriOffset, selectedYear, selectedMonth, offsetReady, offsetChangedByUser, monthOverridesDirty, hijriMonthOverrides, getHijriAdjustmentSnapshot, applyCurrentHijriAdjustments]);
 
-  // ── Manual preview helper (kept for clearPreview) ──────────────────────────
+  // â”€â”€ Manual preview helper (kept for clearPreview) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handlePreviewHijri = async () => {
     const adjustmentSnapshot = getHijriAdjustmentSnapshot();
     setPreviewLoading(true);
@@ -1835,7 +1493,7 @@ const PrayerTimes = () => {
       adjustedMap.forEach(({ hijri }, day) => preview.set(day, hijri));
       setPreviewHijri(preview);
       setPreviewOffset(adjustmentSnapshot.offset);
-      toast.success(`Preview ready — ${preview.size} days with current Hijri adjustments (offset ${adjustmentSnapshot.offset > 0 ? '+' : ''}${adjustmentSnapshot.offset}). Click "Fill Month" to save to DB.`);
+      toast.success(`Preview ready â€” ${preview.size} days with current Hijri adjustments (offset ${adjustmentSnapshot.offset > 0 ? '+' : ''}${adjustmentSnapshot.offset}). Click "Fill Month" to save to DB.`);
     } catch (e) {
       toast.error(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -1914,11 +1572,11 @@ const PrayerTimes = () => {
       if (next === prev) return prev;
       setOffsetChangedByUser(true);
       hijriOffsetRef.current = next;
-      // Debounce DB save — wait 800ms after last click before saving
+      // Debounce DB save â€” wait 800ms after last click before saving
       if (offsetDebounceRef.current) clearTimeout(offsetDebounceRef.current);
       if (offsetStatusTimerRef.current) clearTimeout(offsetStatusTimerRef.current);
       setOffsetStatus('saving');
-      setOffsetDirty(true); // flag that offset changed — DB data may be stale
+      setOffsetDirty(true); // flag that offset changed â€” DB data may be stale
       offsetDebounceRef.current = setTimeout(async () => {
         const { ok } = await saveOffsetToDb(next);
         setOffsetStatus(ok ? 'saved' : 'error');
@@ -1943,7 +1601,7 @@ const PrayerTimes = () => {
     });
   };
 
-  // ── Export Hijri CSV for selected year ─────────────────────────────────────
+  // â”€â”€ Export Hijri CSV for selected year â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleExportHijriCsv = async () => {
     setExportingCsv(true);
     try {
@@ -1994,7 +1652,7 @@ const PrayerTimes = () => {
     }
   };
 
-  // ── Fill Missing Only: Aladhan API → skips days already in hijri_calendar ─
+  // â”€â”€ Fill Missing Only: Aladhan API â†’ skips days already in hijri_calendar â”€
   // Uses monthly calendar endpoint (12 calls/year) for speed
   const handleFillMissingOnly = async () => {
     const adjustmentSnapshot = getHijriAdjustmentSnapshot();
@@ -2004,7 +1662,7 @@ const PrayerTimes = () => {
     const toastId = 'fill-missing-hijri';
 
     // Step 1: Fetch all existing entries for the year from DB
-    toast.loading(`Checking existing entries for ${selectedYear}…`, { id: toastId });
+    toast.loading(`Checking existing entries for ${selectedYear}â€¦`, { id: toastId });
     const { data: existing, error: existErr } = await supabaseAdmin
       .from('hijri_calendar')
       .select('gregorian_month, gregorian_day')
@@ -2033,7 +1691,7 @@ const PrayerTimes = () => {
 
     if (missingDays.length === 0) {
       toast.success(
-        `✓ All days for ${selectedYear} already exist in hijri_calendar — nothing to fill!`,
+        `âœ“ All days for ${selectedYear} already exist in hijri_calendar â€” nothing to fill!`,
         { id: toastId, duration: 5000 },
       );
       setPopulatingMissing(false);
@@ -2041,7 +1699,7 @@ const PrayerTimes = () => {
     }
 
     toast.loading(
-      `Skipping ${existingSet.size} existing · Fetching ${missingDays.length} missing days…`,
+      `Skipping ${existingSet.size} existing Â· Fetching ${missingDays.length} missing daysâ€¦`,
       { id: toastId },
     );
 
@@ -2060,7 +1718,7 @@ const PrayerTimes = () => {
     for (const [month, days] of Array.from(byMonth.entries()).sort((a, b) => a[0] - b[0])) {
       const monthName = MONTHS_SHORT[month - 1];
       setAllMonthsProgress(`${monthName} (${processedMonths + 1}/${byMonth.size} months)`);
-      toast.loading(`Fetching ${monthName} — ${days.length} missing days…`, { id: toastId });
+      toast.loading(`Fetching ${monthName} â€” ${days.length} missing daysâ€¦`, { id: toastId });
       try {
         const monthMap = await fetchHijriMonthFromApi(selectedYear, month, effectiveOffset);
         const adjustedMap = applyCurrentHijriAdjustments(monthMap, adjustmentSnapshot.overrides);
@@ -2080,7 +1738,7 @@ const PrayerTimes = () => {
         }
       } catch (e) {
         days.forEach(d => apiFailed.push(`${monthName} ${d}`));
-        console.error(`[Aladhan ✗] ${monthName}:`, e);
+        console.error(`[Aladhan âœ—] ${monthName}:`, e);
       }
       processedMonths++;
       if (processedMonths < byMonth.size) await new Promise((r) => setTimeout(r, 200));
@@ -2099,24 +1757,24 @@ const PrayerTimes = () => {
     }
 
     // Step 4: Save new entries to DB
-    toast.loading(`Saving ${newEntries.length} new dates to hijri_calendar…`, { id: toastId });
+    toast.loading(`Saving ${newEntries.length} new dates to hijri_calendarâ€¦`, { id: toastId });
     const { saved, errors } = await upsertHijriCalendarEntries(newEntries);
 
     if (errors.length > 0) {
       if (errors[0].includes('schema cache') || errors[0].includes('column')) {
         setSchemaError(errors[0]);
-        toast.error('DB schema error — see red banner.', { id: toastId, duration: 8000 });
+        toast.error('DB schema error â€” see red banner.', { id: toastId, duration: 8000 });
       } else {
         toast.error(`Saved ${saved} but ${errors.length} errors: ${errors[0]}`, { id: toastId, duration: 8000 });
       }
     } else if (apiFailed.length > 0) {
       toast.warning(
-        `✓ ${saved} new days saved · ${apiFailed.length} failed (API) · ${existingSet.size} already existed`,
+        `âœ“ ${saved} new days saved Â· ${apiFailed.length} failed (API) Â· ${existingSet.size} already existed`,
         { id: toastId, duration: 6000 },
       );
     } else {
       toast.success(
-        `✓ ${saved} missing days filled · ${existingSet.size} days already existed (skipped)`,
+        `âœ“ ${saved} missing days filled Â· ${existingSet.size} days already existed (skipped)`,
         { id: toastId, duration: 5000 },
       );
     }
@@ -2130,7 +1788,7 @@ const PrayerTimes = () => {
     setPopulatingMissing(false);
   };
 
-  // ── Fill All 12 Months: Aladhan API → hijri_calendar table ───────────────
+  // â”€â”€ Fill All 12 Months: Aladhan API â†’ hijri_calendar table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Uses gToHCalendar (1 call/month = 12 calls total instead of 365)
   const handlePopulateAllMonths = async () => {
     const adjustmentSnapshot = getHijriAdjustmentSnapshot();
@@ -2139,7 +1797,7 @@ const PrayerTimes = () => {
     setPopulatingAllMonths(true);
     const toastId = 'fill-all-hijri';
 
-    toast.loading(`Fetching all 12 months for ${selectedYear} (offset ${effectiveOffset > 0 ? '+' : ''}${effectiveOffset})…`, { id: toastId });
+    toast.loading(`Fetching all 12 months for ${selectedYear} (offset ${effectiveOffset > 0 ? '+' : ''}${effectiveOffset})â€¦`, { id: toastId });
 
     const allEntries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
     const apiFailed: string[] = [];
@@ -2148,7 +1806,7 @@ const PrayerTimes = () => {
       const monthName = MONTHS_SHORT[month - 1];
       const lastDay = new Date(selectedYear, month, 0).getDate();
       setAllMonthsProgress(`${monthName} (${month}/12)`);
-      toast.loading(`Fetching ${monthName} ${selectedYear}… (${month}/12)`, { id: toastId });
+      toast.loading(`Fetching ${monthName} ${selectedYear}â€¦ (${month}/12)`, { id: toastId });
       try {
         const monthMap = await fetchHijriMonthFromApi(selectedYear, month, effectiveOffset);
         const adjustedMap = applyCurrentHijriAdjustments(monthMap, adjustmentSnapshot.overrides);
@@ -2168,7 +1826,7 @@ const PrayerTimes = () => {
         }
       } catch (e) {
         // fall back to per-day on API error for this month
-        console.error(`[Aladhan Calendar ✗] ${monthName}:`, e);
+        console.error(`[Aladhan Calendar âœ—] ${monthName}:`, e);
         apiFailed.push(`${monthName} (whole month)`);
       }
       // Small pause between months to avoid rate limiting
@@ -2176,24 +1834,24 @@ const PrayerTimes = () => {
     }
 
     if (apiFailed.length > 0) {
-      toast.loading(`API: ${allEntries.length} OK, ${apiFailed.length} failed. Saving…`, { id: toastId });
+      toast.loading(`API: ${allEntries.length} OK, ${apiFailed.length} failed. Savingâ€¦`, { id: toastId });
     }
 
-    toast.loading(`Saving ${allEntries.length} dates to hijri_calendar table…`, { id: toastId });
+    toast.loading(`Saving ${allEntries.length} dates to hijri_calendar tableâ€¦`, { id: toastId });
     const { saved, errors } = await upsertHijriCalendarEntries(allEntries);
 
     if (errors.length > 0) {
-      // Schema error — show banner
+      // Schema error â€” show banner
       if (errors[0].includes('schema cache') || errors[0].includes('column')) {
         setSchemaError(errors[0]);
-        toast.error('DB schema error — see the red banner for the SQL fix.', { id: toastId, duration: 8000 });
+        toast.error('DB schema error â€” see the red banner for the SQL fix.', { id: toastId, duration: 8000 });
       } else {
         toast.error(`Saved ${saved} days but ${errors.length} DB error(s): ${errors[0]}`, { id: toastId, duration: 8000 });
       }
     } else if (apiFailed.length > 0) {
-      toast.warning(`${saved} days saved · ${apiFailed.length} days skipped (API failure)`, { id: toastId, duration: 6000 });
+      toast.warning(`${saved} days saved Â· ${apiFailed.length} days skipped (API failure)`, { id: toastId, duration: 6000 });
     } else {
-      toast.success(`✓ All ${saved} days saved to hijri_calendar for all 12 months of ${selectedYear}`, { id: toastId, duration: 5000 });
+      toast.success(`âœ“ All ${saved} days saved to hijri_calendar for all 12 months of ${selectedYear}`, { id: toastId, duration: 5000 });
     }
 
     const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
@@ -2205,7 +1863,7 @@ const PrayerTimes = () => {
     setPopulatingAllMonths(false);
   };
 
-  // ── Fill Dates: Aladhan API → hijri_calendar table (single month, batch call) ─
+  // â”€â”€ Fill Dates: Aladhan API â†’ hijri_calendar table (single month, batch call) â”€
   const handlePopulateHijriDates = async () => {
     const adjustmentSnapshot = getHijriAdjustmentSnapshot();
     const effectiveOffset = adjustmentSnapshot.offset;
@@ -2216,7 +1874,7 @@ const PrayerTimes = () => {
     const toastId = 'fill-hijri';
     const monthName = MONTHS_FULL[selectedMonth - 1];
 
-    toast.loading(`Fetching ${monthName} from Aladhan API…`, { id: toastId });
+    toast.loading(`Fetching ${monthName} from Aladhan APIâ€¦`, { id: toastId });
 
     let monthMap: Map<number, { hijri: string; gregorian: string }>;
     try {
@@ -2250,18 +1908,18 @@ const PrayerTimes = () => {
       toast.warning(`Missing ${apiFailed.length} days from API: ${apiFailed.join(', ')}`, { id: toastId, duration: 5000 });
     }
 
-    toast.loading(`Saving ${resolved.length} dates to hijri_calendar…`, { id: toastId });
+    toast.loading(`Saving ${resolved.length} dates to hijri_calendarâ€¦`, { id: toastId });
     const { saved, errors } = await upsertHijriCalendarEntries(resolved);
 
     if (errors.length > 0) {
       if (errors[0].includes('schema cache') || errors[0].includes('column')) {
         setSchemaError(errors[0]);
-        toast.error('DB schema error — see the red banner for the SQL fix.', { id: toastId, duration: 8000 });
+        toast.error('DB schema error â€” see the red banner for the SQL fix.', { id: toastId, duration: 8000 });
       } else {
         toast.error(`${errors.length} DB write(s) failed: ${errors[0]}`, { id: toastId, duration: 8000 });
       }
     } else {
-      toast.success(`✓ ${saved} days saved to hijri_calendar for ${monthName}`, { id: toastId, duration: 4000 });
+      toast.success(`âœ“ ${saved} days saved to hijri_calendar for ${monthName}`, { id: toastId, duration: 4000 });
       const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
       setHijriCalendar(updated);
       setLoadedOffset(effectiveOffset);
@@ -2275,29 +1933,6 @@ const PrayerTimes = () => {
     queryKey: ['prayer_times', selectedMonth],
     queryFn: () => fetchPrayerTimes(selectedMonth),
     staleTime: 30_000,
-  });
-
-  const {
-    data: islamicEvents = [],
-    isLoading: islamicEventsLoading,
-    refetch: refetchIslamicEvents,
-  } = useQuery({
-    queryKey: ['islamic_calendar_events', selectedYear, selectedMonth],
-    queryFn: () => fetchIslamicCalendarEvents({ year: selectedYear, month: selectedMonth }),
-    staleTime: 30_000,
-  });
-
-  const {
-    data: announcements = [],
-    isLoading: announcementsLoading,
-    refetch: refetchAnnouncements,
-    isFetching: announcementsFetching,
-  } = useQuery<Announcement[]>({
-    queryKey: ['announcements'],
-    queryFn: fetchAnnouncements,
-    staleTime: 15_000,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
   });
 
   const editablePrayerKeys: (keyof PrayerTimeUpdate)[] = [
@@ -2423,363 +2058,11 @@ const PrayerTimes = () => {
     });
   }, [queryClient]);
 
-  const importantDateEvents = useMemo(
-    () => islamicEvents.filter((event) => event.event_type === 'important_date'),
-    [islamicEvents],
-  );
-
-  const masjidEvents = useMemo<CalendarMasjidEvent[]>(
-    () => announcements
-      .filter((item) => item.is_active)
-      .filter(isAnnouncementEvent)
-      .flatMap((item) => {
-        const occurrenceDates = resolveAnnouncementOccurrenceDatesForMonth(item, selectedYear, selectedMonth);
-        return occurrenceDates.map((isoDate) => ({
-          id: `${item.id}-${isoDate}`,
-          title: item.title,
-          type: item.type ?? null,
-          leadNames: item.lead_names ?? null,
-          startTime: item.start_time ?? null,
-          linkedGregorianDate: isoDate,
-        }));
-      })
-      .sort((a, b) => a.linkedGregorianDate.localeCompare(b.linkedGregorianDate) || a.title.localeCompare(b.title)),
-    [announcements, selectedMonth, selectedYear],
-  );
-
   const refreshPrayerPageData = useCallback(async () => {
-    await Promise.all([
-      refetch(),
-      refetchIslamicEvents(),
-      refetchAnnouncements(),
-    ]);
-  }, [refetch, refetchAnnouncements, refetchIslamicEvents]);
+    await refetch();
+  }, [refetch]);
 
-  const isRefreshingAnyData = isFetching || announcementsFetching;
-
-  useEffect(() => {
-    if (!editingIslamicEvent) return;
-    setIslamicEventForm({
-      title: editingIslamicEvent.title,
-      eventType: editingIslamicEvent.event_type,
-      fieldLabel: editingIslamicEvent.field_label ?? '',
-      region: editingIslamicEvent.region ?? '',
-      notes: editingIslamicEvent.notes ?? '',
-      linkedGregorianDate: normalizeUiDateToIso(editingIslamicEvent.linked_gregorian_date ?? ''),
-    });
-  }, [editingIslamicEvent]);
-
-  useEffect(() => {
-    if (editingIslamicEvent || islamicEventModalOpen) return;
-    setIslamicEventForm(buildDefaultIslamicEventForm(selectedYear, selectedMonth));
-  }, [selectedYear, selectedMonth, islamicEventModalOpen, editingIslamicEvent]);
-
-  const openCreateIslamicEventModal = () => {
-    setEditingIslamicEvent(null);
-    setIslamicEventForm({
-      ...buildDefaultIslamicEventForm(selectedYear, selectedMonth),
-      eventType: 'important_date',
-    });
-    setIslamicEventModalOpen(true);
-  };
-
-  const openEditIslamicEventModal = (event: IslamicCalendarEvent) => {
-    setEditingIslamicEvent(event);
-    setIslamicEventModalOpen(true);
-  };
-
-  const closeIslamicEventModal = () => {
-    setIslamicEventModalOpen(false);
-    setEditingIslamicEvent(null);
-    setIslamicEventForm(buildDefaultIslamicEventForm(selectedYear, selectedMonth));
-  };
-
-  const resolveHijriPartsFromGregorianDate = useCallback((gregorianIso: string): HijriParts | null => {
-    const normalizedDate = normalizeUiDateToIso(gregorianIso);
-    const match = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return null;
-
-    const y = parseInt(match[1], 10);
-    const m = parseInt(match[2], 10);
-    const d = parseInt(match[3], 10);
-    if (y !== selectedYear || m !== selectedMonth) return null;
-
-    const hijri = hijriCalendar.get(d)?.hijri_date;
-    if (!hijri) return null;
-
-    return parseHijriDate(hijri);
-  }, [hijriCalendar, selectedMonth, selectedYear]);
-
-  const handleSaveIslamicEvent = async () => {
-    if (!canEdit) {
-      toast.error('Your role is read-only for this section.');
-      return;
-    }
-
-    const title = islamicEventForm.title.trim();
-    if (!title) {
-      toast.error('Event name is required.');
-      return;
-    }
-
-    const hijriParts = resolveHijriPartsFromGregorianDate(islamicEventForm.linkedGregorianDate);
-    if (!hijriParts) {
-      toast.error('Linked date must be in the selected month with a saved Hijri value. Fill Hijri dates first if needed.');
-      return;
-    }
-
-    setIslamicEventSaving(true);
-    try {
-      const payload = {
-        title,
-        event_type: 'important_date' as const,
-        field_label: islamicEventForm.fieldLabel.trim() || null,
-        region: islamicEventForm.region.trim() || null,
-        notes: islamicEventForm.notes.trim() || null,
-        source_name: editingIslamicEvent?.source_name ?? 'portal-manual',
-        linked_hijri_day: hijriParts.day,
-        linked_hijri_month: hijriParts.month,
-        linked_hijri_year: 0,
-        linked_hijri_label: null,
-        linked_gregorian_date: normalizeUiDateToIso(islamicEventForm.linkedGregorianDate),
-        original_hijri_year: editingIslamicEvent?.original_hijri_year ?? hijriParts.year,
-        auto_delete_grace_days: 0,
-      };
-
-      if (editingIslamicEvent) {
-        await updateIslamicCalendarEvent(editingIslamicEvent.id, payload);
-        toast.success('Islamic calendar event updated.');
-      } else {
-        await createIslamicCalendarEvent(payload);
-        toast.success('Islamic calendar event created.');
-      }
-
-      await refetchIslamicEvents();
-      closeIslamicEventModal();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save event.');
-    } finally {
-      setIslamicEventSaving(false);
-    }
-  };
-
-  const handleDeleteIslamicEvent = async (event: IslamicCalendarEvent) => {
-    if (!canDelete) {
-      toast.error('Only admin can delete events.');
-      return;
-    }
-
-    const shouldDelete = window.confirm(`Delete "${event.title}"? This removes it immediately.`);
-    if (!shouldDelete) return;
-
-    try {
-      await deleteIslamicCalendarEvent(event.id);
-      toast.success('Islamic calendar event deleted.');
-      await refetchIslamicEvents();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to delete event.');
-    }
-  };
-
-  const handleImportIslamicSeed = async () => {
-    if (!canEdit) {
-      toast.error('Your role is read-only for import.');
-      return;
-    }
-
-    setSeedImporting(true);
-    try {
-      const baseUrl = import.meta.env.BASE_URL ?? '/';
-      const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-      const baseSeedUrl = `${normalizedBaseUrl}islamic-calendar-seed.txt`;
-      const candidateSeedUrls = Array.from(new Set([baseSeedUrl, '/islamic-calendar-seed.txt']));
-
-      let response: Response | null = null;
-      let lastStatus: number | null = null;
-      let lastNetworkError: string | null = null;
-
-      for (const url of candidateSeedUrls) {
-        try {
-          const result = await fetch(url, { cache: 'no-store' });
-          if (result.ok) {
-            response = result;
-            break;
-          }
-          lastStatus = result.status;
-        } catch (error) {
-          lastNetworkError = error instanceof Error ? error.message : String(error);
-        }
-      }
-
-      if (!response) {
-        if (lastNetworkError) {
-          throw new Error(
-            `Seed file network request failed (${lastNetworkError}). Tried: ${candidateSeedUrls.join(', ')}`,
-          );
-        }
-        throw new Error(
-          `Seed file request failed${lastStatus ? ` (${lastStatus})` : ''}. Tried: ${candidateSeedUrls.join(', ')}`,
-        );
-      }
-
-      const seedText = await response.text();
-      const { rows, skipped } = parseIslamicSeedText(seedText);
-      if (rows.length === 0) {
-        throw new Error('Seed file contains no importable rows.');
-      }
-
-      const activeHijriYear = parseHijriDate(todayHijriBase)?.year ?? parseHijriDate(hijriCalendar.get(1)?.hijri_date ?? '')?.year;
-      if (!activeHijriYear) {
-        throw new Error('Could not determine active Hijri year. Fill Hijri data first.');
-      }
-
-      const lookupRows = await fetchHijriCalendarForHijriYear(activeHijriYear);
-      const hijriDayMonthMap = new Map<string, HijriCalendarLookupRow>();
-
-      for (const lookupRow of lookupRows) {
-        const parsed = parseHijriDate(lookupRow.hijri_date);
-        if (!parsed || parsed.year !== activeHijriYear) continue;
-        const key = hijriDayMonthKey(parsed.day, parsed.month);
-        if (!hijriDayMonthMap.has(key)) {
-          hijriDayMonthMap.set(key, lookupRow);
-        }
-      }
-
-      const requiredKeys = new Set(rows.map((row) => hijriDayMonthKey(row.hijriDay, row.hijriMonth)));
-      const missingKeys = new Set(Array.from(requiredKeys).filter((key) => !hijriDayMonthMap.has(key)));
-
-      let fallbackResolved = 0;
-      if (missingKeys.size > 0) {
-        const adjustmentSnapshot = getHijriAdjustmentSnapshot();
-        const candidateYears = [selectedYear, selectedYear - 1, selectedYear + 1];
-
-        for (const candidateYear of candidateYears) {
-          if (missingKeys.size === 0) break;
-
-          for (let candidateMonth = 1; candidateMonth <= 12; candidateMonth += 1) {
-            if (missingKeys.size === 0) break;
-
-            try {
-              const apiMonthMap = await fetchHijriMonthFromApi(candidateYear, candidateMonth, adjustmentSnapshot.offset);
-              const adjustedMonthMap = applyCurrentHijriAdjustments(apiMonthMap, adjustmentSnapshot.overrides);
-
-              adjustedMonthMap.forEach((entry) => {
-                if (missingKeys.size === 0) return;
-
-                const parsed = parseHijriDate(entry.hijri);
-                if (!parsed || parsed.year !== activeHijriYear) return;
-
-                const key = hijriDayMonthKey(parsed.day, parsed.month);
-                if (!missingKeys.has(key) || hijriDayMonthMap.has(key)) return;
-
-                const iso = normalizeUiDateToIso(entry.gregorian);
-                const dateParts = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-                if (!dateParts) return;
-
-                hijriDayMonthMap.set(key, {
-                  gregorian_year: parseInt(dateParts[1], 10),
-                  gregorian_month: parseInt(dateParts[2], 10),
-                  gregorian_day: parseInt(dateParts[3], 10),
-                  gregorian_date: iso,
-                  hijri_date: formatHijriDate(parsed),
-                });
-
-                missingKeys.delete(key);
-                fallbackResolved += 1;
-              });
-            } catch (error) {
-              console.warn(
-                `[Islamic seed import] fallback map failed for ${candidateYear}-${candidateMonth}:`,
-                error,
-              );
-            }
-          }
-        }
-      }
-
-      const payload: Array<Record<string, unknown>> = [];
-      let unresolved = 0;
-      let adjustedTo29 = 0;
-
-      for (const row of rows) {
-        const key = hijriDayMonthKey(row.hijriDay, row.hijriMonth);
-        let lookup = hijriDayMonthMap.get(key);
-        let linkedDay = row.hijriDay;
-        let dayAdjustmentNote: string | null = null;
-
-        if (!lookup && row.hijriDay === 30) {
-          const fallbackKey = hijriDayMonthKey(29, row.hijriMonth);
-          const fallbackLookup = hijriDayMonthMap.get(fallbackKey);
-          if (fallbackLookup) {
-            lookup = fallbackLookup;
-            linkedDay = 29;
-            adjustedTo29 += 1;
-            dayAdjustmentNote = 'Adjusted from day 30 to day 29 because this Hijri month is 29 days in the active year.';
-          }
-        }
-
-        if (!lookup) {
-          unresolved += 1;
-          continue;
-        }
-
-        const linkedHijri = {
-          day: linkedDay,
-          month: row.hijriMonth,
-          year: activeHijriYear,
-        };
-
-        const sourceNotes = [
-          row.notes,
-          dayAdjustmentNote,
-          `Original Hijri year: ${row.originalHijriYear} AH`,
-        ].filter(Boolean).join(' | ');
-
-        payload.push({
-          title: row.title,
-          event_type: 'important_date',
-          field_label: row.fieldLabel,
-          region: row.region || null,
-          notes: sourceNotes || null,
-          source_name: 'islamic-calendar-seed',
-          linked_hijri_day: linkedHijri.day,
-          linked_hijri_month: linkedHijri.month,
-          linked_hijri_year: 0,
-          linked_hijri_label: null,
-          linked_gregorian_date: toIsoGregorianDate(lookup),
-          original_hijri_year: row.originalHijriYear,
-          auto_delete_grace_days: 0,
-        });
-      }
-
-      if (payload.length === 0) {
-        throw new Error('No rows could be linked to current Hijri year in hijri_calendar.');
-      }
-
-      const upserted = await upsertIslamicCalendarEvents(payload);
-      await refetchIslamicEvents();
-
-      const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-`;
-      const currentMonthVisible = upserted.filter((event) => {
-        const iso = normalizeUiDateToIso(event.linked_gregorian_date ?? '');
-        return iso.startsWith(monthPrefix);
-      }).length;
-
-      toast.success(
-        `Imported/updated ${upserted.length} Islamic calendar event(s) for ${activeHijriYear} AH. ` +
-        `${currentMonthVisible} visible in ${MONTHS_FULL[selectedMonth - 1]} ${selectedYear} (this month only).`,
-      );
-      if (skipped > 0 || unresolved > 0) {
-        const fallbackNote = fallbackResolved > 0 ? ` Resolved ${fallbackResolved} row(s) via API fallback.` : '';
-        const adjustedNote = adjustedTo29 > 0 ? ` Adjusted ${adjustedTo29} day-30 row(s) to day 29 for this year.` : '';
-        toast.warning(`Skipped ${skipped} unparsable row(s); ${unresolved} row(s) could not be linked to Gregorian dates.${fallbackNote}${adjustedNote}`);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Seed import failed.');
-    } finally {
-      setSeedImporting(false);
-    }
-  };
+  const isRefreshingAnyData = isFetching;
 
   const monthHasBSTChange = (m: number) => m === 3 || m === 10;
   const isBstMonth = isBST(selectedYear, selectedMonth, 15);
@@ -2792,9 +2075,6 @@ const PrayerTimes = () => {
       }).length
     : 0;
   const hasPendingPreview = previewHijri.size > 0 && previewDiffCount > 0;
-  const monthStartIso = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-  const monthEndIso = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(new Date(selectedYear, selectedMonth, 0).getDate()).padStart(2, '0')}`;
-  const formHijriPreview = resolveHijriPartsFromGregorianDate(islamicEventForm.linkedGregorianDate);
 
   const goToPrevMonth = () => {
     if (selectedMonth === 1) {
@@ -2815,11 +2095,11 @@ const PrayerTimes = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="flex-1 flex flex-col min-w-0 pt-14 md:pt-0 overflow-x-hidden">
 
-        {/* ── Page Banner ── */}
+        {/* â”€â”€ Page Banner â”€â”€ */}
         <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-0">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-5">
             <div className="flex items-center gap-3">
@@ -2827,16 +2107,16 @@ const PrayerTimes = () => {
                 <CalendarDays size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-[hsl(150_30%_12%)]">Prayer Times</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Prayer Times</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {MONTHS_FULL[selectedMonth - 1]} {selectedYear} · {data?.length ?? 0} days ·{' '}
+                  {MONTHS_FULL[selectedMonth - 1]} {selectedYear} Â· {data?.length ?? 0} days Â·{' '}
                   {isBstMonth
                     ? <span className="font-semibold text-[hsl(142_60%_32%)]">BST (UTC+1)</span>
                     : <span className="font-medium text-slate-500">GMT (UTC+0)</span>}
-                  {monthHasBSTChange(selectedMonth) && <span className="ml-2 text-amber-600 font-medium">⚡ Clock change</span>}
-                  {hijriLoading && <span className="ml-2 text-[#7c3aed]">· loading Hijri…</span>}
+                  {monthHasBSTChange(selectedMonth) && <span className="ml-2 text-amber-600 font-medium">âš¡ Clock change</span>}
+                  {hijriLoading && <span className="ml-2 text-[#7c3aed]">Â· loading Hijriâ€¦</span>}
                   {!hijriLoading && hijriCalendar.size > 0 && (
-                    <span className="ml-2 text-[#7c3aed]">· {hijriCalendar.size} Hijri dates</span>
+                    <span className="ml-2 text-[#7c3aed]">Â· {hijriCalendar.size} Hijri dates</span>
                   )}
                 </p>
               </div>
@@ -2864,7 +2144,7 @@ const PrayerTimes = () => {
                     <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mr-1">Offset</span>
                     <button onClick={() => changeOffset(-1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-[hsl(270_40%_96%)] transition-colors"><Minus size={10} /></button>
                     <span className={`text-xs font-bold tabular-nums w-8 text-center ${hijriOffset === 0 ? 'text-muted-foreground' : hijriOffset > 0 ? 'text-emerald-600' : 'text-orange-500'}`}>
-                      {hijriOffset > 0 ? `+${hijriOffset}` : hijriOffset === 0 ? '±0' : hijriOffset}
+                      {hijriOffset > 0 ? `+${hijriOffset}` : hijriOffset === 0 ? 'Â±0' : hijriOffset}
                     </span>
                     <button onClick={() => changeOffset(1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-[hsl(270_40%_96%)] transition-colors"><Plus size={10} /></button>
                     {hijriOffset !== 0 && (
@@ -2889,7 +2169,7 @@ const PrayerTimes = () => {
                     )}
                   </div>
                   <div className="text-[9px] font-medium text-[#7c3aed]/75 leading-tight pl-[2px]">
-                    Today (no offset): {todayHijriLoading ? 'Loading…' : (todayHijriBase || 'Unavailable')}
+                    Today (no offset): {todayHijriLoading ? 'Loadingâ€¦' : (todayHijriBase || 'Unavailable')}
                   </div>
                 </div>
 
@@ -2925,7 +2205,7 @@ const PrayerTimes = () => {
                       onClick={handleFillMissingOnly}
                       disabled={populatingMissing || populatingAllMonths || populatingHijri || !!schemaError}
                     >
-                      <Zap size={14} className="mr-2" /> {populatingMissing ? 'Filling Missing…' : 'Fill Missing Days'}
+                      <Zap size={14} className="mr-2" /> {populatingMissing ? 'Filling Missingâ€¦' : 'Fill Missing Days'}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setMonthLengthModal(true)}
@@ -3000,12 +2280,6 @@ const PrayerTimes = () => {
                     Show Legend
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem
-                    checked={showSolarCard}
-                    onCheckedChange={(checked) => setShowSolarCard(checked === true)}
-                  >
-                    Show Today's Solar Times
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
                     checked={showPreviewHint}
                     onCheckedChange={(checked) => setShowPreviewHint(checked === true)}
                   >
@@ -3017,8 +2291,8 @@ const PrayerTimes = () => {
               {/* Hijri-adjustment warning */}
               {hijriAdjustmentsDirty && hijriCalendar.size > 0 && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 animate-pulse">
-                  <span className="text-[11px]">⚠️</span>
-                  <span className="text-[10px] font-semibold">Hijri adjustments changed (offset/month lengths) — click <strong>Fill Month</strong> or <strong>Fill All {selectedYear}</strong> to apply updates to DB</span>
+                  <span className="text-[11px]">âš ï¸</span>
+                  <span className="text-[10px] font-semibold">Hijri adjustments changed (offset/month lengths) â€” click <strong>Fill Month</strong> or <strong>Fill All {selectedYear}</strong> to apply updates to DB</span>
                 </div>
               )}
 
@@ -3100,7 +2374,7 @@ const PrayerTimes = () => {
                   className={`relative px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${active ? 'border-transparent text-white shadow-sm' : 'border-[hsl(140_20%_88%)] bg-white text-muted-foreground hover:text-foreground hover:border-[hsl(142_50%_75%)]'}`}
                   style={active ? { background: 'hsl(var(--primary))' } : {}}>
                   {abbr}
-                  {hasClock && <span className="absolute -top-1 -right-1 text-[9px]">⚡</span>}
+                  {hasClock && <span className="absolute -top-1 -right-1 text-[9px]">âš¡</span>}
                   {isCurrent && !active && <span className="ml-1 inline-block w-1 h-1 rounded-full bg-[hsl(142_60%_35%)] align-middle" />}
                 </button>
               );
@@ -3141,7 +2415,7 @@ const PrayerTimes = () => {
           {isLoading && (
             <div className="flex items-center justify-center h-64 gap-3 text-muted-foreground">
               <Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" />
-              <span className="text-sm">Loading prayer times…</span>
+              <span className="text-sm">Loading prayer timesâ€¦</span>
             </div>
           )}
           {isError && (
@@ -3151,129 +2425,20 @@ const PrayerTimes = () => {
           )}
           {!isLoading && !isError && data && (
             <>
-              <div className="mb-3 rounded-xl border border-[hsl(140_20%_88%)] bg-white p-3 sm:p-4">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div>
-                    <p className="text-sm font-bold text-[hsl(150_30%_14%)]">Islamic Calendar Events</p>
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      Important Islamic dates are linked to exact Hijri + Gregorian dates and shown only for the selected month/year. Masjid events come from Announcements entries tagged as Event.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={openCreateIslamicEventModal}
-                      disabled={!canEdit}
-                    >
-                      Add Important Date
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => navigate('/announcements')}
-                    >
-                      Manage Event Announcements
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleImportIslamicSeed}
-                      disabled={!canEdit || seedImporting || todayHijriLoading}
-                      className="gap-2"
-                    >
-                      {seedImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                      {seedImporting ? 'Importing…' : 'Import Seed List'}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">Important Islamic Dates (This Month)</p>
-                      <span className="text-[11px] font-semibold text-amber-700">{importantDateEvents.length}</span>
-                    </div>
-                    <p className="mt-1 text-[10px] text-amber-700/90">
-                      Showing {MONTHS_FULL[selectedMonth - 1]} {selectedYear} only.
-                    </p>
-                    {islamicEventsLoading ? (
-                      <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Loading…</div>
-                    ) : importantDateEvents.length === 0 ? (
-                      <p className="mt-2 text-xs text-muted-foreground">No linked important Islamic dates for this month.</p>
-                    ) : (
-                      <div className="mt-2 space-y-2 max-h-60 overflow-y-auto pr-1">
-                        {importantDateEvents.map((event) => (
-                          <div key={event.id} className="rounded-md border border-amber-200 bg-white p-2 flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-xs font-semibold text-[hsl(150_30%_14%)] truncate">{event.title}</p>
-                              <p className="text-[11px] text-muted-foreground mt-0.5">{event.linked_hijri_label ?? `${event.linked_hijri_day}/${event.linked_hijri_month}`} • {normalizeUiDateToIso(event.linked_gregorian_date ?? '') || 'dynamic by month'}</p>
-                              {(event.field_label || event.region) ? (
-                                <p className="text-[11px] text-muted-foreground mt-0.5">{[event.field_label, event.region].filter(Boolean).join(' • ')}</p>
-                              ) : null}
-                            </div>
-                            {canEdit ? (
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button onClick={() => openEditIslamicEventModal(event)} className="text-[11px] font-semibold text-[hsl(142_60%_35%)] hover:underline">Edit</button>
-                                {canDelete ? (
-                                  <button onClick={() => handleDeleteIslamicEvent(event)} className="text-[11px] font-semibold text-red-600 hover:underline">Delete</button>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-bold text-emerald-800 uppercase tracking-wide">Masjid Events</p>
-                      <span className="text-[11px] font-semibold text-emerald-700">{masjidEvents.length}</span>
-                    </div>
-                    {announcementsLoading ? (
-                      <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Loading…</div>
-                    ) : masjidEvents.length === 0 ? (
-                      <p className="mt-2 text-xs text-muted-foreground">No Event-tagged announcements for this month.</p>
-                    ) : (
-                      <div className="mt-2 space-y-2 max-h-60 overflow-y-auto pr-1">
-                        {masjidEvents.map((event) => {
-                          const displayDate = formatGregorianDateForMasjidCard(event.linkedGregorianDate);
-                          return (
-                            <div key={event.id} className="rounded-md border border-emerald-200 bg-white p-2">
-                              <div className="min-w-0">
-                                <p className="text-xs font-semibold text-[hsl(150_30%_14%)] truncate">{event.title}</p>
-                                <p className="text-[11px] mt-0.5">
-                                  <span className="font-bold text-emerald-700">{displayDate.day}</span>
-                                  {displayDate.month ? <span className="mx-1 text-muted-foreground">•</span> : null}
-                                  {displayDate.month ? <span className="font-semibold text-amber-700">{displayDate.month}</span> : null}
-                                  {displayDate.year ? <span className="ml-1 text-muted-foreground">{displayDate.year}</span> : null}
-                                </p>
-                                {(event.type || event.leadNames || event.startTime) ? (
-                                  <p className="text-[11px] text-muted-foreground mt-0.5">{[event.type, event.leadNames, event.startTime].filter(Boolean).join(' • ')}</p>
-                                ) : null}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
               {/* Preview banner — auto-shown on offset change */}
+              {/* Preview banner â€” auto-shown on offset change */}
               {(previewHijri.size > 0 || previewLoading) && showPreviewHint && (
                 <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border border-[#7c3aed]/25 bg-[hsl(270_30%_98%)]">
                   {previewLoading
                     ? <Loader2 size={13} className="animate-spin text-[#7c3aed] shrink-0" />
-                    : <span className="text-sm shrink-0">👁</span>}
+                    : <span className="text-sm shrink-0">ðŸ‘</span>}
                   <span className="text-xs font-semibold text-[#7c3aed]">
                     {previewLoading
-                      ? `Auto-previewing offset ${hijriOffset > 0 ? '+' : ''}${hijriOffset}…`
-                      : `DB → Preview active for ${previewHijri.size} day(s) · ${previewDiffCount} day(s) will change`}
+                      ? `Auto-previewing offset ${hijriOffset > 0 ? '+' : ''}${hijriOffset}â€¦`
+                      : `DB â†’ Preview active for ${previewHijri.size} day(s) Â· ${previewDiffCount} day(s) will change`}
                   </span>
                   {!previewLoading && (
-                    <button onClick={clearPreview} className="ml-auto text-[10px] font-medium text-[#7c3aed]/60 hover:text-[#7c3aed] transition-colors">✕ Clear</button>
+                    <button onClick={clearPreview} className="ml-auto text-[10px] font-medium text-[#7c3aed]/60 hover:text-[#7c3aed] transition-colors">âœ• Clear</button>
                   )}
                 </div>
               )}
@@ -3290,23 +2455,6 @@ const PrayerTimes = () => {
                 highlightDay={highlightDay}
               />
 
-              {showSolarCard && selectedYear === CURRENT_YEAR && selectedMonth === CURRENT_MONTH && (() => {
-                const today = new Date().getDate();
-                const todayRow = visibleData.find((r) => r.day === today);
-                if (!todayRow) return null;
-                return (
-                  <div className="mt-4 max-w-2xl">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 px-1">
-                      Today's Solar Times
-                    </p>
-                    <SolarTimesCard
-                      sunrise={todayRow.sunrise ?? null}
-                      ishraq={todayRow.ishraq ?? null}
-                      zawaal={todayRow.zawaal ?? null}
-                    />
-                  </div>
-                );
-              })()}
             </>
           )}
         </div>
@@ -3326,7 +2474,7 @@ const PrayerTimes = () => {
                   className="gap-2"
                 >
                   {populatingHijri ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
-                  {populatingHijri ? 'Applying Hijri…' : `Apply Hijri (${offsetLabel})`}
+                  {populatingHijri ? 'Applying Hijriâ€¦' : `Apply Hijri (${offsetLabel})`}
                 </Button>
               </div>
             </div>
@@ -3345,93 +2493,13 @@ const PrayerTimes = () => {
                 </Button>
                 <Button size="sm" onClick={handleSavePendingPrayerChanges} disabled={savingPendingPrayerChanges} className="gap-2">
                   {savingPendingPrayerChanges ? <Loader2 size={14} className="animate-spin" /> : null}
-                  {savingPendingPrayerChanges ? 'Saving Changes…' : 'Save Changes'}
+                  {savingPendingPrayerChanges ? 'Saving Changesâ€¦' : 'Save Changes'}
                 </Button>
               </div>
             </div>
           </div>
         )}
       </main>
-
-      <Dialog open={islamicEventModalOpen} onOpenChange={closeIslamicEventModal}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">
-              {editingIslamicEvent ? 'Edit Important Date Event' : 'Add Important Date Event'}
-            </DialogTitle>
-            <p className="text-xs text-muted-foreground pt-1">
-              Event will link to this month&apos;s Hijri mapping and auto-delete 3 days after date completion.
-            </p>
-          </DialogHeader>
-
-          <div className="grid grid-cols-1 gap-3">
-            <div>
-              <Label className="text-xs text-muted-foreground">Event Name</Label>
-              <Input
-                value={islamicEventForm.title}
-                onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, title: e.target.value }))}
-                placeholder="e.g. Urs of Imam al-Nawawi"
-                className="mt-1 h-9"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs text-muted-foreground">Field</Label>
-                <Input
-                  value={islamicEventForm.fieldLabel}
-                  onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, fieldLabel: e.target.value }))}
-                  placeholder="Scholar / Category"
-                  className="mt-1 h-9"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Region</Label>
-                <Input
-                  value={islamicEventForm.region}
-                  onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, region: e.target.value }))}
-                  placeholder="Madinah / Damascus"
-                  className="mt-1 h-9"
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs text-muted-foreground">Linked Gregorian Date ({MONTHS_FULL[selectedMonth - 1]} {selectedYear})</Label>
-              <Input
-                type="date"
-                min={monthStartIso}
-                max={monthEndIso}
-                value={normalizeUiDateToIso(islamicEventForm.linkedGregorianDate)}
-                onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, linkedGregorianDate: e.target.value }))}
-                className="mt-1 h-9"
-              />
-              <p className="text-[11px] text-muted-foreground mt-1">
-                {formHijriPreview ? `Linked Hijri: ${formatHijriDate(formHijriPreview)}` : 'No Hijri mapping found for this date. Use Fill Hijri first.'}
-              </p>
-            </div>
-
-            <div>
-              <Label className="text-xs text-muted-foreground">Notes</Label>
-              <textarea
-                value={islamicEventForm.notes}
-                onChange={(e) => setIslamicEventForm((prev) => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-                placeholder="Optional reference or context"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2 pt-2">
-            <Button variant="outline" onClick={closeIslamicEventModal} disabled={islamicEventSaving}>Cancel</Button>
-            <Button onClick={handleSaveIslamicEvent} disabled={islamicEventSaving || !canEdit} className="gap-2">
-              {islamicEventSaving ? <Loader2 size={14} className="animate-spin" /> : null}
-              {islamicEventSaving ? 'Saving…' : (editingIslamicEvent ? 'Save Changes' : 'Create Event')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <JumuahYearModal open={jumuahModal} onClose={() => setJumuahModal(false)} year={selectedYear} queryClient={queryClient} />
       <HijriMonthLengthModal
@@ -3466,12 +2534,11 @@ const PrayerTimes = () => {
       />
       <CsvImportModal
         open={csvModal}
-        onClose={() => { setCsvModal(false); setCsvPreload(undefined); }}
+        onClose={() => setCsvModal(false)}
         month={selectedMonth}
         monthName={MONTHS_FULL[selectedMonth - 1]}
         year={selectedYear}
         onImported={handleCsvImported}
-        preloadedCsv={csvPreload}
       />
     </div>
   );

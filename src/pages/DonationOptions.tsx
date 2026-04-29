@@ -382,14 +382,14 @@ const DonationOptions = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
 
       <main className="flex-1 min-w-0 pt-14 md:pt-0">
         <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-bold text-[hsl(150_30%_18%)]">Donation Options</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">Donation Options</h1>
               <p className="text-sm text-muted-foreground mt-1">
                 Manage one-off and monthly options, promotions, and ordering used by the app.
               </p>
