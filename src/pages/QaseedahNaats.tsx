@@ -47,7 +47,6 @@ import { toast } from 'sonner';
 
 type FilterMode = 'all' | 'qaseedah' | 'naat';
 type EntryComposeMode = 'chapters' | 'bulk';
-type BulkInputStyle = 'smart' | 'language-blocks';
 
 function wrapSelection(
   textarea: HTMLTextAreaElement,
@@ -179,7 +178,8 @@ const BULK_SPLIT_PRESETS: Array<{ label: string; instruction: string }> = [
   { label: 'Star Line (after 1 *)', instruction: 'after 1 symbol: *' },
 ];
 
-const SPLIT_SYMBOL_CANDIDATES = ['۞', '٭', '*', '•', '✿', '❀', '◇', '◆', '✧', '⟡'];
+const SPLIT_SYMBOL_CANDIDATES = ['۞', '٭', '*', '•', '✿', '❀', '◇', '◆', '✧', '⟡', '❁', '✽', '✦'];
+const DECORATIVE_SPLIT_SYMBOLS = new Set(['۞', '٭', '✿', '❀', '◇', '◆', '✧', '⟡', '❁', '✽', '✦']);
 
 type EditorFormState = {
   title: string;
@@ -209,7 +209,6 @@ type EditorFormState = {
   file_url: string;
   description: string;
   tafsir: string;
-  bulk_lines: string;
   is_active: boolean;
 };
 
@@ -241,7 +240,6 @@ const EMPTY_FORM: EditorFormState = {
   file_url: '',
   description: '',
   tafsir: '',
-  bulk_lines: '',
   is_active: true,
 };
 
@@ -458,36 +456,112 @@ function parseChapterMarker(rawLine: string): string | null {
 }
 
 function parseBulkLineColumns(rawLine: string): string[] {
-  if (rawLine.includes('\t')) {
-    return rawLine.split('\t').map((segment) => segment.trim());
-  }
-
-  if (rawLine.includes(',')) {
-    return rawLine.split(',').map((segment) => segment.trim());
-  }
-
-  return [rawLine.trim()];
+  return parseBulkLineColumnsWithDelimiter(rawLine, detectLineDelimiter(rawLine));
 }
 
-function shouldUseDelimitedMode(rawInput: string): boolean {
+type BulkColumnDelimiter = '\t' | '||' | '|' | ';' | ',';
+
+const BULK_COLUMN_DELIMITERS: BulkColumnDelimiter[] = ['\t', '||', '|', ';', ','];
+
+function detectLineDelimiter(line: string): BulkColumnDelimiter | null {
+  for (const delimiter of BULK_COLUMN_DELIMITERS) {
+    if (delimiter === '\t' && line.includes('\t')) return delimiter;
+    if (delimiter !== '\t' && line.includes(delimiter)) return delimiter;
+  }
+  return null;
+}
+
+function splitRespectingQuotes(value: string, delimiter: BulkColumnDelimiter): string[] {
+  if (delimiter === '\t') {
+    return value.split('\t').map((segment) => segment.trim());
+  }
+
+  const output: string[] = [];
+  let token = '';
+  let quote: '"' | '\'' | null = null;
+
+  for (let idx = 0; idx < value.length; idx += 1) {
+    const char = value[idx];
+
+    if ((char === '"' || char === '\'') && (!quote || quote === char)) {
+      quote = quote === char ? null : char;
+      token += char;
+      continue;
+    }
+
+    const matches = delimiter === '||'
+      ? value.slice(idx, idx + 2) === '||'
+      : char === delimiter;
+
+    if (!quote && matches) {
+      output.push(token.trim());
+      token = '';
+      if (delimiter === '||') idx += 1;
+      continue;
+    }
+
+    token += char;
+  }
+
+  output.push(token.trim());
+  return output;
+}
+
+function normalizeBulkColumn(value: string): string {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith('\'') && trimmed.endsWith('\''))) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function parseBulkLineColumnsWithDelimiter(rawLine: string, delimiter: BulkColumnDelimiter | null): string[] {
+  if (!delimiter) return [rawLine.trim()];
+  return splitRespectingQuotes(rawLine, delimiter).map(normalizeBulkColumn);
+}
+
+function detectDominantBulkDelimiter(rawInput: string): BulkColumnDelimiter | null {
   const nonEmpty = rawInput
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !parseChapterMarker(line));
 
-  if (nonEmpty.some((line) => line.includes('\t'))) return true;
+  if (nonEmpty.length < 2) return null;
 
-  const commaCounts = new Map<number, number>();
-  for (const line of nonEmpty) {
-    const cols = line.split(',').map((s) => s.trim()).filter(Boolean);
-    if (cols.length >= 2 && cols.length <= 4) {
-      commaCounts.set(cols.length, (commaCounts.get(cols.length) ?? 0) + 1);
+  let best: { delimiter: BulkColumnDelimiter; score: number; validLines: number } | null = null;
+
+  for (const delimiter of BULK_COLUMN_DELIMITERS) {
+    let validLines = 0;
+    let score = 0;
+
+    for (const line of nonEmpty) {
+      const columns = parseBulkLineColumnsWithDelimiter(line, delimiter)
+        .map((column) => column.trim())
+        .filter(Boolean);
+
+      if (columns.length >= 2 && columns.length <= 5) {
+        validLines += 1;
+        score += columns.length;
+      }
+    }
+
+    if (validLines < 2) continue;
+
+    const ratio = validLines / nonEmpty.length;
+    if (ratio < 0.5) continue;
+
+    const weightedScore = score + (ratio * 10);
+    if (!best || weightedScore > best.score) {
+      best = { delimiter, score: weightedScore, validLines };
     }
   }
 
-  const dominant = Math.max(0, ...Array.from(commaCounts.values()));
-  return dominant >= 3 && dominant / Math.max(nonEmpty.length, 1) >= 0.7;
+  return best?.delimiter ?? null;
+}
+
+function shouldUseDelimitedMode(rawInput: string): boolean {
+  return detectDominantBulkDelimiter(rawInput) !== null;
 }
 
 function detectScriptBucket(text: string): 'arabic' | 'latin' | 'other' {
@@ -500,6 +574,14 @@ function detectScriptBucket(text: string): 'arabic' | 'latin' | 'other' {
   if (arabicCount > latinCount) return 'arabic';
   if (latinCount > arabicCount) return 'latin';
   return 'other';
+}
+
+function isLikelyUrduText(text: string): boolean {
+  const value = text.trim();
+  if (!value) return false;
+  const hasUrduLetters = /[ٹڈڑںےھہچژگپک]/.test(value);
+  const hasQuranicDiacritics = /[\u064B-\u065F\u0670\u06D6-\u06ED]/.test(value);
+  return hasUrduLetters && !hasQuranicDiacritics;
 }
 
 const NUMBER_WORD_MAP: Record<string, number> = {
@@ -633,7 +715,9 @@ function inferSymbolSplitRule(rawInput: string): SymbolSplitRule | null {
 
   if (!best) return null;
 
-  const every = best.linesWithAtLeastTwo >= Math.ceil(best.linesWith * 0.6) ? 2 : 1;
+  const every = DECORATIVE_SPLIT_SYMBOLS.has(best.symbol)
+    ? 1
+    : (best.linesWithAtLeastTwo >= Math.ceil(best.linesWith * 0.6) ? 2 : 1);
   return { symbol: best.symbol, every };
 }
 
@@ -662,6 +746,106 @@ function shouldTreatAsSameLanguageCouplet(
   return leftScript === 'latin';
 }
 
+function trimLeadingVerseNumber(line: string): string {
+  return line.replace(/^\s*\d+\s*[.)\-:]\s*/u, '').trim();
+}
+
+function isLikelySalwaatMarkerLine(line: string): boolean {
+  return /[❁۞✽✦✧]/u.test(line);
+}
+
+function isLikelyNumberedTranslationLine(line: string): boolean {
+  return /^\s*\d+\s*[.)\-:]\s+\S/u.test(line);
+}
+
+function shouldMergeAsSalwaatVerse(
+  stanza: string[],
+  scripts: Array<'arabic' | 'latin' | 'other'>,
+): boolean {
+  if (stanza.length < 4 || !Number.isInteger(stanza.length / 2)) return false;
+
+  const half = stanza.length / 2;
+  const firstHalfScripts = scripts.slice(0, half);
+  const secondHalfScripts = scripts.slice(half);
+
+  const firstMostlyArabic = firstHalfScripts.filter((s) => s === 'arabic').length >= Math.max(1, Math.ceil(half * 0.75));
+  const secondMostlyLatin = secondHalfScripts.filter((s) => s === 'latin').length >= Math.max(1, Math.ceil(half * 0.75));
+  if (!firstMostlyArabic || !secondMostlyLatin) return false;
+
+  const markerHits = stanza.slice(0, half).filter(isLikelySalwaatMarkerLine).length;
+  const hasVerseMarkerPattern = markerHits >= Math.max(1, Math.ceil(half * 0.5));
+  const hasNumberedTranslationStart = isLikelyNumberedTranslationLine(stanza[half] ?? '');
+
+  return hasVerseMarkerPattern || hasNumberedTranslationStart;
+}
+
+function mergeAlternatingSalwaatRuns(
+  stanza: string[],
+  scripts: Array<'arabic' | 'latin' | 'other'>,
+): Array<{ primary: string; secondary: string }> | null {
+  type ScriptRun = {
+    script: 'arabic' | 'latin';
+    lines: string[];
+  };
+
+  const runs: ScriptRun[] = [];
+  for (let idx = 0; idx < stanza.length; idx += 1) {
+    const line = stanza[idx] ?? '';
+    const script = scripts[idx] ?? 'other';
+
+    // Keep punctuation/marker-only lines attached to the previous run.
+    if (script === 'other') {
+      if (runs.length > 0) runs[runs.length - 1].lines.push(line);
+      continue;
+    }
+
+    const last = runs[runs.length - 1];
+    if (last && last.script === script) {
+      last.lines.push(line);
+    } else {
+      runs.push({ script, lines: [line] });
+    }
+  }
+
+  if (runs.length < 4 || runs.length % 2 !== 0) return null;
+
+  const pairs: Array<{ primary: string; secondary: string }> = [];
+  let hasNumberedTranslation = false;
+  let markerRichArabicRuns = 0;
+
+  for (let idx = 0; idx < runs.length; idx += 2) {
+    const urduRun = runs[idx];
+    const englishRun = runs[idx + 1];
+    if (!urduRun || !englishRun) return null;
+    if (urduRun.script !== 'arabic' || englishRun.script !== 'latin') return null;
+
+    const urduMarkerHits = urduRun.lines.filter(isLikelySalwaatMarkerLine).length;
+    if (urduMarkerHits >= Math.max(1, Math.ceil(urduRun.lines.length * 0.5))) {
+      markerRichArabicRuns += 1;
+    }
+
+    const englishLines = [...englishRun.lines];
+    if (englishLines.length > 0 && isLikelyNumberedTranslationLine(englishLines[0])) {
+      hasNumberedTranslation = true;
+      englishLines[0] = trimLeadingVerseNumber(englishLines[0]);
+    }
+
+    const primary = urduRun.lines.map((line) => line.trim()).filter(Boolean).join('\n');
+    const secondary = englishLines.map((line) => line.trim()).filter(Boolean).join('\n');
+    if (!primary || !secondary) return null;
+
+    pairs.push({ primary, secondary });
+  }
+
+  const hasStrongMarkerPattern = markerRichArabicRuns >= Math.max(1, Math.ceil(pairs.length * 0.5));
+  if (!hasNumberedTranslation && !hasStrongMarkerPattern) return null;
+
+  // This helper is for multi-pair alternating blocks. Single-pair blocks are handled earlier.
+  if (pairs.length < 2) return null;
+
+  return pairs.length > 0 ? pairs : null;
+}
+
 function parseBulkLinesAsStanzas(rawInput: string, primaryLanguage: PrimaryLanguage = 'auto'): ParsedLineRow[] {
   const lines = rawInput.split('\n');
   let currentChapter = '';
@@ -676,12 +860,16 @@ function parseBulkLinesAsStanzas(rawInput: string, primaryLanguage: PrimaryLangu
     return `${normalizedChapter} · Line ${lineNo}`;
   };
 
-  const pushRow = (primaryRaw: string, secondaryRaw: string) => {
+    const pushRow = (primaryRaw: string, secondaryRaw: string) => {
     const primary = primaryRaw.trim();
     const secondary = secondaryRaw.trim();
     if (!primary) return;
 
-    const primaryField = resolvePrimaryField(primaryLanguage);
+    const primaryField = primaryLanguage === 'auto'
+      ? (detectScriptBucket(primary) === 'latin'
+        ? 'translation'
+        : (isLikelyUrduText(primary) ? 'urdu_translation' : 'arabic'))
+      : resolvePrimaryField(primaryLanguage);
     const row: ParsedLineRow = {
       chapter: currentChapter,
       heading: '',
@@ -747,6 +935,30 @@ function parseBulkLinesAsStanzas(rawInput: string, primaryLanguage: PrimaryLangu
 
     const scripts = stanza.map((line) => detectScriptBucket(line));
 
+    // Salwaat.com style blocks often come as Urdu couplet lines first, then numbered English translation lines.
+    // Merge each half into one verse row instead of zipping line-by-line.
+    if (shouldMergeAsSalwaatVerse(stanza, scripts)) {
+      const half = stanza.length / 2;
+      const primaryCombined = stanza.slice(0, half).join('\n');
+      const secondaryCombined = stanza
+        .slice(half)
+        .map((line, idx) => (idx === 0 ? trimLeadingVerseNumber(line) : line.trim()))
+        .filter(Boolean)
+        .join('\n');
+      pushRow(primaryCombined, secondaryCombined);
+      return;
+    }
+
+    // Salwaat.com often alternates as: Urdu couplet, English couplet, Urdu couplet, English couplet (no blank lines).
+    // Merge each alternating run pair into a single verse row.
+    const alternatingPairs = mergeAlternatingSalwaatRuns(stanza, scripts);
+    if (alternatingPairs) {
+      for (const pair of alternatingPairs) {
+        pushRow(pair.primary, pair.secondary);
+      }
+      return;
+    }
+
     // Pattern A/A.../B/B... with equal halves: zip rows while preserving first-language ordering.
     const half = stanza.length / 2;
     if (Number.isInteger(half)) {
@@ -800,7 +1012,8 @@ function parseBulkLinesAsStanzas(rawInput: string, primaryLanguage: PrimaryLangu
 }
 
 function parseBulkLines(rawInput: string, splitInstruction?: string, primaryLanguage: PrimaryLanguage = 'auto'): ParsedLineRow[] {
-  const hasDelimiterColumns = shouldUseDelimitedMode(rawInput);
+  const dominantDelimiter = detectDominantBulkDelimiter(rawInput);
+  const hasDelimiterColumns = dominantDelimiter !== null;
   if (!hasDelimiterColumns) {
     const prepared = (() => {
       const manual = splitInstruction?.trim() ?? '';
@@ -836,7 +1049,7 @@ function parseBulkLines(rawInput: string, splitInstruction?: string, primaryLang
         return null;
       }
 
-      const columns = parseBulkLineColumns(line).filter((column) => column.length > 0);
+      const columns = parseBulkLineColumnsWithDelimiter(line, dominantDelimiter).filter((column) => column.length > 0);
       if (columns.length < 2) return null;
 
       lineInChapter += 1;
@@ -934,7 +1147,7 @@ function parseBulkLanguageBlocks(
   };
 
   const requestedPrimary = mapPrimaryLanguageToBlockKey(primaryLanguage);
-  const fallbackOrder: BulkLanguageBlockKey[] = ['arabic', 'urdu', 'english', 'transliteration'];
+  const fallbackOrder: BulkLanguageBlockKey[] = ['english', 'transliteration', 'urdu', 'arabic'];
   const primaryKey = (requestedPrimary && preparedBlocks[requestedPrimary].trim().length > 0)
     ? requestedPrimary
     : fallbackOrder.find((key) => preparedBlocks[key].trim().length > 0);
@@ -997,44 +1210,75 @@ function parseBulkLanguageBlocks(
   return rows;
 }
 
-function buildBulkLinesFromSections(sections: unknown): string {
-  if (!Array.isArray(sections)) return '';
+function buildBulkLanguageBlocksFromSections(sections: unknown): BulkLanguageBlocks {
+  if (!Array.isArray(sections)) {
+    return { arabic: '', transliteration: '', english: '', urdu: '' };
+  }
 
-  const lines: string[] = [];
-  let previousChapter = '';
+  // Preserve exact editor bulk box values (including intentionally-empty Arabic)
+  // when available, instead of rehydrating from possibly auto-generated section rows.
+  for (const rawSection of sections as ExistingSectionLike[]) {
+    if (!rawSection || typeof rawSection !== 'object') continue;
+    const chapter = typeof rawSection.chapter === 'string' ? rawSection.chapter.trim() : '';
+    if (chapter !== SETTINGS_MARKER) continue;
+
+    const lockArabic = Boolean((rawSection as { bulk_source_arabic_locked?: unknown }).bulk_source_arabic_locked);
+    const lockTranslit = Boolean((rawSection as { bulk_source_transliteration_locked?: unknown }).bulk_source_transliteration_locked);
+    const lockEnglish = Boolean((rawSection as { bulk_source_english_locked?: unknown }).bulk_source_english_locked);
+    const lockUrdu = Boolean((rawSection as { bulk_source_urdu_locked?: unknown }).bulk_source_urdu_locked);
+    const savedArabic = (rawSection as { bulk_source_arabic?: unknown }).bulk_source_arabic;
+    const savedTranslit = (rawSection as { bulk_source_transliteration?: unknown }).bulk_source_transliteration;
+    const savedEnglish = (rawSection as { bulk_source_english?: unknown }).bulk_source_english;
+    const savedUrdu = (rawSection as { bulk_source_urdu?: unknown }).bulk_source_urdu;
+
+    const hasSavedSources =
+      lockArabic
+      || lockTranslit
+      || lockEnglish
+      || lockUrdu
+      typeof savedArabic === 'string'
+      || typeof savedTranslit === 'string'
+      || typeof savedEnglish === 'string'
+      || typeof savedUrdu === 'string';
+
+    if (hasSavedSources) {
+      return {
+        arabic: lockArabic ? '' : (typeof savedArabic === 'string' ? savedArabic : ''),
+        transliteration: lockTranslit ? '' : (typeof savedTranslit === 'string' ? savedTranslit : ''),
+        english: lockEnglish ? '' : (typeof savedEnglish === 'string' ? savedEnglish : ''),
+        urdu: lockUrdu ? '' : (typeof savedUrdu === 'string' ? savedUrdu : ''),
+      };
+    }
+  }
+
+  const arabicLines: string[] = [];
+  const transliterationLines: string[] = [];
+  const englishLines: string[] = [];
+  const urduLines: string[] = [];
 
   for (const rawSection of sections as ExistingSectionLike[]) {
     if (!rawSection || typeof rawSection !== 'object') continue;
 
-    const chapter = typeof rawSection.chapter === 'string'
-      ? rawSection.chapter.trim()
-      : '';
-
+    const chapter = typeof rawSection.chapter === 'string' ? rawSection.chapter.trim() : '';
     if (chapter === CHORUS_MARKER || chapter === SETTINGS_MARKER) continue;
-
-    if (chapter && chapter !== previousChapter) {
-      lines.push(chapter);
-      previousChapter = chapter;
-    }
 
     const arabic = typeof rawSection.arabic === 'string' ? rawSection.arabic.trim() : '';
     const transliteration = typeof rawSection.transliteration === 'string' ? rawSection.transliteration.trim() : '';
     const translation = typeof rawSection.translation === 'string' ? rawSection.translation.trim() : '';
     const urdu = typeof rawSection.urdu_translation === 'string' ? rawSection.urdu_translation.trim() : '';
 
-    const primary = arabic || urdu || translation || transliteration;
-    if (!primary) continue;
-
-    const columns = [primary];
-    const extras = [transliteration, translation, urdu, arabic]
-      .filter((value) => value.length > 0 && value !== primary);
-
-    columns.push(...extras);
-
-    lines.push(columns.join('\t'));
+    if (arabic) arabicLines.push(arabic);
+    if (transliteration) transliterationLines.push(transliteration);
+    if (translation) englishLines.push(translation);
+    if (urdu) urduLines.push(urdu);
   }
 
-  return lines.join('\n');
+  return {
+    arabic: arabicLines.join('\n'),
+    transliteration: transliterationLines.join('\n'),
+    english: englishLines.join('\n'),
+    urdu: urduLines.join('\n'),
+  };
 }
 
 function createChapterDraft(title: string, seed = Date.now()): ChapterDraft {
@@ -1170,15 +1414,17 @@ function isPdf(url: string | null | undefined): boolean {
 
 function formFromEntry(row: QaseedahNaatEntry): EditorFormState {
   const autoSettings = extractAutoTranslationSettingsFromSections(row.sections);
+  const blocksFromSections = buildBulkLanguageBlocksFromSections(row.sections);
+  const hasStructuredSections = Array.isArray(row.sections) && row.sections.length > 0;
   return {
     title: row.title,
     arabic_title: row.arabic_title ?? '',
     primary_language: autoSettings.primary_language,
     bulk_split_instruction: autoSettings.bulk_split_instruction,
-    bulk_arabic_lines: row.arabic ?? '',
-    bulk_transliteration_lines: row.transliteration ?? '',
-    bulk_english_lines: row.translation ?? '',
-    bulk_urdu_lines: row.urdu_translation ?? '',
+    bulk_arabic_lines: hasStructuredSections ? blocksFromSections.arabic : (row.arabic ?? ''),
+    bulk_transliteration_lines: hasStructuredSections ? blocksFromSections.transliteration : (row.transliteration ?? ''),
+    bulk_english_lines: hasStructuredSections ? blocksFromSections.english : (row.translation ?? ''),
+    bulk_urdu_lines: hasStructuredSections ? blocksFromSections.urdu : (row.urdu_translation ?? ''),
     disable_auto_transliteration: autoSettings.disable_auto_transliteration,
     disable_auto_arabic: autoSettings.disable_auto_arabic,
     disable_auto_english: autoSettings.disable_auto_english,
@@ -1198,7 +1444,6 @@ function formFromEntry(row: QaseedahNaatEntry): EditorFormState {
     file_url: row.file_url ?? '',
     description: row.description ?? '',
     tafsir: row.tafsir ?? '',
-    bulk_lines: buildBulkLinesFromSections(row.sections),
     is_active: row.is_active,
   };
 }
@@ -1214,7 +1459,6 @@ function hasAnyCoreText(form: EditorFormState): boolean {
     form.translation,
     form.urdu_translation,
     form.description,
-    form.bulk_lines,
     form.bulk_arabic_lines,
     form.bulk_transliteration_lines,
     form.bulk_english_lines,
@@ -1308,11 +1552,19 @@ function PreviewVerseCard({
   primary,
   layers,
   isPoem,
+  disableArabic,
+  disableTransliteration,
+  disableEnglish,
+  disableUrdu,
 }: {
   verse: PreviewVerse;
   primary: PrimaryLanguage;
   layers: PreviewLayers;
   isPoem: boolean;
+  disableArabic: boolean;
+  disableTransliteration: boolean;
+  disableEnglish: boolean;
+  disableUrdu: boolean;
 }) {
   const order = orderLanguages(primary);
   const isChorus = verse.role !== 'verse';
@@ -1323,22 +1575,22 @@ function PreviewVerseCard({
       : verse.verseNumber ? `Verse ${verse.verseNumber}` : 'Verse';
 
   const blocks: Record<'arabic' | 'transliteration' | 'english' | 'urdu', React.ReactNode> = {
-    arabic: layers.arabic && verse.arabic ? (
+    arabic: layers.arabic && !disableArabic && verse.arabic ? (
       <p key="arabic" dir="rtl" className="font-arabic text-right text-[22px] leading-[2] text-[hsl(150_30%_15%)]">
         {renderInlineFormatted(verse.arabic)}
       </p>
     ) : null,
-    transliteration: layers.transliteration && verse.transliteration ? (
+    transliteration: layers.transliteration && !disableTransliteration && verse.transliteration ? (
       <p key="transliteration" className="italic text-[15px] leading-relaxed text-[hsl(150_25%_25%)]">
         {renderInlineFormatted(verse.transliteration)}
       </p>
     ) : null,
-    english: layers.english && verse.translation ? (
+    english: layers.english && !disableEnglish && verse.translation ? (
       <p key="english" className="text-[14px] leading-relaxed text-[hsl(150_20%_28%)]">
         {renderInlineFormatted(verse.translation)}
       </p>
     ) : null,
-    urdu: layers.urdu && verse.urdu ? (
+    urdu: layers.urdu && !disableUrdu && verse.urdu ? (
       <p key="urdu" dir="rtl" className="font-urdu text-right text-[18px] leading-[1.9] text-[hsl(150_20%_25%)]">
         {renderInlineFormatted(verse.urdu)}
       </p>
@@ -1372,14 +1624,12 @@ function EntryPreviewPane({
   chorusDraft,
   chapterDrafts,
   composeMode,
-  bulkInputStyle,
   modalType,
 }: {
   form: EditorFormState;
   chorusDraft: ChorusDraft;
   chapterDrafts: ChapterDraft[];
   composeMode: EntryComposeMode;
-  bulkInputStyle: BulkInputStyle;
   modalType: QaseedahNaatType;
 }) {
   const [layers, setLayers] = useState<PreviewLayers>({ arabic: true, transliteration: true, english: true, urdu: true });
@@ -1391,27 +1641,23 @@ function EntryPreviewPane({
         return buildRowsFromChapterDrafts(chapterDrafts);
       }
       const split = form.bulk_split_instruction.trim();
-      if (bulkInputStyle === 'language-blocks') {
-        const hasAny = [form.bulk_arabic_lines, form.bulk_transliteration_lines, form.bulk_english_lines, form.bulk_urdu_lines]
-          .some((v) => v.trim().length > 0);
-        if (!hasAny) return [];
-        return parseBulkLanguageBlocks(
-          {
-            arabic: form.bulk_arabic_lines,
-            transliteration: form.bulk_transliteration_lines,
-            english: form.bulk_english_lines,
-            urdu: form.bulk_urdu_lines,
-          },
-          form.primary_language,
-          split,
-        );
-      }
-      if (!form.bulk_lines.trim()) return [];
-      return parseBulkLines(form.bulk_lines, split, form.primary_language);
+      const hasAny = [form.bulk_arabic_lines, form.bulk_transliteration_lines, form.bulk_english_lines, form.bulk_urdu_lines]
+        .some((v) => v.trim().length > 0);
+      if (!hasAny) return [];
+      return parseBulkLanguageBlocks(
+        {
+          arabic: form.bulk_arabic_lines,
+          transliteration: form.bulk_transliteration_lines,
+          english: form.bulk_english_lines,
+          urdu: form.bulk_urdu_lines,
+        },
+        form.primary_language,
+        split,
+      );
     } catch {
       return [];
     }
-  }, [composeMode, bulkInputStyle, chapterDrafts, form.bulk_lines, form.bulk_split_instruction, form.primary_language, form.bulk_arabic_lines, form.bulk_transliteration_lines, form.bulk_english_lines, form.bulk_urdu_lines]);
+  }, [composeMode, chapterDrafts, form.bulk_split_instruction, form.primary_language, form.bulk_arabic_lines, form.bulk_transliteration_lines, form.bulk_english_lines, form.bulk_urdu_lines]);
 
   // Group rows by chapter preserving order
   const chapters = useMemo(() => {
@@ -1431,15 +1677,18 @@ function EntryPreviewPane({
         verseCounter = 0;
       }
       verseCounter += 1;
+      const arabicText = (row.arabic || '').trim();
+      const urduText = (row.urdu_translation || '').trim();
+      const shouldTreatArabicAsUrdu = !urduText && isLikelyUrduText(arabicText);
       current.verses.push({
         key: `v-${idx}`,
         role: 'verse',
         chapterLabel: chTitle,
         verseNumber: verseCounter,
-        arabic: row.arabic,
+        arabic: shouldTreatArabicAsUrdu ? '' : row.arabic,
         transliteration: row.transliteration,
         translation: row.translation,
-        urdu: row.urdu_translation,
+        urdu: shouldTreatArabicAsUrdu ? row.arabic : row.urdu_translation,
       });
     });
     return result;
@@ -1542,7 +1791,16 @@ function EntryPreviewPane({
 
             {/* Opening chorus */}
             {hasChorus ? (
-              <PreviewVerseCard verse={chorusVerse('opening-chorus')} primary={form.primary_language} layers={layers} isPoem={isPoem} />
+              <PreviewVerseCard
+                verse={chorusVerse('opening-chorus')}
+                primary={form.primary_language}
+                layers={layers}
+                isPoem={isPoem}
+                disableArabic={form.disable_auto_arabic}
+                disableTransliteration={form.disable_auto_transliteration}
+                disableEnglish={form.disable_auto_english}
+                disableUrdu={form.disable_auto_urdu}
+              />
             ) : null}
 
             {/* Chapters */}
@@ -1569,17 +1827,39 @@ function EntryPreviewPane({
                     primary={form.primary_language}
                     layers={layers}
                     isPoem={isPoem}
+                    disableArabic={form.disable_auto_arabic}
+                    disableTransliteration={form.disable_auto_transliteration}
+                    disableEnglish={form.disable_auto_english}
+                    disableUrdu={form.disable_auto_urdu}
                   />
                 ))}
                 {hasChorus && idx < chapters.length - 1 ? (
-                  <PreviewVerseCard verse={chorusVerse('closing-chorus')} primary={form.primary_language} layers={layers} isPoem={isPoem} />
+                  <PreviewVerseCard
+                    verse={chorusVerse('closing-chorus')}
+                    primary={form.primary_language}
+                    layers={layers}
+                    isPoem={isPoem}
+                    disableArabic={form.disable_auto_arabic}
+                    disableTransliteration={form.disable_auto_transliteration}
+                    disableEnglish={form.disable_auto_english}
+                    disableUrdu={form.disable_auto_urdu}
+                  />
                 ) : null}
               </div>
             ))}
 
             {/* Closing chorus */}
             {hasChorus && chapters.length > 0 ? (
-              <PreviewVerseCard verse={chorusVerse('closing-chorus')} primary={form.primary_language} layers={layers} isPoem={isPoem} />
+              <PreviewVerseCard
+                verse={chorusVerse('closing-chorus')}
+                primary={form.primary_language}
+                layers={layers}
+                isPoem={isPoem}
+                disableArabic={form.disable_auto_arabic}
+                disableTransliteration={form.disable_auto_transliteration}
+                disableEnglish={form.disable_auto_english}
+                disableUrdu={form.disable_auto_urdu}
+              />
             ) : null}
           </>
         )}
@@ -1604,7 +1884,6 @@ export default function QaseedahNaats() {
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [countMode, setCountMode] = useState<'preset' | 'custom'>('preset');
   const [composeMode, setComposeMode] = useState<EntryComposeMode>('chapters');
-  const [bulkInputStyle, setBulkInputStyle] = useState<BulkInputStyle>('smart');
   const [chapterDrafts, setChapterDrafts] = useState<ChapterDraft[]>([createChapterDraft('Chapter 1')]);
   const [chorusDraft, setChorusDraft] = useState<ChorusDraft>({ ...EMPTY_CHORUS });
   const [saving, setSaving] = useState(false);
@@ -1715,7 +1994,6 @@ export default function QaseedahNaats() {
     setSelectedGroupId('');
     setCountMode('preset');
     setComposeMode('chapters');
-    setBulkInputStyle('smart');
     setChapterDrafts([createChapterDraft('Chapter 1')]);
     setChorusDraft({ ...EMPTY_CHORUS });
   };
@@ -1735,7 +2013,6 @@ export default function QaseedahNaats() {
     }
     setCountMode(COUNT_PRESETS.includes('1') ? 'preset' : 'custom');
     setComposeMode('chapters');
-    setBulkInputStyle('smart');
     setChapterDrafts([createChapterDraft('Chapter 1')]);
     setChorusDraft({ ...EMPTY_CHORUS });
     setModalOpen(true);
@@ -1749,7 +2026,6 @@ export default function QaseedahNaats() {
     setGroupMode('existing');
     setCountMode(COUNT_PRESETS.includes(row.count || '1') ? 'preset' : 'custom');
     setComposeMode(Array.isArray(row.sections) && row.sections.length > 0 ? 'chapters' : 'bulk');
-    setBulkInputStyle('smart');
     setChapterDrafts(buildChapterDraftsFromSections(row.sections));
     setChorusDraft(extractChorusFromSections(row.sections));
     setModalOpen(true);
@@ -1988,32 +2264,28 @@ export default function QaseedahNaats() {
       return;
     }
 
-    const hasBulkInput = bulkInputStyle === 'language-blocks'
-      ? [
-        form.bulk_arabic_lines,
-        form.bulk_transliteration_lines,
-        form.bulk_english_lines,
-        form.bulk_urdu_lines,
-      ].some((field) => field.trim().length > 0)
-      : form.bulk_lines.trim().length > 0;
+    const hasBulkInput = [
+      form.bulk_arabic_lines,
+      form.bulk_transliteration_lines,
+      form.bulk_english_lines,
+      form.bulk_urdu_lines,
+    ].some((field) => field.trim().length > 0);
 
     const bulkRows = composeMode === 'bulk' && hasBulkInput
-      ? (bulkInputStyle === 'language-blocks'
-        ? parseBulkLanguageBlocks(
-          {
-            arabic: form.bulk_arabic_lines,
-            transliteration: form.bulk_transliteration_lines,
-            english: form.bulk_english_lines,
-            urdu: form.bulk_urdu_lines,
-          },
-          form.primary_language,
-          manualSplitInstruction,
-        )
-        : parseBulkLines(form.bulk_lines, manualSplitInstruction, form.primary_language))
+      ? parseBulkLanguageBlocks(
+        {
+          arabic: form.bulk_arabic_lines,
+          transliteration: form.bulk_transliteration_lines,
+          english: form.bulk_english_lines,
+          urdu: form.bulk_urdu_lines,
+        },
+        form.primary_language,
+        manualSplitInstruction,
+      )
       : [];
 
     if (composeMode === 'bulk' && hasBulkInput && bulkRows.length === 0) {
-      toast.error('Bulk paste format is invalid. Paste stanza pairs (line 1 then line 2) or use tab/comma separated rows.');
+      toast.error('Bulk language blocks could not be parsed. Ensure each language box has one verse per line.');
       return;
     }
 
@@ -2038,13 +2310,15 @@ export default function QaseedahNaats() {
       const parsedTransliteration = structuredRows.map((line) => line.transliteration).filter(Boolean).join('\n');
       const parsedTranslation = structuredRows.map((line) => line.translation).filter(Boolean).join('\n');
       const parsedUrdu = structuredRows.map((line) => line.urdu_translation).filter(Boolean).join('\n');
+      const isBulkLanguageMode = composeMode === 'bulk';
+      const explicitBulkArabic = form.bulk_arabic_lines.trim();
 
       const payload = {
         group_id: group.id,
         content_type: targetType,
         title,
         arabic_title: form.arabic_title.trim() || null,
-        arabic: (parsedArabic || form.arabic.trim()) || '',
+        arabic: (isBulkLanguageMode ? explicitBulkArabic : (parsedArabic || form.arabic.trim())) || '',
         transliteration: parsedTransliteration || form.transliteration.trim() || null,
         translation: parsedTranslation || form.translation.trim() || null,
         urdu_translation: parsedUrdu || form.urdu_translation.trim() || null,
@@ -2082,6 +2356,14 @@ export default function QaseedahNaats() {
                   arabic: '-',
                   primary_language: form.primary_language,
                   manual_split_instruction: form.bulk_split_instruction.trim() || undefined,
+                  bulk_source_arabic: form.bulk_arabic_lines,
+                  bulk_source_arabic_locked: form.bulk_arabic_lines.trim().length === 0,
+                  bulk_source_transliteration: form.bulk_transliteration_lines,
+                  bulk_source_transliteration_locked: form.bulk_transliteration_lines.trim().length === 0,
+                  bulk_source_english: form.bulk_english_lines,
+                  bulk_source_english_locked: form.bulk_english_lines.trim().length === 0,
+                  bulk_source_urdu: form.bulk_urdu_lines,
+                  bulk_source_urdu_locked: form.bulk_urdu_lines.trim().length === 0,
                   disable_auto_translation: false,
                   disable_auto_transliteration: form.disable_auto_transliteration,
                   disable_auto_arabic: form.disable_auto_arabic,
@@ -2102,6 +2384,14 @@ export default function QaseedahNaats() {
                 arabic: '-',
                 primary_language: form.primary_language,
                 manual_split_instruction: form.bulk_split_instruction.trim() || undefined,
+                bulk_source_arabic: form.bulk_arabic_lines,
+                bulk_source_arabic_locked: form.bulk_arabic_lines.trim().length === 0,
+                bulk_source_transliteration: form.bulk_transliteration_lines,
+                bulk_source_transliteration_locked: form.bulk_transliteration_lines.trim().length === 0,
+                bulk_source_english: form.bulk_english_lines,
+                bulk_source_english_locked: form.bulk_english_lines.trim().length === 0,
+                bulk_source_urdu: form.bulk_urdu_lines,
+                bulk_source_urdu_locked: form.bulk_urdu_lines.trim().length === 0,
                 disable_auto_translation: false,
                 disable_auto_transliteration: form.disable_auto_transliteration,
                 disable_auto_arabic: form.disable_auto_arabic,
@@ -2721,99 +3011,54 @@ export default function QaseedahNaats() {
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label>Bulk Input Style</Label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setBulkInputStyle('smart')}
-                      className={`rounded-lg border px-3 py-2 text-left transition-colors ${bulkInputStyle === 'smart' ? 'border-emerald-300 bg-emerald-50' : 'border-border bg-background hover:bg-secondary/50'}`}
-                    >
-                      <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Smart Paste</p>
-                      <p className="text-xs text-muted-foreground">Single box parser with symbol split and stanza detection.</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBulkInputStyle('language-blocks')}
-                      className={`rounded-lg border px-3 py-2 text-left transition-colors ${bulkInputStyle === 'language-blocks' ? 'border-emerald-300 bg-emerald-50' : 'border-border bg-background hover:bg-secondary/50'}`}
-                    >
-                      <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Separate Language Blocks</p>
-                      <p className="text-xs text-muted-foreground">Paste Arabic, transliteration, English, and Urdu in separate boxes.</p>
-                    </button>
-                  </div>
-                </div>
-
-                {bulkInputStyle === 'smart' ? (
-                  <div className="space-y-1.5">
-                    <Label>Bulk Paste Lines (Tab or Comma separated)</Label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-lg border border-[hsl(140_20%_88%)] bg-[hsl(140_25%_98%)] p-3">
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Arabic (one line per verse)</Label>
                     <Textarea
-                      value={form.bulk_lines}
-                      onChange={(event) => setForm((prev) => ({ ...prev, bulk_lines: event.target.value }))}
-                      placeholder={[
-                        'Paste stanza pairs in any language/script (Line 1, then Line 2).',
-                        'OR keep using one row per line with separators.',
-                        'Add heading lines like: Chapter 1, Section 2, باب ۳, حصہ ٤, Chapter IV.',
-                        '2 columns: Primary<TAB>Meaning',
-                        '3 columns: Primary<TAB>Transliteration<TAB>Meaning',
-                        '4 columns: Primary<TAB>Transliteration<TAB>Meaning<TAB>Urdu',
-                        'You can use commas instead of tabs.',
-                      ].join('\n')}
-                      rows={10}
+                      value={form.bulk_arabic_lines}
+                      onChange={(event) => setForm((prev) => ({ ...prev, bulk_arabic_lines: event.target.value }))}
+                      placeholder="Line 1\nLine 2\nLine 3"
+                      rows={7}
+                      dir="rtl"
+                      className="font-arabic text-xl leading-loose text-right w-full"
                     />
-                    <p className="text-[11px] text-muted-foreground">
-                      Auto-detect mode: if tabs/commas are present, delimiter columns are used; otherwise language-neutral stanza pairing mode is used. Heading markers support English, Arabic, Urdu, Roman numerals, and Arabic-Indic/Urdu digits.
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Stanza mode keeps your first language first in app. For best pairing, separate each verse stanza with a blank line.
-                    </p>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-lg border border-[hsl(140_20%_88%)] bg-[hsl(140_25%_98%)] p-3">
-                    <div className="space-y-1.5 md:col-span-2">
-                      <Label>Arabic (one line per verse)</Label>
-                      <Textarea
-                        value={form.bulk_arabic_lines}
-                        onChange={(event) => setForm((prev) => ({ ...prev, bulk_arabic_lines: event.target.value }))}
-                        placeholder="Line 1\nLine 2\nLine 3"
-                        rows={7}
-                        dir="rtl"
-                        className="font-arabic text-xl leading-loose text-right w-full"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Transliteration</Label>
-                      <Textarea
-                        value={form.bulk_transliteration_lines}
-                        onChange={(event) => setForm((prev) => ({ ...prev, bulk_transliteration_lines: event.target.value }))}
-                        placeholder="Line 1\nLine 2\nLine 3"
-                        rows={5}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>English</Label>
-                      <Textarea
-                        value={form.bulk_english_lines}
-                        onChange={(event) => setForm((prev) => ({ ...prev, bulk_english_lines: event.target.value }))}
-                        placeholder="Line 1\nLine 2\nLine 3"
-                        rows={5}
-                      />
-                    </div>
-                    <div className="space-y-1.5 md:col-span-2">
-                      <Label>Urdu</Label>
-                      <Textarea
-                        value={form.bulk_urdu_lines}
-                        onChange={(event) => setForm((prev) => ({ ...prev, bulk_urdu_lines: event.target.value }))}
-                        placeholder="Line 1\nLine 2\nLine 3"
-                        rows={6}
-                        dir="rtl"
-                        className="font-urdu text-lg leading-loose text-right w-full"
-                      />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground md:col-span-2">
-                      Primary Language in App decides which block is treated as verse source. Each line index across blocks is matched to the same verse.
-                    </p>
+                  <div className="space-y-1.5">
+                    <Label>Transliteration</Label>
+                    <Textarea
+                      value={form.bulk_transliteration_lines}
+                      onChange={(event) => setForm((prev) => ({ ...prev, bulk_transliteration_lines: event.target.value }))}
+                      placeholder="Line 1\nLine 2\nLine 3"
+                      rows={5}
+                    />
                   </div>
-                )}
+                  <div className="space-y-1.5">
+                    <Label>English</Label>
+                    <Textarea
+                      value={form.bulk_english_lines}
+                      onChange={(event) => setForm((prev) => ({ ...prev, bulk_english_lines: event.target.value }))}
+                      placeholder="Line 1\nLine 2\nLine 3"
+                      rows={5}
+                    />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Urdu</Label>
+                    <Textarea
+                      value={form.bulk_urdu_lines}
+                      onChange={(event) => setForm((prev) => ({ ...prev, bulk_urdu_lines: event.target.value }))}
+                      placeholder="Line 1\nLine 2\nLine 3"
+                      rows={6}
+                      dir="rtl"
+                      className="font-urdu text-lg leading-loose text-right w-full"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground md:col-span-2">
+                    Smart parsing is built into this mode: chapter markers are read from your primary language box, and split rules can auto-break decorative verse separators.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground md:col-span-2">
+                    Primary Language in App decides which block anchors verses. Other language blocks are aligned by line number.
+                  </p>
+                </div>
 
                 <div className="space-y-1">
                   <p className="text-[11px] text-muted-foreground">
@@ -2903,7 +3148,7 @@ export default function QaseedahNaats() {
 
             <Section
               title="Languages & Auto Translation"
-              description="Choose which language appears first in the app, and disable any unwanted auto-generated language."
+              description="Choose which language appears first in the app, and disable any language completely for this entry."
               icon={<Globe2 size={14} />}
             >
             <div className="space-y-2">
@@ -2929,19 +3174,19 @@ export default function QaseedahNaats() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Auto Transliteration</p>
+                  <p className="text-xs">Disable Transliteration</p>
                   <Switch checked={form.disable_auto_transliteration} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_transliteration: checked }))} />
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Auto Arabic</p>
+                  <p className="text-xs">Disable Arabic</p>
                   <Switch checked={form.disable_auto_arabic} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_arabic: checked }))} />
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Auto English</p>
+                  <p className="text-xs">Disable English</p>
                   <Switch checked={form.disable_auto_english} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_english: checked }))} />
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Auto Urdu</p>
+                  <p className="text-xs">Disable Urdu</p>
                   <Switch checked={form.disable_auto_urdu} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_urdu: checked }))} />
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
@@ -3017,7 +3262,6 @@ export default function QaseedahNaats() {
                 chorusDraft={chorusDraft}
                 chapterDrafts={chapterDrafts}
                 composeMode={composeMode}
-                bulkInputStyle={bulkInputStyle}
                 modalType={modalType}
               />
             </div>
@@ -3030,7 +3274,6 @@ export default function QaseedahNaats() {
                   chorusDraft={chorusDraft}
                   chapterDrafts={chapterDrafts}
                   composeMode={composeMode}
-                  bulkInputStyle={bulkInputStyle}
                   modalType={modalType}
                 />
               </div>

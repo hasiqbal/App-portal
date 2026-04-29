@@ -432,65 +432,71 @@ const TodayPrayerCards = ({
   const mainRows = rows.filter(r => ['Fajr','Zuhr','Asr','Maghrib','Isha'].includes(r.label));
 
   return (
-    <div className="space-y-3">
-      {/* 5 prayer cards grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+    <div className="space-y-2.5 sm:space-y-3">
+      {/* 5 prayer rows */}
+      <div className="space-y-1.5 sm:space-y-2">
         {mainRows.map((row, idx) => {
           const isCurrent = isCurrentPrayer(row, mainRows[idx + 1]);
           return (
             <div
               key={row.label}
-              className={`relative rounded-2xl border overflow-hidden transition-all ${
+              className={`relative rounded-xl border overflow-hidden transition-all ${
                 isCurrent
-                  ? 'shadow-md ring-2'
-                  : 'bg-white border-[hsl(140_20%_88%)] hover:shadow-sm'
+                  ? 'shadow-sm ring-1'
+                  : 'bg-white border-[hsl(140_20%_88%)]'
               }`}
               style={isCurrent ? {
-                background: row.color + '0f',
+                background: row.color + '10',
                 borderColor: row.color + '55',
-                boxShadow: `0 0 0 2px ${row.color}30`,
+                boxShadow: `0 0 0 1px ${row.color}28`,
               } : {}}
             >
               {isCurrent && (
                 <div
-                  className="absolute top-0 left-0 right-0 h-0.5"
+                  className="absolute top-0 left-0 bottom-0 w-0.5"
                   style={{ background: row.color }}
                 />
               )}
-              <div className="px-3 py-3.5 flex flex-col items-center text-center gap-1.5">
-                {/* Emoji icon */}
-                <span className="text-xl">{row.emoji}</span>
-
-                {/* Label */}
-                <p
-                  className="text-[11px] font-bold uppercase tracking-wider"
-                  style={{ color: isCurrent ? row.color : 'hsl(150 30% 25%)' }}
+              <div className="px-2.5 sm:px-3 py-2 flex items-center gap-2.5 sm:gap-3">
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                  style={{ background: row.color + '1a' }}
                 >
-                  {row.label}
-                  {isCurrent && (
-                    <span
-                      className="ml-1 inline-flex items-center text-[8px] font-bold px-1 py-0.5 rounded-full text-white"
-                      style={{ background: row.color }}
-                    >
-                      NOW
-                    </span>
-                  )}
-                </p>
+                  <span className="text-sm leading-none">{row.emoji}</span>
+                </div>
 
-                {/* Start time */}
-                <p
-                  className="text-2xl font-extrabold tabular-nums leading-none"
-                  style={{ color: row.start ? (isCurrent ? row.color : 'hsl(150 30% 12%)') : 'hsl(var(--muted-foreground) / 0.3)' }}
-                >
-                  {row.start ?? '—'}
-                </p>
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="text-[11px] font-bold uppercase tracking-wide truncate"
+                    style={{ color: isCurrent ? row.color : 'hsl(150 30% 25%)' }}
+                  >
+                    {row.label}
+                    {isCurrent && (
+                      <span
+                        className="ml-1 inline-flex items-center text-[8px] font-bold px-1 py-0.5 rounded-full text-white align-middle"
+                        style={{ background: row.color }}
+                      >
+                        NOW
+                      </span>
+                    )}
+                  </p>
+                </div>
 
-                {/* Jamaat time */}
+                <div className="text-right min-w-[64px] sm:min-w-[72px]">
+                  <p className="text-[8px] font-semibold text-muted-foreground uppercase tracking-wide">Start</p>
+                  <p
+                    className="text-base sm:text-lg font-extrabold tabular-nums leading-none"
+                    style={{ color: row.start ? (isCurrent ? row.color : 'hsl(150 30% 12%)') : 'hsl(var(--muted-foreground) / 0.3)' }}
+                  >
+                    {row.start ?? '—'}
+                  </p>
+                </div>
+
                 {row.showJamat && (
-                  <div className="flex flex-col items-center">
-                    <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Jamāʿat</p>
+                  <div className="text-right min-w-[72px] sm:min-w-[80px]">
+                    <p className="text-[8px] font-semibold text-muted-foreground uppercase tracking-wide">Jamāʿat</p>
                     <p
-                      className="text-sm font-bold tabular-nums"
+                      className="text-sm sm:text-base font-bold tabular-nums leading-none"
                       style={{ color: row.jamat ? row.color + 'cc' : 'hsl(var(--muted-foreground) / 0.3)' }}
                     >
                       {row.jamat ?? '—'}
@@ -505,21 +511,21 @@ const TodayPrayerCards = ({
 
       {/* Jumu'ah card — only on Fridays */}
       {isFriday && (
-        <div className="rounded-2xl border border-amber-300 bg-[hsl(50_100%_97%)] px-4 py-3.5 flex items-center gap-4">
-          <span className="text-2xl shrink-0">🕌</span>
+        <div className="rounded-2xl border border-amber-300 bg-[hsl(50_100%_97%)] px-3.5 sm:px-4 py-2.5 sm:py-3 flex items-center gap-3 sm:gap-4">
+          <span className="text-xl sm:text-2xl shrink-0">🕌</span>
           <div className="flex-1">
-            <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Jumu'ah — Friday Prayer</p>
-            <div className="flex items-center gap-5 mt-1">
+            <p className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-amber-700">Jumu'ah — Friday Prayer</p>
+            <div className="flex items-center gap-4 sm:gap-5 mt-1">
               {jumuah1 && (
                 <div className="flex flex-col">
                   <span className="text-[9px] font-bold text-amber-500 uppercase">1st Khutbah</span>
-                  <span className="text-xl font-extrabold tabular-nums text-amber-700">{jumuah1}</span>
+                  <span className="text-lg sm:text-xl font-extrabold tabular-nums text-amber-700">{jumuah1}</span>
                 </div>
               )}
               {jumuah2 && (
                 <div className="flex flex-col">
                   <span className="text-[9px] font-bold text-amber-500 uppercase">2nd Khutbah</span>
-                  <span className="text-xl font-extrabold tabular-nums text-amber-700">{jumuah2}</span>
+                  <span className="text-lg sm:text-xl font-extrabold tabular-nums text-amber-700">{jumuah2}</span>
                 </div>
               )}
               {!jumuah1 && !jumuah2 && (
@@ -574,29 +580,29 @@ export const SolarTimesCard = ({
   return (
     <div className="bg-white rounded-2xl border border-[hsl(140_20%_88%)] shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-[hsl(140_20%_90%)] bg-[hsl(47_100%_97%)] flex items-center gap-2">
-        <Moon size={13} className="text-amber-500" />
-        <span className="text-[11px] font-bold uppercase tracking-widest text-amber-700">Solar Times Today</span>
-        <span className="text-[10px] text-amber-600/70 font-medium ml-auto">Non-prayer reference times</span>
+      <div className="px-3.5 sm:px-4 py-2.5 sm:py-3 border-b border-[hsl(140_20%_90%)] bg-[hsl(47_100%_97%)] flex items-center gap-2">
+        <Moon size={12} className="text-amber-500" />
+        <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-amber-700">Solar Times Today</span>
+        <span className="hidden sm:inline text-[10px] text-amber-600/70 font-medium ml-auto">Non-prayer reference times</span>
       </div>
       {/* Three columns */}
       <div className="grid grid-cols-3 divide-x divide-[hsl(140_20%_90%)]">
         {items.map(({ icon: Icon, label, desc, value, color, bg, border, textColor }) => (
-          <div key={label} className={`${bg} px-3 py-4 flex flex-col items-center text-center gap-1.5`}>
+          <div key={label} className={`${bg} px-2 py-2.5 sm:px-2.5 sm:py-3 flex flex-col items-center text-center gap-1`}>
             <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center mb-1"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0"
               style={{ background: color + '20', border: `1.5px solid ${color}30` }}
             >
-              <Icon size={16} style={{ color }} />
+              <Icon size={13} style={{ color }} />
             </div>
-            <p className={`text-xs font-bold ${textColor}`}>{label}</p>
+            <p className={`text-[11px] sm:text-xs font-bold ${textColor}`}>{label}</p>
             <p
-              className="text-xl font-extrabold tabular-nums"
+              className="text-base sm:text-lg font-extrabold tabular-nums shrink-0"
               style={{ color: value ? color : 'hsl(var(--muted-foreground) / 0.3)' }}
             >
               {value ?? '—'}
             </p>
-            <p className="text-[9px] text-muted-foreground leading-tight">{desc}</p>
+            <p className="text-[8px] sm:text-[9px] text-muted-foreground leading-tight line-clamp-2">{desc}</p>
           </div>
         ))}
       </div>
@@ -621,18 +627,18 @@ const StatCard = ({
 }) => (
   <Link
     to={to}
-    className="group bg-white rounded-2xl border border-[hsl(140_20%_90%)] p-5 hover:shadow-md hover:border-[hsl(142_50%_75%)] transition-all duration-200 overflow-hidden flex flex-col gap-3"
+    className="group bg-white rounded-2xl border border-[hsl(140_20%_90%)] p-3.5 sm:p-4 hover:shadow-md hover:border-[hsl(142_50%_75%)] transition-all duration-200 overflow-hidden flex flex-col gap-2.5"
   >
     <div className="flex items-start justify-between">
-      <div className="w-10 h-10 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center">
-        <Icon size={18} className="text-[hsl(142_60%_32%)]" />
+      <div className="w-9 h-9 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center">
+        <Icon size={16} className="text-[hsl(142_60%_32%)]" />
       </div>
       <ChevronRight size={14} className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
     </div>
     <div>
-      <div className="text-3xl font-extrabold tabular-nums text-[hsl(150_30%_12%)]">{value}</div>
-      <div className="text-sm font-semibold mt-0.5 text-[hsl(150_30%_18%)]">{label}</div>
-      {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
+      <div className="text-2xl sm:text-3xl font-extrabold tabular-nums text-[hsl(150_30%_12%)]">{value}</div>
+      <div className="text-xs sm:text-sm font-semibold mt-0.5 text-[hsl(150_30%_18%)]">{label}</div>
+      {sub && <div className="text-[11px] sm:text-xs text-muted-foreground mt-0.5">{sub}</div>}
     </div>
   </Link>
 );
@@ -869,7 +875,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="px-4 sm:px-8 py-6 space-y-7 max-w-5xl">
+        <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5 sm:space-y-6 max-w-5xl">
 
           {/* ── Today's Prayer Times ── */}
           <section>
@@ -892,7 +898,7 @@ const Dashboard = () => {
             </div>
 
             {todayRow ? (
-              <div className="space-y-3">
+              <div className="space-y-2.5 sm:space-y-3">
                 {/* Next prayer countdown */}
                 <NextPrayerCountdown prayers={countdownPrayers} />
 
