@@ -167,6 +167,8 @@ const WEEKDAY_OPTIONS = [
 ];
 
 const NOTIFICATION_TEMPLATES_APP_SETTING_KEY = 'notification_templates_v1';
+const COMPOSE_TEMPLATES_APP_SETTING_KEY = 'push_compose_templates_v1';
+const MOBILE_QUICK_TEMPLATES_POSITION_KEY = 'notifications_mobile_quick_templates_position_v1';
 
 const DEFAULT_LOCAL_NOTIFICATION_TEMPLATE_CONFIG: LocalNotificationTemplateConfig = {
   prayerStart: {
@@ -239,34 +241,34 @@ const TEMPLATE_EDITOR_SECTIONS: {
   },
 ];
 
-const BUILT_IN_TEMPLATES: Template[] = [
+const DEFAULT_COMPOSE_TEMPLATES: Template[] = [
   {
-    id: 'bt-jummah', label: "Jumu'ah Reminder", icon: 'JM', category: 'prayer', builtIn: true,
+    id: 'bt-jummah', label: "Jumu'ah Reminder", icon: 'JM', category: 'prayer',
     title: "Jumu'ah Mubarak - Friday Prayer Today",
     body: "Join us for Jumu'ah Salah today. First khutbah at 1:00 PM, second at 1:15 PM. Doors open at 12:45 PM. Please arrive early. Jazakallah khayran.",
   },
   {
-    id: 'bt-eid-fitr', label: 'Eid ul-Fitr', icon: 'EF', category: 'eid', builtIn: true,
+    id: 'bt-eid-fitr', label: 'Eid ul-Fitr', icon: 'EF', category: 'eid',
     title: 'Eid Mubarak - Eid ul-Fitr Salah',
     body: 'Taqabbal Allahu Minna wa Minkum. Eid ul-Fitr Salah will be held at 8:30 AM and 9:30 AM. Please bring your prayer mat. May Allah accept our fasts and prayers.',
   },
   {
-    id: 'bt-eid-adha', label: 'Eid ul-Adha', icon: 'EA', category: 'eid', builtIn: true,
+    id: 'bt-eid-adha', label: 'Eid ul-Adha', icon: 'EA', category: 'eid',
     title: 'Eid Mubarak - Eid ul-Adha Salah',
     body: 'Eid ul-Adha Salah will be held at 8:00 AM and 9:15 AM. May Allah accept your sacrifice and grant you all barakah on this blessed day.',
   },
   {
-    id: 'bt-taraweeh', label: 'Taraweeh Start', icon: 'TR', category: 'ramadan', builtIn: true,
+    id: 'bt-taraweeh', label: 'Taraweeh Start', icon: 'TR', category: 'ramadan',
     title: 'Ramadan Mubarak - Taraweeh Begins Tonight',
     body: 'Taraweeh prayers begin tonight after Isha. Please join us for this blessed month. May Allah enable us to observe Ramadan with full iman and devotion.',
   },
   {
-    id: 'bt-prayer-change', label: 'Prayer Time Change', icon: 'PT', category: 'prayer', builtIn: true,
+    id: 'bt-prayer-change', label: 'Prayer Time Change', icon: 'PT', category: 'prayer',
     title: 'Prayer Time Update',
     body: 'Please note updated prayer jamaat times effective from this Sunday. Check the app for the latest schedule. Jazakallah khayran for your patience.',
   },
   {
-    id: 'bt-event', label: 'General Event', icon: 'GE', category: 'event', builtIn: true,
+    id: 'bt-event', label: 'General Event', icon: 'GE', category: 'event',
     title: 'Upcoming Event at Jami Masjid Noorani',
     body: 'We have an important event coming up at the masjid. Please share this with family and friends. More details available at the masjid notice board.',
   },
@@ -362,6 +364,63 @@ function toStoredTemplateValue(config: LocalNotificationTemplateConfig): string 
   return JSON.stringify(config);
 }
 
+function normalizeTemplateId(value: string): string {
+  const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return cleaned || `template-${Date.now()}`;
+}
+
+function normalizeComposeTemplate(value: unknown, fallbackId: string): Template | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const source = value as Record<string, unknown>;
+  const label = normalizeTemplateLine(source.label, '');
+  const title = normalizeTemplateLine(source.title, '');
+  const body = normalizeTemplateLine(source.body, '');
+  if (!label || !title || !body) return null;
+
+  const icon = normalizeTemplateLine(source.icon, 'NT').slice(0, 4).toUpperCase();
+  const categoryValue = normalizeTemplateLine(source.category, 'general').toLowerCase();
+  const category = CATEGORIES.some((entry) => entry.value === categoryValue) ? categoryValue : 'general';
+  const idSource = normalizeTemplateLine(source.id, fallbackId);
+
+  return {
+    id: normalizeTemplateId(idSource),
+    label,
+    icon,
+    category,
+    title,
+    body,
+  };
+}
+
+function parseComposeTemplates(raw: string | null | undefined): Template[] {
+  if (!raw || !raw.trim()) return DEFAULT_COMPOSE_TEMPLATES;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_COMPOSE_TEMPLATES;
+
+    const normalized = parsed
+      .map((entry, index) => normalizeComposeTemplate(entry, `template-${index + 1}`))
+      .filter((entry): entry is Template => Boolean(entry));
+
+    return normalized.length > 0 ? normalized : DEFAULT_COMPOSE_TEMPLATES;
+  } catch {
+    return DEFAULT_COMPOSE_TEMPLATES;
+  }
+}
+
+function toStoredComposeTemplatesValue(templates: Template[]): string {
+  return JSON.stringify(templates.map((item) => ({
+    id: item.id,
+    label: item.label,
+    icon: item.icon,
+    category: item.category,
+    title: item.title,
+    body: item.body,
+  })));
+}
+
 function buildNextRunAt(
   scheduleType: NotificationAutomation['schedule_type'],
   oneTimeAt: string,
@@ -454,7 +513,7 @@ const UrduAutoTranslateBtn = ({ sourceText, onResult }: { sourceText: string; on
 
   return (
     <button type="button" disabled={translating} onClick={handleClick}
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors">
+      className="inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg border border-violet-300 text-violet-700 text-[10px] sm:text-[11px] font-semibold hover:bg-violet-50 disabled:opacity-50 transition-colors whitespace-nowrap">
       {translating ? <><RefreshCw size={11} className="animate-spin" /> Translating...</> : <>Auto-translate</>}
     </button>
   );
@@ -550,19 +609,21 @@ const ImageGalleryModal = ({ onSelect, onClose }: { onSelect: (url: string) => v
 // â”€â”€â”€ Templates Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TemplatesPanel = ({
+  templates,
   onUse,
 }: {
+  templates: Template[];
   onUse: (t: Template) => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
-  const allTemplates = BUILT_IN_TEMPLATES;
+  const allTemplates = templates;
 
   return (
     <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="w-full px-5 py-4 border-b border-border flex items-center justify-between text-left hover:bg-muted/20 transition-colors"
+        className="w-full px-4 sm:px-5 py-3 border-b border-border flex items-center justify-between text-left hover:bg-muted/20 transition-colors"
         style={{ background: expanded ? 'hsl(var(--primary) / 0.04)' : undefined }}
       >
         <div className="flex items-center gap-2">
@@ -580,17 +641,16 @@ const TemplatesPanel = ({
           {allTemplates.map((t) => {
             const cat = getCategoryMeta(t.category);
             return (
-              <div key={t.id} className="px-4 py-3 flex items-start gap-3 hover:bg-muted/10 transition-colors group">
+              <div key={t.id} className="px-3 sm:px-4 py-2.5 flex items-start gap-2.5 hover:bg-muted/10 transition-colors group">
                 <span className="text-xl mt-0.5 shrink-0">{t.icon}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                     <p className="text-xs font-semibold text-foreground leading-snug">{t.label}</p>
                     <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${cat.color}`}>{cat.label}</span>
-                    {t.builtIn && <span className="text-[9px] text-muted-foreground">Built-in</span>}
                   </div>
                   <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">{t.body}</p>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
                   <button
                     onClick={() => onUse(t)}
                     className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-colors"
@@ -787,7 +847,7 @@ const ComposePanel = ({
 
       <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-border flex items-center gap-3" style={{ background: 'hsl(var(--primary) / 0.06)' }}>
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-border flex items-center gap-2.5 sm:gap-3" style={{ background: 'hsl(var(--primary) / 0.06)' }}>
           <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'hsl(var(--primary))' }}>
             <Bell size={17} className="text-white" />
           </div>
@@ -797,9 +857,9 @@ const ComposePanel = ({
           </div>
         </div>
 
-        <div className="px-6 py-5 space-y-5">
+        <div className="px-4 sm:px-6 py-4 sm:py-5 space-y-4">
           {/* Category */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label className="flex items-center gap-1.5"><Tag size={12} /> Category</Label>
             <div className="flex flex-wrap gap-1.5">
               {CATEGORIES.map((cat) => (
@@ -807,7 +867,7 @@ const ComposePanel = ({
                   key={cat.value}
                   type="button"
                   onClick={() => set('category', cat.value)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all ${
                     form.category === cat.value ? cat.color + ' shadow-sm' : 'border-border text-muted-foreground hover:bg-muted'
                   }`}
                 >
@@ -888,7 +948,7 @@ const ComposePanel = ({
           </div>
 
           {/* Audience */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label>Audience</Label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {AUDIENCE_OPTIONS.map((opt) => (
@@ -896,7 +956,7 @@ const ComposePanel = ({
                   key={opt.value}
                   type="button"
                   onClick={() => set('audience', opt.value)}
-                  className={`px-3 py-2.5 rounded-xl border text-left transition-all ${
+                  className={`px-3 py-2 rounded-xl border text-left transition-all ${
                     form.audience === opt.value
                       ? 'border-primary bg-primary/5 shadow-sm'
                       : 'border-border hover:border-primary/40 hover:bg-muted/50'
@@ -913,14 +973,14 @@ const ComposePanel = ({
           <button
             type="button"
             onClick={() => setShowAdvanced((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-md px-1.5 py-1 -ml-1"
           >
             {showAdvanced ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
             Advanced options (image, link, schedule)
           </button>
 
           {showAdvanced && (
-            <div className="space-y-4 pl-4 border-l-2 border-border">
+            <div className="space-y-3.5 sm:space-y-4 pt-1 sm:pt-0 sm:pl-4 sm:border-l-2 border-border/80">
               {/* Image */}
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-1.5"><ImageIcon size={12} /> Image <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
@@ -1050,7 +1110,7 @@ const ComposePanel = ({
           )}
 
           {/* Actions */}
-          <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-1">
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={!isValid || savingDraft || sending} className="gap-2">
                 {savingDraft ? <RefreshCw size={13} className="animate-spin" /> : <Clock size={13} />} Save Draft
@@ -1060,7 +1120,7 @@ const ComposePanel = ({
               size="sm"
               onClick={handleSend}
               disabled={!isValid || sending || savingDraft || (form.scheduleEnabled && !form.scheduledFor)}
-              className="gap-2 px-5"
+              className="gap-2 px-5 w-full sm:w-auto"
               style={{ background: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
             >
               {sending
@@ -1933,6 +1993,10 @@ const Notifications = () => {
   );
   const [templateDirty, setTemplateDirty] = useState(false);
   const [savingTemplateEditor, setSavingTemplateEditor] = useState(false);
+  const [composeTemplateEditor, setComposeTemplateEditor] = useState<Template[]>(DEFAULT_COMPOSE_TEMPLATES);
+  const [composeTemplateDirty, setComposeTemplateDirty] = useState(false);
+  const [savingComposeTemplateEditor, setSavingComposeTemplateEditor] = useState(false);
+  const [mobileQuickTemplatesPosition, setMobileQuickTemplatesPosition] = useState<'top' | 'after-form'>('top');
   const queryClient = useQueryClient();
   const { canEdit, canDelete, role } = usePermissions();
 
@@ -2006,10 +2070,46 @@ const Notifications = () => {
     },
   });
 
+  const {
+    data: composeTemplateSetting,
+    isFetching: composeTemplateSettingFetching,
+    refetch: refetchComposeTemplateSetting,
+    isError: composeTemplateSettingQueryError,
+    error: composeTemplateSettingError,
+  } = useQuery({
+    queryKey: ['app-setting-push-compose-templates-v1'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('key, value, updated_at')
+        .eq('key', COMPOSE_TEMPLATES_APP_SETTING_KEY)
+        .maybeSingle();
+
+      if (error) throw error;
+      return (data ?? null) as AppSettingRow | null;
+    },
+  });
+
   useEffect(() => {
     if (templateDirty) return;
     setTemplateEditor(parseLocalNotificationTemplateConfig(localTemplateSetting?.value));
   }, [localTemplateSetting?.value, templateDirty]);
+
+  useEffect(() => {
+    if (composeTemplateDirty) return;
+    setComposeTemplateEditor(parseComposeTemplates(composeTemplateSetting?.value));
+  }, [composeTemplateDirty, composeTemplateSetting?.value]);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(MOBILE_QUICK_TEMPLATES_POSITION_KEY);
+      if (stored === 'top' || stored === 'after-form') {
+        setMobileQuickTemplatesPosition(stored);
+      }
+    } catch {
+      // Ignore localStorage read issues.
+    }
+  }, []);
 
   const handleSent = (notif: PushNotification) => {
     queryClient.setQueryData<PushNotification[]>(['push-notifications'], (old = []) => [notif, ...old]);
@@ -2059,6 +2159,114 @@ const Notifications = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast.info(`Template "${t.label}" loaded.`);
   };
+
+  const updateMobileQuickTemplatesPosition = useCallback((next: 'top' | 'after-form') => {
+    setMobileQuickTemplatesPosition(next);
+    try {
+      window.localStorage.setItem(MOBILE_QUICK_TEMPLATES_POSITION_KEY, next);
+    } catch {
+      // Ignore localStorage write issues.
+    }
+  }, []);
+
+  const updateComposeTemplateField = useCallback((id: string, field: keyof Template, value: string) => {
+    setComposeTemplateDirty(true);
+    setComposeTemplateEditor((prev) => prev.map((entry) => {
+      if (entry.id !== id) return entry;
+      if (field === 'icon') {
+        return { ...entry, icon: value.slice(0, 4).toUpperCase() };
+      }
+      if (field === 'category') {
+        return { ...entry, category: value };
+      }
+      return { ...entry, [field]: value };
+    }));
+  }, []);
+
+  const moveComposeTemplate = useCallback((id: string, direction: 'up' | 'down') => {
+    setComposeTemplateDirty(true);
+    setComposeTemplateEditor((prev) => {
+      const index = prev.findIndex((entry) => entry.id === id);
+      if (index < 0) return prev;
+      if (direction === 'up' && index === 0) return prev;
+      if (direction === 'down' && index === prev.length - 1) return prev;
+
+      const next = [...prev];
+      const target = direction === 'up' ? index - 1 : index + 1;
+      const [item] = next.splice(index, 1);
+      next.splice(target, 0, item);
+      return next;
+    });
+  }, []);
+
+  const addComposeTemplate = useCallback(() => {
+    setComposeTemplateDirty(true);
+    setComposeTemplateEditor((prev) => {
+      const newId = normalizeTemplateId(`custom-${Date.now()}`);
+      return [
+        ...prev,
+        {
+          id: newId,
+          label: 'New Template',
+          icon: 'NT',
+          category: 'general',
+          title: 'New notification title',
+          body: 'Write your notification message here.',
+        },
+      ];
+    });
+  }, []);
+
+  const deleteComposeTemplate = useCallback((id: string) => {
+    setComposeTemplateDirty(true);
+    setComposeTemplateEditor((prev) => prev.filter((entry) => entry.id !== id));
+  }, []);
+
+  const handleResetComposeTemplateEditor = useCallback(() => {
+    setComposeTemplateEditor(parseComposeTemplates(composeTemplateSetting?.value));
+    setComposeTemplateDirty(false);
+  }, [composeTemplateSetting?.value]);
+
+  const handleSaveComposeTemplateEditor = useCallback(async () => {
+    if (!canEdit) {
+      toast.error('Your role is read-only for settings updates.');
+      return;
+    }
+
+    const normalized = composeTemplateEditor
+      .map((entry, index) => normalizeComposeTemplate(entry, `template-${index + 1}`))
+      .filter((entry): entry is Template => Boolean(entry));
+
+    if (normalized.length === 0) {
+      toast.error('Please keep at least one template with label, title, and body.');
+      return;
+    }
+
+    setSavingComposeTemplateEditor(true);
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert(
+          {
+            key: COMPOSE_TEMPLATES_APP_SETTING_KEY,
+            value: toStoredComposeTemplatesValue(normalized),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'key' },
+        );
+
+      if (error) throw error;
+
+      setComposeTemplateEditor(normalized);
+      setComposeTemplateDirty(false);
+      await refetchComposeTemplateSetting();
+      toast.success('Compose templates updated.');
+    } catch (error) {
+      toast.error(`Failed to save compose templates: ${getErrorMessage(error)}`);
+    } finally {
+      setSavingComposeTemplateEditor(false);
+    }
+  }, [canEdit, composeTemplateEditor, refetchComposeTemplateSetting]);
 
   const filtered = useMemo(() => {
     return notifications.filter((n) => {
@@ -2153,6 +2361,7 @@ const Notifications = () => {
     automationsQueryError ? `Automation rules failed to load: ${getErrorMessage(automationsError)}` : null,
     automationEventsQueryError ? `Automation events failed to load: ${getErrorMessage(automationEventsError)}` : null,
     localTemplateSettingQueryError ? `Template settings failed to load: ${getErrorMessage(localTemplateSettingError)}` : null,
+    composeTemplateSettingQueryError ? `Compose templates failed to load: ${getErrorMessage(composeTemplateSettingError)}` : null,
   ].filter((entry): entry is string => Boolean(entry));
 
   const handleSaveAutomation = async (draft: AutomationDraft) => {
@@ -2255,6 +2464,63 @@ const Notifications = () => {
   const tabTriggerClass =
     'gap-1.5 flex-1 min-w-[7rem] data-[state=active]:bg-[hsl(142_50%_93%)] data-[state=active]:text-[hsl(142_60%_24%)] data-[state=active]:shadow-sm';
 
+  const quickTemplatesCard = canEdit ? (
+    <div className="rounded-2xl border border-border bg-card shadow-sm px-3 sm:px-4 py-2.5 sm:py-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Sparkles size={13} className="text-[hsl(142_60%_32%)]" />
+        <span className="text-xs font-semibold text-foreground">Quick templates</span>
+        <span className="hidden sm:inline text-[11px] text-muted-foreground">One click to pre-fill the form</span>
+      </div>
+
+      <div className="lg:hidden mb-2 flex items-center gap-1.5 text-[10px]">
+        <span className="text-muted-foreground mr-1">Position:</span>
+        <button
+          type="button"
+          onClick={() => updateMobileQuickTemplatesPosition('top')}
+          className={`px-2 py-1 rounded-full border ${
+            mobileQuickTemplatesPosition === 'top'
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border text-muted-foreground'
+          }`}
+        >
+          Top
+        </button>
+        <button
+          type="button"
+          onClick={() => updateMobileQuickTemplatesPosition('after-form')}
+          className={`px-2 py-1 rounded-full border ${
+            mobileQuickTemplatesPosition === 'after-form'
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border text-muted-foreground'
+          }`}
+        >
+          After form
+        </button>
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        {composeTemplateEditor.map((t) => {
+          const cat = getCategoryMeta(t.category);
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => handleUseTemplate(t)}
+              className="group shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-[hsl(140_20%_88%)] bg-white hover:border-[hsl(142_50%_70%)] hover:bg-[hsl(142_50%_96%)] transition-all text-left"
+              title={t.title}
+            >
+              <span className="text-base leading-none">{t.icon}</span>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold text-foreground leading-tight whitespace-nowrap">{t.label}</p>
+                <span className={`inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${cat.color}`}>{cat.label}</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
@@ -2350,42 +2616,18 @@ const Notifications = () => {
             </TabsList>
 
             {/* â”€â”€ Compose tab â”€â”€ */}
-            <TabsContent value="compose" className="mt-5 space-y-5 focus-visible:outline-none">
-              {canEdit && (
-                <div className="rounded-2xl border border-border bg-card shadow-sm px-4 py-3">
-                  <div className="flex items-center gap-2 mb-2.5">
-                    <Sparkles size={13} className="text-[hsl(142_60%_32%)]" />
-                    <span className="text-xs font-semibold text-foreground">Quick templates</span>
-                    <span className="text-[11px] text-muted-foreground">One click to pre-fill the form</span>
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto pb-1.5 -mx-1 px-1">
-                    {BUILT_IN_TEMPLATES.map((t) => {
-                      const cat = getCategoryMeta(t.category);
-                      return (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => handleUseTemplate(t)}
-                          className="group shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border border-[hsl(140_20%_88%)] bg-white hover:border-[hsl(142_50%_70%)] hover:bg-[hsl(142_50%_96%)] transition-all text-left"
-                          title={t.title}
-                        >
-                          <span className="text-lg leading-none">{t.icon}</span>
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-semibold text-foreground leading-tight whitespace-nowrap">{t.label}</p>
-                            <span className={`inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${cat.color}`}>{cat.label}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+            <TabsContent value="compose" className="mt-4 sm:mt-5 space-y-4 sm:space-y-5 focus-visible:outline-none">
+              <div className="hidden lg:block">{quickTemplatesCard}</div>
+              {mobileQuickTemplatesPosition === 'top' && <div className="lg:hidden">{quickTemplatesCard}</div>}
 
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5 min-w-0">
-                <div className="min-w-0">{composeCard}</div>
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-border bg-card shadow-sm px-5 py-4">
-                    <div className="flex items-center gap-2 mb-2">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 sm:gap-5 min-w-0">
+                <div className="min-w-0 space-y-3">
+                  {composeCard}
+                  {mobileQuickTemplatesPosition === 'after-form' && <div className="lg:hidden">{quickTemplatesCard}</div>}
+                </div>
+                <div className="space-y-3.5 sm:space-y-4">
+                  <div className="rounded-2xl border border-border bg-card shadow-sm px-4 sm:px-5 py-3 sm:py-4">
+                    <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
                       <Smartphone size={13} className="text-[hsl(142_60%_32%)]" />
                       <h3 className="text-xs font-bold text-foreground uppercase tracking-wide">Reach</h3>
                     </div>
@@ -2403,11 +2645,11 @@ const Notifications = () => {
                   </div>
 
                   <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-                    <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+                    <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-b border-border flex items-center gap-2">
                       <Sparkles size={13} className="text-[hsl(142_60%_32%)]" />
                       <h3 className="text-xs font-bold text-foreground uppercase tracking-wide">Writing tips</h3>
                     </div>
-                    <div className="px-5 py-4 space-y-3">
+                    <div className="px-4 sm:px-5 py-3 sm:py-4 space-y-2.5 sm:space-y-3">
                       {[
                         { icon: '1.', tip: 'Keep titles under 50 characters - they get truncated on lock screens.' },
                         { icon: '2.', tip: 'Lead with the most important info in the first sentence.' },
@@ -2423,7 +2665,7 @@ const Notifications = () => {
                     </div>
                   </div>
 
-                  <TemplatesPanel onUse={handleUseTemplate} />
+                  <TemplatesPanel templates={composeTemplateEditor} onUse={handleUseTemplate} />
                 </div>
               </div>
             </TabsContent>
@@ -2648,6 +2890,166 @@ const Notifications = () => {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+                <div className="px-4 sm:px-5 py-4 border-b border-border">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                        <Sparkles size={14} style={{ color: 'hsl(var(--primary))' }} />
+                        Compose Quick Templates
+                      </h3>
+                      <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                        These templates appear in the Compose tab quick strip. You can add new templates, edit existing ones, and move order for mobile usage.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refetchComposeTemplateSetting()}
+                        disabled={composeTemplateSettingFetching || savingComposeTemplateEditor}
+                        className="gap-2"
+                      >
+                        <RefreshCw size={13} className={composeTemplateSettingFetching ? 'animate-spin' : ''} /> Reload
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleResetComposeTemplateEditor}
+                        disabled={!composeTemplateDirty || composeTemplateSettingFetching || savingComposeTemplateEditor}
+                        className="gap-2"
+                      >
+                        <RotateCcw size={13} /> Reset
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={addComposeTemplate}
+                        disabled={!canEdit || composeTemplateSettingFetching || savingComposeTemplateEditor}
+                      >
+                        Add Template
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveComposeTemplateEditor}
+                        disabled={!canEdit || !composeTemplateDirty || composeTemplateSettingFetching || savingComposeTemplateEditor}
+                        className="gap-2 bg-[hsl(142_60%_32%)] hover:bg-[hsl(142_60%_28%)] text-white"
+                      >
+                        {savingComposeTemplateEditor ? <RefreshCw size={13} className="animate-spin" /> : <Bookmark size={13} />}
+                        Save Templates
+                      </Button>
+                    </div>
+                  </div>
+
+                  {!canEdit && (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Your role is read-only. You can review templates but cannot save changes.
+                    </p>
+                  )}
+                </div>
+
+                <div className="px-3 sm:px-5 py-4 space-y-3">
+                  {composeTemplateEditor.map((template, index) => {
+                    const catMeta = getCategoryMeta(template.category);
+                    return (
+                      <div key={template.id} className="rounded-xl border border-border bg-background/40 p-3 sm:p-4 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border text-muted-foreground">#{index + 1}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${catMeta.color}`}>{catMeta.label}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => moveComposeTemplate(template.id, 'up')}
+                              disabled={!canEdit || index === 0 || savingComposeTemplateEditor}
+                              className="p-1.5 rounded-md border border-input hover:bg-muted disabled:opacity-50"
+                              title="Move up"
+                            >
+                              <ChevronUp size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveComposeTemplate(template.id, 'down')}
+                              disabled={!canEdit || index === composeTemplateEditor.length - 1 || savingComposeTemplateEditor}
+                              className="p-1.5 rounded-md border border-input hover:bg-muted disabled:opacity-50"
+                              title="Move down"
+                            >
+                              <ChevronDown size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteComposeTemplate(template.id)}
+                              disabled={!canEdit || savingComposeTemplateEditor || composeTemplateEditor.length <= 1}
+                              className="p-1.5 rounded-md border border-input hover:bg-destructive/10 text-destructive/70 disabled:opacity-50"
+                              title="Delete template"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Label</Label>
+                            <Input
+                              value={template.label}
+                              onChange={(e) => updateComposeTemplateField(template.id, 'label', e.target.value)}
+                              disabled={!canEdit || savingComposeTemplateEditor}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Icon (2-4 chars)</Label>
+                            <Input
+                              value={template.icon}
+                              onChange={(e) => updateComposeTemplateField(template.id, 'icon', e.target.value)}
+                              disabled={!canEdit || savingComposeTemplateEditor}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Category</Label>
+                            <select
+                              value={template.category}
+                              onChange={(e) => updateComposeTemplateField(template.id, 'category', e.target.value)}
+                              disabled={!canEdit || savingComposeTemplateEditor}
+                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                            >
+                              {CATEGORIES.map((cat) => (
+                                <option key={cat.value} value={cat.value}>{cat.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px]">Title</Label>
+                          <Input
+                            value={template.title}
+                            onChange={(e) => updateComposeTemplateField(template.id, 'title', e.target.value)}
+                            disabled={!canEdit || savingComposeTemplateEditor}
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px]">Body</Label>
+                          <Textarea
+                            rows={2}
+                            value={template.body}
+                            onChange={(e) => updateComposeTemplateField(template.id, 'body', e.target.value)}
+                            disabled={!canEdit || savingComposeTemplateEditor}
+                            className="text-xs"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </TabsContent>

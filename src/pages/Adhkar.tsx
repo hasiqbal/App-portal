@@ -375,7 +375,7 @@ const SortableGroupSection = ({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
-      className={`relative rounded-md border border-[hsl(214_22%_88%)] bg-white shadow-[0_1px_4px_rgba(15,23,42,0.08)] ${renaming ? 'z-20' : 'z-0'} ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
+      className={`relative rounded-md border border-[hsl(214_22%_88%)] bg-white shadow-[0_1px_4px_rgba(15,23,42,0.08)] ${(renaming || moreMenuOpen) ? 'z-40' : 'z-0'} ${isDragOverlay ? 'rotate-1 shadow-xl' : ''}`}
     >
       {/* ── Group Header ── */}
       <div className="flex flex-col select-none relative rounded-t-md overflow-visible" style={{
@@ -547,7 +547,7 @@ const SortableGroupSection = ({
                   <span className="hidden sm:inline">More</span>
                 </button>
                 {moreMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-56 sm:w-52 max-w-[calc(100vw-2.5rem)] rounded-lg border border-border bg-popover shadow-xl z-30 overflow-hidden">
+                  <div className="absolute right-0 bottom-full mb-1 sm:bottom-auto sm:top-full sm:mt-1 sm:mb-0 w-56 sm:w-52 max-w-[calc(100vw-2.5rem)] rounded-lg border border-border bg-popover shadow-xl z-50 overflow-hidden">
                     <button
                       onClick={() => { handleToggleGroupSelection(); setMoreMenuOpen(false); }}
                       className="w-full px-3 py-2 text-left text-xs hover:bg-secondary/60 flex items-center gap-2"
@@ -927,6 +927,7 @@ const Adhkar = () => {
   const [bulkDescSaving, setBulkDescSaving] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
   const [bulkSavingAll, setBulkSavingAll] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [showStickyMiniBar, setShowStickyMiniBar] = useState(false);
 
   // Duplicate group state
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
@@ -1025,6 +1026,19 @@ const Adhkar = () => {
     (cat) => !knownCategories.has(cat)
   );
   const allCategories = [...presentCategories, ...unknownCategories];
+  const activeCategoryLabel = filterCategory === 'All'
+    ? 'All categories'
+    : (PRAYER_TIME_LABELS[filterCategory] ?? filterCategory);
+
+  useEffect(() => {
+    const onScroll = () => {
+      setShowStickyMiniBar(window.scrollY > 320);
+    };
+
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const handleOpenAdd = (groupName?: string, prayerTime?: string) => {
     setEditRow(null);
@@ -1890,6 +1904,39 @@ const Adhkar = () => {
         </div>
 
         <div className="px-4 sm:px-8 py-5">
+          {showStickyMiniBar && (
+            <div className="sticky top-[3.45rem] md:top-0 z-30 mb-3 rounded-lg border border-[hsl(140_20%_86%)] bg-white/95 backdrop-blur px-2.5 py-2">
+              <div className="flex items-center gap-2 justify-between">
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[hsl(142_45%_94%)] text-[hsl(142_58%_26%)] border border-[hsl(142_30%_78%)] truncate max-w-[170px]">
+                    {activeCategoryLabel}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                    {statusFilter === 'all' ? 'All status' : statusFilter === 'active' ? 'Active only' : 'Inactive only'}
+                  </span>
+                  {search.trim().length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                      Search on
+                    </span>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => {
+                    setFilterCategory('All');
+                    setStatusFilter('all');
+                    setSearch('');
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Filters */}
           <div className="flex flex-col gap-2.5 mb-3.5">
             <div className="flex items-center gap-2 text-xs text-slate-600">
