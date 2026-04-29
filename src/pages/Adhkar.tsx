@@ -394,7 +394,7 @@ const SortableGroupSection = ({
           </>
         )}
       {/* Top row: drag + collapse + icon + name + actions */}
-      <div className="flex items-center flex-wrap gap-1.5 px-2 py-2 relative z-10">
+      <div className="flex items-center flex-wrap gap-1 px-2 py-1.5 relative z-10">
 
         {/* Drag handle */}
         <button
@@ -412,11 +412,11 @@ const SortableGroupSection = ({
 
         {/* Group icon */}
         {!isUngrouped && (
-          <GroupIconDisplay icon={icon} bg={iconBg} size={32} />
+          <GroupIconDisplay icon={icon} bg={iconBg} size={28} />
         )}
 
         {/* Group name + badge + description */}
-        <div className="flex-1 min-w-[140px]" onClick={() => !renaming && setCollapsed((c) => !c)}>
+        <div className="flex-1 min-w-[120px]" onClick={() => !renaming && setCollapsed((c) => !c)}>
           <div className="flex items-center gap-2 flex-wrap">
             {renaming ? (
               <form
@@ -492,7 +492,7 @@ const SortableGroupSection = ({
               </form>
             ) : (
               <span
-                className="font-semibold text-sm leading-snug cursor-text hover:opacity-90 px-1 -mx-1 rounded transition-colors"
+                className="font-semibold text-[15px] sm:text-sm leading-snug cursor-text hover:opacity-90 px-1 -mx-1 rounded transition-colors"
                 style={{ color: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? '#fff' : 'hsl(var(--foreground))' }}
                 title="Click to rename group"
                 onClick={(e) => { e.stopPropagation(); setRenameValue(groupName); setRenameSearch(''); setRenaming(true); setCollapsed(false); }}
@@ -504,25 +504,34 @@ const SortableGroupSection = ({
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-white" style={{ background: badgeColor }}>{badgeText}</span>
             )}
             {!renaming && (
-              <span className="text-xs" style={{ color: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? 'rgba(255,255,255,0.7)' : 'hsl(var(--muted-foreground))' }}>{items.length} {items.length === 1 ? 'dhikr' : 'adhkar'}</span>
+              <span className="inline-flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px]" style={{ color: (groupMeta as AdhkarGroup & { bg_image_url?: string | null })?.bg_image_url ? 'rgba(255,255,255,0.7)' : 'hsl(var(--muted-foreground))' }}>
+                  {items.length} {items.length === 1 ? 'dhikr' : 'adhkar'}
+                </span>
+                {!isUngrouped && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-[hsl(142_30%_78%)] bg-[hsl(142_45%_94%)] text-[hsl(142_58%_26%)]">
+                    {PRAYER_TIME_LABELS[currentPrayerTime] ?? currentPrayerTime}
+                  </span>
+                )}
+              </span>
             )}
           </div>
 
         </div>
 
         {/* ── Right-side controls ── */}
-        <div className="flex items-center justify-end gap-1.5 shrink-0 relative z-10 ml-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1 shrink-0 relative z-10 ml-auto" onClick={(e) => e.stopPropagation()}>
 
           {/* Secondary + overflow actions */}
           {!isUngrouped && (
-            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+            <div className="flex items-center gap-1 flex-wrap justify-end">
               <button
                 onClick={() => onEditGroup(groupName, groupMeta)}
-                className="h-8 px-2 rounded-md border border-border/80 bg-white text-foreground hover:bg-secondary/70 transition-colors inline-flex items-center gap-1.5 text-[11px] font-semibold shrink-0"
+                className="h-7 px-2 rounded-md border border-border/80 bg-white text-foreground hover:bg-secondary/70 transition-colors inline-flex items-center gap-1 text-[11px] font-semibold shrink-0"
                 title="Edit group settings"
                 aria-label="Edit group settings"
               >
-                <Pencil size={14} className="text-muted-foreground" />
+                <Pencil size={13} className="text-muted-foreground" />
                 <span className="hidden sm:inline">Edit Group</span>
                 <span className="sm:hidden">Edit</span>
               </button>
@@ -530,11 +539,11 @@ const SortableGroupSection = ({
               <div className="relative" ref={moreMenuRef}>
                 <button
                   onClick={() => { setMoreMenuOpen((v) => !v); setShowMoveOptions(false); }}
-                  className="h-8 px-2 rounded-md border border-border/80 bg-white hover:bg-secondary/70 transition-colors inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
+                  className="h-7 px-2 rounded-md border border-border/80 bg-white hover:bg-secondary/70 transition-colors inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
                   title="More group actions"
                   aria-label="More group actions"
                 >
-                  <MoreHorizontal size={14} />
+                  <MoreHorizontal size={13} />
                   <span className="hidden sm:inline">More</span>
                 </button>
                 {moreMenuOpen && (
@@ -595,11 +604,11 @@ const SortableGroupSection = ({
           {/* Add entry */}
           <button
             onClick={() => onAddToGroup(groupName, items[0]?.prayer_time ?? 'after-fajr')}
-            className="h-8 px-2.5 sm:px-3 rounded-lg text-[12px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 inline-flex items-center gap-1.5"
+            className="h-7 px-2 sm:px-2.5 rounded-lg text-[11px] sm:text-[12px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 inline-flex items-center gap-1"
             title="Add entry to this group"
             aria-label="Add entry to this group"
           >
-            <Plus size={13} />
+            <Plus size={12} />
             <span className="hidden sm:inline">Add Entry</span>
             <span className="sm:hidden">Add</span>
           </button>
@@ -608,7 +617,7 @@ const SortableGroupSection = ({
 
       {/* Second row: prayer-time tag */}
       {!isUngrouped && !renaming && (
-        <div className="flex items-start justify-between gap-2 px-2 pb-2 relative z-10" onClick={(e) => e.stopPropagation()}>
+        <div className="hidden sm:flex items-start justify-between gap-2 px-2 pb-1.5 relative z-10" onClick={(e) => e.stopPropagation()}>
           <div className="hidden sm:block flex-1 min-w-0">
             {descEditing ? (
               <div className="mt-0.5 flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -662,9 +671,6 @@ const SortableGroupSection = ({
             >
               {allGroupSelected ? 'Unselect Group' : 'Select Group'}
             </button>
-            <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold border border-[hsl(142_30%_78%)] bg-[hsl(142_45%_94%)] text-[hsl(142_58%_26%)]">
-              {PRAYER_TIME_LABELS[currentPrayerTime] ?? currentPrayerTime}
-            </span>
           </div>
         </div>
       )}
@@ -805,21 +811,28 @@ const PrayerTimeSection = ({
   };
 
   return (
-    <section>
+    <section className="mb-4 rounded-xl border border-[hsl(145_18%_86%)] bg-[hsl(145_22%_98%)] px-2.5 py-2.5 sm:px-3 sm:py-3">
       {/* Section header */}
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colors?.dot ?? '#6b7280' }} />
-        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${colors?.pill ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
-          {PRAYER_TIME_LABELS[cat] ?? cat}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {catItems.length} {catItems.length === 1 ? 'entry' : 'entries'} · {sortedGroupNames.length} {sortedGroupNames.length === 1 ? 'group' : 'groups'}
-        </span>
-        <div className="flex-1 h-px bg-border" />
+      <div className="rounded-lg border border-[hsl(145_18%_84%)] bg-white px-2.5 py-2 sm:px-3 sm:py-2.5 mb-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colors?.dot ?? '#6b7280' }} />
+          <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${colors?.pill ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+            {PRAYER_TIME_LABELS[cat] ?? cat}
+          </span>
+          <span className="text-[11px] font-medium text-slate-600">Prayer section</span>
+        </div>
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+            {catItems.length} {catItems.length === 1 ? 'entry' : 'entries'}
+          </span>
+          <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+            {sortedGroupNames.length} {sortedGroupNames.length === 1 ? 'group' : 'groups'}
+          </span>
+        </div>
       </div>
 
       {/* Group list */}
-      <div className="pl-5">
+      <div className="pl-0 sm:pl-3">
         <DndContext
           sensors={sensors} collisionDetection={closestCenter}
           onDragStart={(e: DragStartEvent) => setGroupDragActiveId(e.active.id as string)}
@@ -1818,27 +1831,28 @@ const Adhkar = () => {
 
       <main className="flex-1 min-w-0 overflow-x-hidden pt-14 md:pt-0">
         {/* ── Page Banner ── */}
-        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-6 pb-5">
+        <div className="bg-white border-b border-[hsl(140_20%_88%)] px-4 sm:px-8 pt-5 pb-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
                 <BookOpen size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Adhkar Management</h1>
+                <h1 className="text-[1.9rem] leading-tight font-semibold tracking-tight text-foreground">Adhkar Management</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {adhkar.length} adhkar · {groupsList.length} groups · drag to reorder
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button variant="outline" size="sm" onClick={handleUndoLast} className="gap-2 border-slate-300 text-slate-700 hover:bg-slate-100">
-                ↩ Undo Last
+            <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+              <Button variant="outline" size="sm" onClick={handleUndoLast} className="gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-100 h-9 px-3">
+                <span className="sm:hidden">↩ Undo</span>
+                <span className="hidden sm:inline">↩ Undo Last</span>
               </Button>
-              <span className="text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+              <span className="text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 whitespace-nowrap">
                 Auto-save ON
               </span>
-              <Button variant="outline" size="sm" onClick={handleBulkOpen} className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50">
+              <Button variant="outline" size="sm" onClick={handleBulkOpen} className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50 h-9 px-3">
                 <AlignLeft size={14} /> Bulk Descriptions
                 {missingDescCount > 0 && (
                   <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700">{missingDescCount}</span>
@@ -1846,7 +1860,7 @@ const Adhkar = () => {
               </Button>
               {undoStack.length > 0 && (
                 <Button variant="outline" size="sm" onClick={handleUndo}
-                  className="gap-2 border-amber-400/60 text-amber-700 hover:bg-amber-50"
+                  className="hidden sm:inline-flex gap-2 border-amber-400/60 text-amber-700 hover:bg-amber-50"
                   title={`Restore deleted: "${undoStack[undoStack.length - 1]?.title}"`}>
                   ↩ Undo Delete
                   <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">{undoStack.length}</span>
@@ -1854,19 +1868,20 @@ const Adhkar = () => {
               )}
               {editHistory.length > 0 && (
                 <Button variant="outline" size="sm" onClick={handleUndoEdit}
-                  className="gap-2 border-blue-400/60 text-blue-700 hover:bg-blue-50"
+                  className="hidden sm:inline-flex gap-2 border-blue-400/60 text-blue-700 hover:bg-blue-50"
                   title={`Undo last edit: "${editHistory[editHistory.length - 1]?.title}"`}>
                   ↩ Undo Edit
                   <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">{editHistory.length}</span>
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={handleCreateTest} disabled={testCreating} className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
+              <Button variant="outline" size="sm" onClick={handleCreateTest} disabled={testCreating} className="hidden sm:inline-flex gap-2 border-primary/30 text-primary hover:bg-primary/5">
                 {testCreating ? '⏳' : '🧪'} {testCreating ? 'Creating…' : 'Test'}
               </Button>
-              <Button variant="outline" size="sm" onClick={() => { refetch(); refetchGroups(); }} disabled={isFetching} className="gap-1.5">
+              <Button variant="outline" size="sm" onClick={() => { refetch(); refetchGroups(); }} disabled={isFetching} className="gap-1.5 h-9 px-3">
                 <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+                <span className="sr-only">Refresh</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={() => handleOpenAdd()} className="gap-2 border-[hsl(140_20%_80%)] text-[hsl(150_30%_22%)] hover:bg-[hsl(140_25%_96%)]"
+              <Button variant="outline" size="sm" onClick={() => handleOpenAdd()} className="gap-1.5 h-9 px-3 border-[hsl(140_20%_80%)] text-[hsl(150_30%_22%)] hover:bg-[hsl(140_25%_96%)]"
                 title="Global add. For contextual add, use + Add inside each group.">
                 <Plus size={14} /> Global Add
               </Button>
@@ -1876,7 +1891,7 @@ const Adhkar = () => {
 
         <div className="px-4 sm:px-8 py-5">
           {/* Filters */}
-          <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2.5 mb-4">
+          <div className="flex flex-col gap-2.5 mb-3.5">
             <div className="flex items-center gap-2 text-xs text-slate-600">
               <input
                 type="checkbox"
@@ -1886,11 +1901,12 @@ const Adhkar = () => {
               />
               Select visible
             </div>
-            <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <div className="relative w-full sm:max-w-xs">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Arabic, translation, group, or ID" className="pl-9 h-9 text-sm" />
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="w-full overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="inline-flex items-center gap-1.5 min-w-max">
               <button
                 onClick={() => setStatusFilter('all')}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${statusFilter === 'all' ? 'border-transparent text-white' : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}
@@ -1912,8 +1928,10 @@ const Adhkar = () => {
               >
                 Inactive Only
               </button>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="w-full overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="inline-flex items-center gap-1.5 min-w-max">
               <button
                 onClick={() => setFilterCategory('All')}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${filterCategory === 'All' ? 'border-transparent text-white' : 'border-border bg-muted text-muted-foreground hover:bg-secondary'}`}
@@ -1932,8 +1950,9 @@ const Adhkar = () => {
                   </button>
                 );
               })}
+              </div>
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto ml-0 sm:ml-auto justify-end flex-wrap">
+            <div className="flex items-center gap-2 w-full justify-end flex-wrap">
               {selectedDhikrIds.length > 0 && (
                 <div className="flex items-center gap-2 p-1 rounded-md border border-slate-300 bg-white flex-wrap justify-end">
                   <span className="text-xs font-semibold text-slate-700 px-1">{selectedDhikrIds.length} selected</span>
@@ -1948,10 +1967,10 @@ const Adhkar = () => {
                   <Button size="sm" variant="ghost" className="h-8" onClick={() => setSelectedDhikrIds([])}>Clear</Button>
                 </div>
               )}
-              <Button variant="outline" size="sm" className="h-9 flex-1 sm:flex-none min-w-[140px]" onClick={() => setCollapseMode('expand')}>
+              <Button variant="outline" size="sm" className="h-9 flex-1 min-w-[140px]" onClick={() => setCollapseMode('expand')}>
                 Expand All
               </Button>
-              <Button variant="outline" size="sm" className="h-9 flex-1 sm:flex-none min-w-[140px]" onClick={() => setCollapseMode('collapse')}>
+              <Button variant="outline" size="sm" className="h-9 flex-1 min-w-[140px]" onClick={() => setCollapseMode('collapse')}>
                 Collapse All
               </Button>
             </div>

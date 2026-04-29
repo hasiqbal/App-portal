@@ -1422,14 +1422,14 @@ const DhikrModal = ({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl max-h-[94vh] overflow-y-auto border-[hsl(140_20%_88%)]" onKeyDown={handleModalKeyDown}>
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <DialogTitle className="text-lg font-bold flex items-start gap-2">
               <div className="w-8 h-8 rounded-lg bg-[hsl(142_50%_93%)] flex items-center justify-center shrink-0">
                 <BookOpen size={15} className="text-[hsl(142_60%_32%)]" />
               </div>
-              {titleOverride ?? (isEdit ? 'Edit Dhikr' : 'Add New Dhikr')}
+              <span className="leading-tight">{titleOverride ?? (isEdit ? 'Edit Dhikr' : 'Add New Dhikr')}</span>
               {isEdit && isPlaceholder && (
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 whitespace-nowrap mt-0.5">
                   ⏳ Placeholder
                 </span>
               )}
@@ -1437,7 +1437,7 @@ const DhikrModal = ({
             <button
               type="button"
               onClick={() => setShowQuranPicker((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all w-full sm:w-auto ${
                 showQuranPicker
                   ? 'border-[hsl(142_50%_70%)] bg-[hsl(142_50%_93%)] text-[hsl(142_60%_28%)]'
                   : 'border-[hsl(142_50%_75%)] bg-[hsl(142_50%_97%)] text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_93%)]'
@@ -1449,7 +1449,7 @@ const DhikrModal = ({
           </div>
 
           {isEdit && (
-            <div className="mt-2 flex flex-wrap items-center gap-3">
+            <div className="mt-2 grid grid-cols-1 gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
               <label className="flex items-center gap-1.5 text-xs font-medium">
                 <input type="radio" checked={saveMode === 'update'} onChange={() => setSaveMode('update')} />
                 Update existing
@@ -1466,7 +1466,7 @@ const DhikrModal = ({
               <Switch id="is_active_top" checked={form.is_active} onCheckedChange={(v) => set('is_active', v)} />
               <Label htmlFor="is_active_top" className="cursor-pointer text-xs">Active in app</Label>
             </div>
-            <span className="text-[10px] text-muted-foreground">Enter to save · Ctrl+Enter quick save</span>
+            <span className="hidden sm:inline text-[10px] text-muted-foreground">Enter to save · Ctrl+Enter quick save</span>
           </div>
 
           {duplicateInGroup && (
@@ -1617,39 +1617,6 @@ const DhikrModal = ({
                 </>
               )}
             </div>
-
-            {editorTab !== 'advanced' && (
-              <div className="rounded-md border border-[hsl(145_20%_88%)] bg-[hsl(145_26%_97%)] p-3 space-y-2">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-[hsl(150_30%_20%)]">
-                  <Eye size={12} /> Live Preview
-                </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div className="rounded-md border border-[hsl(145_20%_86%)] bg-white p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Arabic</p>
-                    <p dir="rtl" className="text-right leading-[2.3] min-h-[72px] text-foreground/90" style={{ fontFamily: '"Scheherazade New", serif', fontSize: '1.1rem' }}>
-                      {form.arabic.trim() || 'No Arabic text yet.'}
-                    </p>
-                  </div>
-                  <div className="rounded-md border border-[hsl(145_20%_86%)] bg-white p-3 space-y-2">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Transliteration</p>
-                      <p className="text-[11px] text-foreground/80 whitespace-pre-wrap">{form.transliteration.trim() || 'No transliteration yet.'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">English</p>
-                      <p className="text-[11px] text-foreground/80 whitespace-pre-wrap">{form.translation.trim() || 'No English translation yet.'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Urdu</p>
-                      <p dir="rtl" className="text-right text-[11px] text-foreground/80 whitespace-pre-wrap" style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif", lineHeight: '2' }}>
-                        {form.urdu_translation.trim() || 'ابھی اردو ترجمہ شامل نہیں کیا گیا۔'}
-                      </p>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">Reference: {form.reference.trim() || 'Not set'}</p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {editorTab === 'content' && (
               <div className="space-y-3">
@@ -1883,6 +1850,81 @@ const DhikrModal = ({
               </div>
             )}
           </section>
+
+          {editorTab !== 'advanced' && (
+            <section className="space-y-3 rounded-md border border-[hsl(145_20%_86%)] bg-[hsl(145_30%_97%)] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-[hsl(150_30%_24%)] flex items-center gap-1.5">
+                  <Eye size={12} /> App Live Preview
+                </h3>
+                <span className="text-[10px] text-[hsl(150_18%_42%)]">Matches app card layout</span>
+              </div>
+
+              <div className="mx-auto w-full max-w-[420px] rounded-2xl border border-[hsl(145_20%_82%)] bg-white p-3.5 shadow-sm space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-[14px] font-bold leading-snug text-[hsl(150_30%_18%)] break-words">
+                      {form.title.trim() || 'Dhikr title'}
+                    </p>
+                    {form.arabic_title.trim() && (
+                      <p
+                        dir="rtl"
+                        className="text-right text-[13px] leading-[1.9] text-[hsl(150_20%_34%)]"
+                        style={{ fontFamily: '"Scheherazade New", serif' }}
+                      >
+                        {form.arabic_title.trim()}
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 rounded-full bg-[hsl(142_50%_93%)] px-2 py-0.5 text-[10px] font-semibold text-[hsl(142_60%_30%)] border border-[hsl(142_36%_80%)]">
+                    x{form.count || '1'}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-[hsl(145_18%_97%)] px-4 py-4">
+                  <p
+                    dir="rtl"
+                    className="text-right leading-[2.35] min-h-[74px] text-[hsl(150_16%_20%)]"
+                    style={{ fontFamily: '"Scheherazade New", serif', fontSize: '1.28rem' }}
+                  >
+                    {form.arabic.trim() || 'No Arabic text yet.'}
+                  </p>
+                </div>
+
+                {!!form.transliteration.trim() && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Transliteration</p>
+                    <p className="text-[12px] italic text-[hsl(150_10%_32%)] whitespace-pre-wrap">{form.transliteration.trim()}</p>
+                  </div>
+                )}
+
+                {!!form.translation.trim() && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">English</p>
+                    <p className="text-[12px] text-[hsl(150_10%_32%)] whitespace-pre-wrap">{form.translation.trim()}</p>
+                  </div>
+                )}
+
+                {!!form.urdu_translation.trim() && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Urdu</p>
+                    <p
+                      dir="rtl"
+                      className="text-right text-[12px] text-[hsl(150_10%_32%)] whitespace-pre-wrap leading-[2.1]"
+                      style={{ fontFamily: "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif" }}
+                    >
+                      {form.urdu_translation.trim()}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground pt-1 border-t border-slate-100">
+                  <span className="truncate">{PRAYER_TIME_LABELS[form.prayer_time] ?? form.prayer_time}</span>
+                  <span className="truncate text-right">{form.reference.trim() || 'Reference not set'}</span>
+                </div>
+              </div>
+            </section>
+          )}
         </div>
 
         <DialogFooter className="pt-2 gap-2 flex-wrap">
