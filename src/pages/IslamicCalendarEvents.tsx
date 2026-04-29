@@ -58,7 +58,7 @@ const IslamicCalendarEvents = () => {
           (e.notes ?? '').toLowerCase().includes(q) ||
           (e.source_name ?? '').toLowerCase().includes(q) ||
           (e.field_label ?? '').toLowerCase().includes(q) ||
-          e.linked_hijri_label.toLowerCase().includes(q),
+          (e.linked_hijri_label ?? '').toLowerCase().includes(q),
       );
     }
     // Sort by Hijri month then day
@@ -162,7 +162,7 @@ const IslamicCalendarEvents = () => {
             <p className="text-[11px] text-muted-foreground">Important Dates</p>
           </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700 flex items-center gap-1.5 max-w-xs">
-            <span className="font-semibold">Masjid Events</span> (Jummah, programmes) are managed on the 
+            <span className="font-semibold">Masjid Events</span> (Jummah, programmes) are managed on the
             <a href="/announcements" className="underline font-semibold">Announcements</a> page.
           </div>
         </div>
@@ -274,8 +274,8 @@ const IslamicCalendarEvents = () => {
                           </Badge>
                         </div>
                         <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                          <span className="text-[11px] text-muted-foreground">{ev.linked_hijri_label}</span>
-                          <span className="text-[11px] text-muted-foreground">→ {ev.linked_gregorian_date}</span>
+                          <span className="text-[11px] text-muted-foreground">{ev.linked_hijri_label ?? `${ev.linked_hijri_day} ${HIJRI_MONTH_NAMES[ev.linked_hijri_month]}`}</span>
+                          <span className="text-[11px] text-muted-foreground">→ {ev.linked_gregorian_date ?? 'dynamic by month'}</span>
                           {ev.region && (
                             <span className="text-[11px] text-muted-foreground italic">{ev.region}</span>
                           )}

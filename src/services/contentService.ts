@@ -24,6 +24,7 @@ import {
   updateSunnahGroup,
   deleteSunnahGroup,
   fetchIslamicCalendarEvents,
+  fetchCalendarEventsForMonth,
   createIslamicCalendarEvent,
   updateIslamicCalendarEvent,
   deleteIslamicCalendarEvent,
@@ -43,6 +44,7 @@ import type {
   IslamicCalendarEvent,
   IslamicCalendarEventPayload,
   IslamicCalendarEventType,
+  CalendarMonthEvent,
 } from '#/types';
 
 // ─── Announcements ────────────────────────────────────────────────────────────
@@ -123,6 +125,8 @@ export const islamicCalendarEventsService = {
     day?: number;
     eventType?: IslamicCalendarEventType;
   }): Promise<IslamicCalendarEvent[]> => fetchIslamicCalendarEvents(options),
+  getMonthFeed: (year: number, month: number): Promise<CalendarMonthEvent[]> =>
+    fetchCalendarEventsForMonth(year, month),
   create: (data: Partial<IslamicCalendarEventPayload>): Promise<IslamicCalendarEvent> => createIslamicCalendarEvent(data),
   update: (id: string, data: Partial<IslamicCalendarEventPayload>): Promise<IslamicCalendarEvent> => updateIslamicCalendarEvent(id, data),
   delete: (id: string): Promise<void> => deleteIslamicCalendarEvent(id),

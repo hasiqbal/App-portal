@@ -31,9 +31,9 @@ export interface IslamicCalendarEvent {
   source_name: string | null;
   linked_hijri_day: number;
   linked_hijri_month: number;
-  linked_hijri_year: number;
-  linked_hijri_label: string;
-  linked_gregorian_date: string;
+  linked_hijri_year: number | null;
+  linked_hijri_label: string | null;
+  linked_gregorian_date: string | null;
   original_hijri_year: number | null;
   auto_delete_grace_days: number;
   created_by: string | null;
@@ -45,6 +45,21 @@ export type IslamicCalendarEventPayload = Omit<
   IslamicCalendarEvent,
   'id' | 'created_at' | 'updated_at'
 >;
+
+export interface CalendarMonthEvent {
+  id: string;
+  title: string;
+  event_type: IslamicCalendarEventType;
+  field_label: string | null;
+  region: string | null;
+  notes: string | null;
+  source_name: string | null;
+  linked_hijri_label: string | null;
+  linked_gregorian_date: string;
+  auto_delete_grace_days: number;
+  source_announcement_id: string | null;
+  source_link_url: string | null;
+}
 
 export interface PrayerTime {
   id: string;

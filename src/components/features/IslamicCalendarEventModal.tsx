@@ -46,7 +46,6 @@ type FormState = {
   region: string;
   notes: string;
   source_name: string;
-  auto_delete_grace_days: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -57,7 +56,6 @@ const EMPTY_FORM: FormState = {
   region: '',
   notes: '',
   source_name: '',
-  auto_delete_grace_days: '3',
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -88,9 +86,8 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
       region: event.region ?? '',
       notes: event.notes ?? '',
       source_name: event.source_name ?? '',
-      auto_delete_grace_days: String(event.auto_delete_grace_days ?? 3),
     });
-    setResolvedGregorianDate(event.linked_gregorian_date);
+    setResolvedGregorianDate(event.linked_gregorian_date ?? null);
     setResolvedHijriYear(event.linked_hijri_year);
     setLookupError(null);
   }, [event, open]);
@@ -192,13 +189,10 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
       toast.error('Hijri month must be between 1 and 12.');
       return;
     }
-    if (!resolvedGregorianDate || !resolvedHijriYear) {
+    if (!resolvedGregorianDate) {
       toast.error('Look up the Gregorian date before saving.');
       return;
     }
-
-    const monthLabel = HIJRI_MONTHS[month - 1]?.label ?? `Month ${month}`;
-    const hijriLabel = `${day} ${monthLabel} ${resolvedHijriYear} AH`;
 
     setSaving(true);
     try {
@@ -207,14 +201,14 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
         event_type: 'important_date' as const,
         linked_hijri_day: day,
         linked_hijri_month: month,
-        linked_hijri_year: resolvedHijriYear,
-        linked_hijri_label: hijriLabel,
+        linked_hijri_year: 0,
+        linked_hijri_label: null,
         linked_gregorian_date: resolvedGregorianDate,
         field_label: form.field_label.trim() || null,
         region: form.region.trim() || null,
         notes: form.notes.trim() || null,
         source_name: form.source_name.trim() || null,
-        auto_delete_grace_days: parseInt(form.auto_delete_grace_days) || 3,
+        auto_delete_grace_days: 0,
       };
 
       let saved: IslamicCalendarEvent;
@@ -240,7 +234,7 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
 
   const monthLabel = HIJRI_MONTHS[parseInt(form.hijri_month) - 1]?.label ?? '';
   const hijriPreview = resolvedGregorianDate
-    ? `${form.hijri_day} ${monthLabel} ${resolvedHijriYear} AH → ${resolvedGregorianDate}`
+    ? `${form.hijri_day} ${monthLabel}${resolvedHijriYear ? ` ${resolvedHijriYear} AH` : ''} → ${resolvedGregorianDate}`
     : null;
 
   return (
@@ -369,20 +363,8 @@ const IslamicCalendarEventModal = ({ open, event, onClose, onSaved }: IslamicCal
             />
           </div>
 
-          {/* Auto-delete grace days */}
-          <div className="space-y-1.5">
-            <Label>Auto-delete grace days</Label>
-            <Input
-              type="number"
-              min={0}
-              max={30}
-              value={form.auto_delete_grace_days}
-              onChange={(e) => set('auto_delete_grace_days', e.target.value)}
-              className="w-24"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Days after the Gregorian date before this row is auto-removed (0–30).
-            </p>
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-700">
+            Important dates are permanent and only removed manually from this page.
           </div>
         </div>
 

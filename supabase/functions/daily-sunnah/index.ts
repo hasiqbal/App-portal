@@ -4,81 +4,37 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? 'https://lhaqqqatdztuijgdfdcf.supabase.co';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-
-// fawazahmed0/hadith-api served via jsDelivr CDN
-const BASE = 'https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions';
+const HADITH_API_KEY = Deno.env.get('HADITHAPI_KEY') ?? '';
+const HADITH_API_BASE = 'https://hadithapi.com/api';
+const MAX_BOOK_PROBES = 3;
+const HADITHS_PER_CHAPTER_FETCH = 25;
 
 type CollectionDef = {
   key: string;
-  englishEdition: string;
-  arabicEdition: string;
+  bookSlug: string;
   title: string;
 };
 
 const COLLECTIONS: CollectionDef[] = [
-  { key: 'nawawi', englishEdition: 'eng-nawawi', arabicEdition: 'ara-nawawi', title: 'The Forty Hadith of Imam Nawawi' },
-  { key: 'bukhari', englishEdition: 'eng-bukhari', arabicEdition: 'ara-bukhari', title: 'Sahih al-Bukhari' },
-  { key: 'muslim', englishEdition: 'eng-muslim', arabicEdition: 'ara-muslim', title: 'Sahih Muslim' },
-  { key: 'abudawud', englishEdition: 'eng-abudawud', arabicEdition: 'ara-abudawud', title: 'Sunan Abu Dawud' },
-  { key: 'tirmidhi', englishEdition: 'eng-tirmidhi', arabicEdition: 'ara-tirmidhi', title: 'Jami at-Tirmidhi' },
-  { key: 'nasai', englishEdition: 'eng-nasai', arabicEdition: 'ara-nasai', title: 'Sunan an-Nasai' },
-  { key: 'ibnmajah', englishEdition: 'eng-ibnmajah', arabicEdition: 'ara-ibnmajah', title: 'Sunan Ibn Majah' },
+  { key: 'bukhari', bookSlug: 'sahih-bukhari', title: 'Sahih al-Bukhari' },
+  { key: 'muslim', bookSlug: 'sahih-muslim', title: 'Sahih Muslim' },
+  { key: 'tirmidhi', bookSlug: 'al-tirmidhi', title: 'Jami at-Tirmidhi' },
+  { key: 'abudawud', bookSlug: 'abu-dawood', title: 'Sunan Abu Dawood' },
+  { key: 'ibnmajah', bookSlug: 'ibn-e-majah', title: 'Sunan Ibn-e-Majah' },
+  { key: 'nasai', bookSlug: 'sunan-nasai', title: 'Sunan An-Nasai' },
+];
+
+const SHAMAIL_TOPIC_KEYWORDS = [
+  'character', 'manners', 'conduct', 'behavior', 'mercy', 'compassion', 'kindness',
+  'gentle', 'humble', 'modesty', 'truthful', 'honest', 'smile', 'patience', 'generous',
+  'description', 'appearance', 'face', 'complexion', 'hair', 'beard', 'eyes',
+  'height', 'build', 'walk', 'gait', 'garment', 'clothing', 'perfume', 'fragrance',
+  'hands', 'teeth', 'voice',
 ];
 
 const HADITH_EXCLUDE_RANDOM_KEYWORDS = [
-  'fiqh', 'rulings', 'legal', 'injunctions', 'rules of law', 'detailed rules',
-  'detailed injunctions', 'permissible', 'impermissible', 'halal', 'haram', 'lawful',
-  'unlawful', 'permitted', 'forbidden', 'prohibited', 'disliked', 'makruh', 'obligatory',
-  'wajib', 'fard', "sunnah mu'akkadah", 'conditions', 'pillars', 'validity', 'invalid',
-  'invalidates', 'expiation', 'kaffarah', 'menstruation', 'menses', 'haidh', 'nifas',
-  'post-natal', 'postnatal', 'sexual impurity', 'janaba', 'ghusl', 'bath', 'toilet',
-  'urination', 'defecation', 'impurities', 'tayammum', 'wiping over socks', 'marriage',
-  'nikah', 'divorce', 'talaq', 'iddah', "li'an", 'breastfeeding', 'suckling', 'custody',
-  'inheritance', 'shares of inheritance', "fara'id", 'wills', 'bequests', 'sales', 'trade',
-  'business', 'transactions', 'loans', 'debt', 'mortgage', 'pledges', 'riba', 'usury',
-  'partnership', 'bankruptcy', 'leasing', 'renting', 'agriculture', 'irrigation',
-  'pre-emption', 'punishments', 'hudud', 'legal punishments', 'blood money', 'diyat',
-  'retaliation', 'qisas', 'theft', 'stoning', 'apostates', 'apostasy', 'testimony',
-  'witnesses', 'judgements', 'judgments', 'judge', 'court', 'oaths', 'vows', 'jihad',
-  'fighting', 'military expeditions', 'maghazi', 'campaigns', 'spoils', 'booty', 'one-fifth',
-  'prisoners', 'treaties', 'tribute', 'kharaj', 'rulership', 'leadership disputes', 'rebellion',
-  'hunting', 'game', 'slaughter', 'sacrifice', 'udhiyah', 'aqiqah', 'intoxicants',
-  'forbidden drinks', 'wine rulings', 'medicine', 'medical treatment', 'dreams',
-  'interpretation of dreams', 'ruqyah', 'magic', 'evil eye', 'tribulations', 'fitan',
-  'trials', 'signs of the hour', 'dajjal', 'mahdi', 'major signs', 'minor signs', 'apocalypse',
+  'hudud', 'qisas', 'diyat', 'apostasy', 'riba', 'inheritance', 'menstruation', 'nifas',
 ];
-
-// Prefer Shamaail-style reminders: the Prophet's noble character and physical description.
-const SHAMAIL_TOPIC_KEYWORDS = [
-  // Character and manners
-  'character', 'manners', 'conduct', 'behavior', 'mercy', 'compassion', 'kindness',
-  'gentle', 'gentleness', 'forbearing', 'forbearance', 'humble', 'humility',
-  'modesty', 'modest', 'truthful', 'honest', 'smile', 'smiling', 'laugh', 'laughed',
-  'patience', 'patient', 'generous', 'generosity',
-  // Physical description
-  'appearance', 'description', 'face', 'complexion', 'hair', 'beard', 'eyes',
-  'height', 'build', 'walk', 'gait', 'garment', 'clothing', 'perfume', 'fragrance',
-  'hands', 'teeth', 'voice',
-  // Common section/title markers
-  'characteristics', 'attributes', 'description of the prophet',
-];
-
-interface HadithEntry {
-  hadithnumber: number;
-  arabicnumber: number;
-  text: string;
-  grades: unknown[];
-  reference: { book: number; hadith: number };
-}
-
-interface EditionJson {
-  metadata?: {
-    name?: string;
-    section?: Record<string, string>;
-    sections?: Record<string, string>;
-  };
-  hadiths: HadithEntry[];
-}
 
 type InclusionRule = {
   collection_key: string;
@@ -87,29 +43,24 @@ type InclusionRule = {
   enabled: boolean;
 };
 
-type EditionBundle = {
-  english: HadithEntry[];
-  arabicByHadithNo: Map<number, string>;
-  sectionTitles: Map<number, string>;
+type HadithApiRow = {
+  hadithNumber?: string;
+  englishNarrator?: string;
+  hadithEnglish?: string;
+  hadithArabic?: string;
+  headingEnglish?: string | null;
+  chapterId?: string;
 };
 
 type Candidate = {
   collectionKey: string;
   bookTitle: string;
-  hadith: HadithEntry;
+  hadithNumber: number;
   arabic: string;
-  sectionTitle: string;
+  text: string;
   ref: string;
-  searchText: string;
-  shamailScore: number;
 };
 
-type SelectionPool = {
-  mode: 'rules+keywords' | 'rules-only' | 'all+keywords' | 'all-only';
-  candidates: Candidate[];
-};
-
-let editionCache: Map<string, EditionBundle> | null = null;
 let inclusionRulesCache: InclusionRule[] | null = null;
 let inclusionRulesUpdatedAt = 0;
 const RULES_CACHE_TTL_MS = 60_000;
@@ -120,88 +71,43 @@ function dayOfYear(): number {
   return Math.floor((now.getTime() - start.getTime()) / 86_400_000);
 }
 
-async function fetchEdition(url: string, fallback: string): Promise<HadithEntry[]> {
-  let res = await fetch(url);
-  if (!res.ok) res = await fetch(fallback);
-  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`);
-  const data: EditionJson = await res.json();
-  return data.hadiths;
-}
-
-async function fetchEditionData(edition: string): Promise<EditionJson> {
-  const minUrl = `${BASE}/${edition}.min.json`;
-  const fullUrl = `${BASE}/${edition}.json`;
-  let res = await fetch(minUrl);
-  if (!res.ok) res = await fetch(fullUrl);
-  if (!res.ok) throw new Error(`Failed to fetch ${edition}: ${res.status} ${res.statusText}`);
-  return await res.json() as EditionJson;
-}
-
-function getSectionTitle(metadata: EditionJson['metadata'], sectionNo: number): string {
-  const raw = metadata?.sections?.[String(sectionNo)] ?? metadata?.section?.[String(sectionNo)] ?? '';
-  return raw.trim();
-}
-
 function normalizeForSearch(value: string): string {
   return value.toLowerCase();
 }
 
 function hasBlockedKeyword(candidate: Candidate): boolean {
-  return HADITH_EXCLUDE_RANDOM_KEYWORDS.some((keyword) => candidate.searchText.includes(keyword.toLowerCase()));
+  const haystack = normalizeForSearch(`${candidate.ref} ${candidate.text}`);
+  return HADITH_EXCLUDE_RANDOM_KEYWORDS.some((keyword) => haystack.includes(keyword));
 }
 
-function getShamailScore(haystack: string): number {
-
+function getShamailScore(candidate: Candidate): number {
+  const haystack = normalizeForSearch(`${candidate.ref} ${candidate.text.slice(0, 320)} ${candidate.arabic.slice(0, 200)}`);
   let score = 0;
   for (const keyword of SHAMAIL_TOPIC_KEYWORDS) {
-    if (haystack.includes(keyword)) {
+    if (haystack.includes(keyword.toLowerCase())) {
       score += 1;
     }
   }
-
   return score;
 }
 
-async function getEditionCache(): Promise<Map<string, EditionBundle>> {
-  if (editionCache) return editionCache;
-
-  const map = new Map<string, EditionBundle>();
-
-  for (const collection of COLLECTIONS) {
-    const [engData, araData] = await Promise.all([
-      fetchEditionData(collection.englishEdition),
-      fetchEditionData(collection.arabicEdition),
-    ]);
-
-    const arabicByHadithNo = new Map<number, string>();
-    for (const row of araData.hadiths) {
-      arabicByHadithNo.set(row.hadithnumber, row.text?.trim() ?? '');
-    }
-
-    const sectionTitles = new Map<number, string>();
-    for (const row of engData.hadiths) {
-      const sectionNo = row.reference?.book ?? 0;
-      if (!sectionTitles.has(sectionNo)) {
-        sectionTitles.set(sectionNo, getSectionTitle(engData.metadata, sectionNo));
-      }
-    }
-
-    map.set(collection.key, {
-      english: engData.hadiths,
-      arabicByHadithNo,
-      sectionTitles,
-    });
+function buildApiUrl(path: string, query: Record<string, string | number>): string {
+  const search = new URLSearchParams();
+  search.set('apiKey', HADITH_API_KEY);
+  for (const [k, v] of Object.entries(query)) {
+    search.set(k, String(v));
   }
+  return `${HADITH_API_BASE}${path}?${search.toString()}`;
+}
 
-  editionCache = map;
-  return map;
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`hadithapi.com error ${res.status}`);
+  return await res.json() as T;
 }
 
 async function getInclusionRules(): Promise<InclusionRule[]> {
-  if (!SERVICE_ROLE_KEY) {
-    // If key is missing, default to include-all behavior.
-    return [];
-  }
+  if (!SERVICE_ROLE_KEY) return [];
 
   const now = Date.now();
   if (inclusionRulesCache && now - inclusionRulesUpdatedAt < RULES_CACHE_TTL_MS) {
@@ -227,88 +133,141 @@ async function getInclusionRules(): Promise<InclusionRule[]> {
   return inclusionRulesCache;
 }
 
-function buildCandidates(
-  editionData: Map<string, EditionBundle>,
-  inclusionRules: InclusionRule[],
-): Candidate[] {
-  const rulesByCollection = new Map<string, InclusionRule[]>();
+function resolveActiveCollections(inclusionRules: InclusionRule[]): CollectionDef[] {
+  if (inclusionRules.length === 0) return COLLECTIONS;
+
+  const byCollection = new Map<string, InclusionRule[]>();
   for (const rule of inclusionRules) {
-    if (!rulesByCollection.has(rule.collection_key)) {
-      rulesByCollection.set(rule.collection_key, []);
+    if (!byCollection.has(rule.collection_key)) {
+      byCollection.set(rule.collection_key, []);
     }
-    rulesByCollection.get(rule.collection_key)?.push(rule);
+    byCollection.get(rule.collection_key)?.push(rule);
   }
 
-  const hasAnyRules = inclusionRules.length > 0;
-  const candidates: Candidate[] = [];
-
-  for (const collection of COLLECTIONS) {
-    const bundle = editionData.get(collection.key);
-    if (!bundle) continue;
-
-    const rules = rulesByCollection.get(collection.key) ?? [];
-    const bookIncluded = rules.some((r) => r.include_scope === 'book');
-    const sectionRules = new Set(
-      rules
-        .filter((r) => r.include_scope === 'section' && typeof r.section_number === 'number')
-        .map((r) => r.section_number as number),
-    );
-
-    const includeWholeBook = !hasAnyRules || (bookIncluded && sectionRules.size === 0);
-    const includeBySection = sectionRules.size > 0;
-    const collectionEnabled = includeWholeBook || includeBySection;
-    if (!collectionEnabled) continue;
-
-    for (const hadith of bundle.english) {
-      const sectionNo = hadith.reference?.book ?? 0;
-      if (includeBySection && !sectionRules.has(sectionNo)) {
-        continue;
-      }
-
-      const ref = `${collection.title}, Hadith ${hadith.hadithnumber}`;
-      const sectionTitle = bundle.sectionTitles.get(sectionNo) ?? '';
-      const searchText = normalizeForSearch(`${sectionTitle} ${hadith.text} ${ref}`);
-
-      candidates.push({
-        collectionKey: collection.key,
-        bookTitle: collection.title,
-        hadith,
-        arabic: bundle.arabicByHadithNo.get(hadith.hadithnumber) ?? '',
-        sectionTitle,
-        ref,
-        searchText,
-        shamailScore: getShamailScore(searchText),
-      });
-    }
-  }
-
-  return candidates;
+  const enabled = COLLECTIONS.filter((c) => (byCollection.get(c.key) ?? []).length > 0);
+  return enabled.length > 0 ? enabled : COLLECTIONS;
 }
 
-function selectCandidatePool(
-  editionData: Map<string, EditionBundle>,
-  inclusionRules: InclusionRule[],
-): SelectionPool | null {
-  const ruleScoped = buildCandidates(editionData, inclusionRules);
-  const ruleScopedKeywordSafe = ruleScoped.filter((candidate) => !hasBlockedKeyword(candidate));
-  if (ruleScopedKeywordSafe.length > 0) {
-    return { mode: 'rules+keywords', candidates: ruleScopedKeywordSafe };
+function resolveSectionRules(inclusionRules: InclusionRule[], collectionKey: string): number[] {
+  return inclusionRules
+    .filter((r) => r.collection_key === collectionKey && r.include_scope === 'section' && typeof r.section_number === 'number')
+    .map((r) => Number(r.section_number))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+async function resolveChapterNumber(collection: CollectionDef, sectionRules: number[], daySeed: number): Promise<number | null> {
+  if (sectionRules.length > 0) {
+    return sectionRules[daySeed % sectionRules.length];
   }
 
-  // If keyword filters over-prune, keep rule scope and relax only keyword blocking.
-  if (ruleScoped.length > 0) {
-    return { mode: 'rules-only', candidates: ruleScoped };
+  const chaptersUrl = buildApiUrl(`/${collection.bookSlug}/chapters`, { paginate: 1 });
+  const chaptersData = await fetchJson<{ chapters?: { total?: number } }>(chaptersUrl);
+  const total = Number(chaptersData?.chapters?.total ?? 0);
+  if (!Number.isFinite(total) || total <= 0) return null;
+  return ((daySeed * 31) % total) + 1;
+}
+
+function mapHadithRow(row: HadithApiRow, collection: CollectionDef): Candidate | null {
+  const hadithNo = Number(row.hadithNumber ?? 0);
+  const english = String(row.hadithEnglish ?? '').trim();
+  const arabic = String(row.hadithArabic ?? '').trim();
+  const heading = String(row.headingEnglish ?? '').trim();
+  const narrator = String(row.englishNarrator ?? '').trim();
+  if (!Number.isFinite(hadithNo) || hadithNo <= 0 || english.length === 0) return null;
+
+  const text = [narrator, english].filter(Boolean).join('\n\n');
+  const ref = `${collection.title}, Hadith ${hadithNo}${heading ? ` - ${heading}` : ''}`;
+
+  return {
+    collectionKey: collection.key,
+    bookTitle: collection.title,
+    hadithNumber: hadithNo,
+    arabic,
+    text,
+    ref,
+  };
+}
+
+async function fetchChapterCandidates(collection: CollectionDef, chapterNumber: number): Promise<Candidate[]> {
+  const hadithsUrl = buildApiUrl('/hadiths', {
+    book: collection.bookSlug,
+    chapter: chapterNumber,
+    paginate: HADITHS_PER_CHAPTER_FETCH,
+  });
+
+  const payload = await fetchJson<{ hadiths?: { data?: HadithApiRow[] } }>(hadithsUrl);
+  const rows = payload?.hadiths?.data ?? [];
+  return rows
+    .map((row) => mapHadithRow(row, collection))
+    .filter((row): row is Candidate => !!row);
+}
+
+function pickFromPool(candidates: Candidate[], daySeed: number, mode: string): { candidate: Candidate; mode: string } | null {
+  if (candidates.length === 0) return null;
+
+  const keywordSafe = candidates.filter((c) => !hasBlockedKeyword(c));
+  const shamailSafe = keywordSafe.filter((c) => getShamailScore(c) > 0);
+
+  const finalPool = shamailSafe.length > 0
+    ? shamailSafe
+    : keywordSafe.length > 0
+      ? keywordSafe
+      : candidates;
+
+  const sorted = [...finalPool].sort((a, b) => {
+    const scoreDiff = getShamailScore(b) - getShamailScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    if (a.collectionKey !== b.collectionKey) return a.collectionKey.localeCompare(b.collectionKey);
+    return a.hadithNumber - b.hadithNumber;
+  });
+
+  const selected = sorted[daySeed % sorted.length];
+  const resolvedMode = shamailSafe.length > 0
+    ? `${mode}+shamail`
+    : keywordSafe.length > 0
+      ? `${mode}+keywords`
+      : `${mode}+no-filter`;
+
+  return { candidate: selected, mode: resolvedMode };
+}
+
+async function selectDailyCandidate(activeCollections: CollectionDef[], inclusionRules: InclusionRule[], daySeed: number): Promise<{
+  candidate: Candidate;
+  selectionMode: string;
+} | null> {
+  const probes = Math.min(MAX_BOOK_PROBES, activeCollections.length);
+  const probeCollections: CollectionDef[] = [];
+  for (let i = 0; i < probes; i += 1) {
+    probeCollections.push(activeCollections[(daySeed + i) % activeCollections.length]);
   }
 
-  // If include rules produce zero rows (misconfiguration), fall back to global scope.
-  const allCandidates = buildCandidates(editionData, []);
-  const allKeywordSafe = allCandidates.filter((candidate) => !hasBlockedKeyword(candidate));
-  if (allKeywordSafe.length > 0) {
-    return { mode: 'all+keywords', candidates: allKeywordSafe };
+  let fallbackPool: Candidate[] = [];
+
+  for (let i = 0; i < probeCollections.length; i += 1) {
+    const collection = probeCollections[i];
+    try {
+      const sectionRules = resolveSectionRules(inclusionRules, collection.key);
+      const chapter = await resolveChapterNumber(collection, sectionRules, daySeed + i * 7);
+      if (!chapter) continue;
+
+      const candidates = await fetchChapterCandidates(collection, chapter);
+      if (candidates.length === 0) continue;
+
+      // Keep a weak fallback pool if nothing matches shamaail from all probes.
+      fallbackPool = fallbackPool.concat(candidates.slice(0, 4));
+
+      const picked = pickFromPool(candidates, daySeed + i * 13, 'hadithapi');
+      if (picked) {
+        return { candidate: picked.candidate, selectionMode: picked.mode };
+      }
+    } catch (err) {
+      console.warn(`[daily-sunnah] probe failed for ${collection.bookSlug}:`, err);
+    }
   }
 
-  if (allCandidates.length > 0) {
-    return { mode: 'all-only', candidates: allCandidates };
+  const fallbackPicked = pickFromPool(fallbackPool, daySeed, 'hadithapi-fallback');
+  if (fallbackPicked) {
+    return { candidate: fallbackPicked.candidate, selectionMode: fallbackPicked.mode };
   }
 
   return null;
@@ -320,16 +279,29 @@ serve(async (req: Request) => {
   }
 
   try {
-    const editionData = await getEditionCache();
+    if (!HADITH_API_KEY) {
+      return new Response(
+        JSON.stringify({ noCandidate: true, reason: 'Missing HADITHAPI_KEY secret' }),
+        {
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=300',
+          },
+        },
+      );
+    }
+
+    const daySeed = dayOfYear();
     const inclusionRules = await getInclusionRules();
+    const activeCollections = resolveActiveCollections(inclusionRules);
+    const selected = await selectDailyCandidate(activeCollections, inclusionRules, daySeed);
 
-    const selectionPool = selectCandidatePool(editionData, inclusionRules);
-
-    if (!selectionPool || selectionPool.candidates.length === 0) {
+    if (!selected) {
       return new Response(
         JSON.stringify({
           noCandidate: true,
-          reason: 'No hadith candidates available after fallback selection',
+          reason: 'No hadith candidate available from hadithapi.com',
         }),
         {
           headers: {
@@ -341,44 +313,20 @@ serve(async (req: Request) => {
       );
     }
 
-    if (selectionPool.mode !== 'rules+keywords') {
-      console.warn('[daily-sunnah] fallback mode used:', selectionPool.mode);
-    }
-
-    const shamailPreferred = selectionPool.candidates.filter((candidate) => candidate.shamailScore > 0);
-    const activeCandidates = shamailPreferred.length > 0 ? shamailPreferred : selectionPool.candidates;
-    const resolvedSelectionMode = shamailPreferred.length > 0
-      ? `${selectionPool.mode}+shamail`
-      : selectionPool.mode;
-
-    const stableSorted = [...activeCandidates].sort((a, b) => {
-      const scoreDiff = b.shamailScore - a.shamailScore;
-      if (scoreDiff !== 0) {
-        return scoreDiff;
-      }
-
-      if (a.collectionKey !== b.collectionKey) {
-        return a.collectionKey.localeCompare(b.collectionKey);
-      }
-      return a.hadith.hadithnumber - b.hadith.hadithnumber;
-    });
-
-    const index = dayOfYear() % stableSorted.length;
-    const selected = stableSorted[index];
-    const text = selected.hadith.text.trim();
-    const preview = text.length > 120 ? text.slice(0, 120).trimEnd() + '…' : text;
+    const text = selected.candidate.text;
+    const preview = text.length > 120 ? `${text.slice(0, 120).trimEnd()}...` : text;
 
     return new Response(
       JSON.stringify({
-        arabic: selected.arabic,
-        // narrator is embedded in text for this API — kept for interface compat
+        arabic: selected.candidate.arabic,
         narrator: '',
         preview,
         text,
-        ref: selected.ref,
-        idInBook: selected.hadith.hadithnumber,
-        bookTitle: selected.bookTitle,
-        selectionMode: resolvedSelectionMode,
+        ref: selected.candidate.ref,
+        idInBook: selected.candidate.hadithNumber,
+        bookTitle: selected.candidate.bookTitle,
+        selectionMode: selected.selectionMode,
+        sourceApi: 'hadithapi.com',
       }),
       {
         headers: {

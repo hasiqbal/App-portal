@@ -99,6 +99,16 @@ type SectionDraft = {
   steps: StepDraft[];
 };
 
+type TreeValidationState = {
+  sectionHeadingIndexes: number[];
+  stepTitleKeys: string[];
+};
+
+const EMPTY_TREE_VALIDATION: TreeValidationState = {
+  sectionHeadingIndexes: [],
+  stepTitleKeys: [],
+};
+
 const GROUPS_KEY = ['howto-groups'];
 const GUIDES_KEY = ['howto-guides'];
 
@@ -349,6 +359,40 @@ function migrateLegacyTextInSections(sections: SectionDraft[]): {
   };
 }
 
+function buildStepKey(sectionIndex: number, stepIndex: number): string {
+  return `${sectionIndex}-${stepIndex}`;
+}
+
+function buildTreeDraftSnapshot(
+  guideIntro: string,
+  guideNotesText: string,
+  sections: SectionDraft[],
+): string {
+  return JSON.stringify({
+    guideIntro,
+    guideNotesText,
+    sections: sections.map((section) => ({
+      heading: section.heading,
+      steps: section.steps.map((step) => ({
+        title: step.title,
+        detail: step.detail,
+        note: step.note,
+        rich_content_html: step.rich_content_html,
+        blocks: step.blocks.map((block) => ({
+          kind: block.kind,
+          payload: block.payload,
+        })),
+        images: step.images.map((image) => ({
+          image_url: image.image_url,
+          thumb_url: image.thumb_url,
+          caption: image.caption,
+          source: image.source,
+        })),
+      })),
+    })),
+  });
+}
+
 function getHowToGroupDisplayName(group: HowToGroup | null | undefined, language: EditingLanguage): string {
   if (!group) return 'Unassigned Group';
   if (language === 'ur' && group.urdu_name?.trim()) return group.urdu_name.trim();
@@ -409,6 +453,8 @@ export default function HowToGuidesPage() {
   const [treeGuideIntro, setTreeGuideIntro] = useState('');
   const [treeGuideNotesText, setTreeGuideNotesText] = useState('');
   const [treeSections, setTreeSections] = useState<SectionDraft[]>([]);
+  const [treeDirty, setTreeDirty] = useState(false);
+  const [treeValidation, setTreeValidation] = useState<TreeValidationState>(EMPTY_TREE_VALIDATION);
   const [uploadingByStepKey, setUploadingByStepKey] = useState<Record<string, boolean>>({});
   const [draggingSectionIndex, setDraggingSectionIndex] = useState<number | null>(null);
   const [draggingStepRef, setDraggingStepRef] = useState<{ sectionIndex: number; stepIndex: number } | null>(null);
@@ -461,6 +507,7 @@ export default function HowToGuidesPage() {
   const urduLabelsBackfillRunningRef = useRef(false);
   const urduPreviewRequestRef = useRef(0);
   const englishFilterAutoResetRef = useRef(false);
+  const treeSavedSnapshotRef = useRef('');
 
   const activeFilters = filtersByLanguage[activeEditingLanguage];
   const englishGuides = useMemo(() => guides.filter((guide) => guide.language === 'en'), [guides]);
@@ -600,6 +647,41 @@ export default function HowToGuidesPage() {
     hasActiveGuideFilters,
   ]);
 
+  useEffect(() => {
+    if (!treeDialogOpen || !treeGuide || treeLoading) return;
+
+    const currentSnapshot = buildTreeDraftSnapshot(treeGuideIntro, treeGuideNotesText, treeSections);
+    setTreeDirty(currentSnapshot !== treeSavedSnapshotRef.current);
+  }, [
+    treeDialogOpen,
+    treeGuide,
+    treeGuideIntro,
+    treeGuideNotesText,
+    treeLoading,
+    treeSections,
+  ]);
+
+  const clearSectionHeadingValidation = (sectionIndex: number) => {
+    setTreeValidation((prev) => {
+      if (!prev.sectionHeadingIndexes.includes(sectionIndex)) return prev;
+      return {
+        ...prev,
+        sectionHeadingIndexes: prev.sectionHeadingIndexes.filter((idx) => idx !== sectionIndex),
+      };
+    });
+  };
+
+  const clearStepTitleValidation = (sectionIndex: number, stepIndex: number) => {
+    const stepKey = buildStepKey(sectionIndex, stepIndex);
+    setTreeValidation((prev) => {
+      if (!prev.stepTitleKeys.includes(stepKey)) return prev;
+      return {
+        ...prev,
+        stepTitleKeys: prev.stepTitleKeys.filter((key) => key !== stepKey),
+      };
+    });
+  };
+
   const openCreateGroup = () => {
     setEditingGroup(null);
     setGroupForm(EMPTY_GROUP_FORM);
@@ -679,6 +761,9 @@ export default function HowToGuidesPage() {
     setTreeGuide(guide);
     setTreeDialogOpen(true);
     setTreeLoading(true);
+    setTreeValidation(EMPTY_TREE_VALIDATION);
+    setTreeDirty(false);
+    treeSavedSnapshotRef.current = '';
     setTreePreviewMode('source');
     setUrduPreviewData(null);
     setUrduPreviewLoading(false);
@@ -717,14 +802,24 @@ export default function HowToGuidesPage() {
       const { sections: migratedSections, migratedStepCount } = migrateLegacyTextInSections(nextSections);
       setTreeSections(migratedSections);
 
+      treeSavedSnapshotRef.current = buildTreeDraftSnapshot(
+        tree?.guide.intro ?? '',
+        (tree?.guide.notes ?? []).join('\n\n'),
+        migratedSections,
+      );
+      setTreeDirty(false);
+
       if (migratedStepCount > 0) {
-        toast.success(`Normalized ${migratedStepCount} ${migratedStepCount === 1 ? 'step' : 'steps'} into unified block layout.`);
+        toast.success(`Converted legacy text into blocks for ${migratedStepCount} ${migratedStepCount === 1 ? 'step' : 'steps'}.`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load guide tree.');
       setTreeGuideIntro('');
       setTreeGuideNotesText('');
       setTreeSections([]);
+      setTreeValidation(EMPTY_TREE_VALIDATION);
+      setTreeDirty(false);
+      treeSavedSnapshotRef.current = '';
     } finally {
       setTreeLoading(false);
     }
@@ -940,20 +1035,39 @@ export default function HowToGuidesPage() {
 
   const saveTree = async () => {
     if (!treeGuide) return;
+
+    const { sections: migratedSections, migratedStepCount } = migrateLegacyTextInSections(treeSections);
+
+    const missingSectionHeadingIndexes = migratedSections
+      .map((section, sectionIndex) => (section.heading.trim().length === 0 ? sectionIndex : -1))
+      .filter((index) => index >= 0);
+
+    const missingStepTitleKeys = migratedSections.flatMap((section, sectionIndex) => section.steps
+      .map((step, stepIndex) => (step.title.trim().length === 0 ? buildStepKey(sectionIndex, stepIndex) : null))
+      .filter((stepKey): stepKey is string => Boolean(stepKey)));
+
+    if (missingSectionHeadingIndexes.length > 0 || missingStepTitleKeys.length > 0) {
+      setTreeValidation({
+        sectionHeadingIndexes: missingSectionHeadingIndexes,
+        stepTitleKeys: missingStepTitleKeys,
+      });
+      toast.error('Add a section heading and step title everywhere marked as required before saving.');
+      return;
+    }
+
+    setTreeValidation(EMPTY_TREE_VALIDATION);
     setSaving(true);
 
     try {
-      const { sections: migratedSections } = migrateLegacyTextInSections(treeSections);
-
       const treePayload = {
         guideIntro: treeGuideIntro.trim() || null,
         guideNotes: parseGuideNotesText(treeGuideNotesText),
         sections: migratedSections.map((section, sectionIndex) => ({
-          heading: section.heading,
+          heading: section.heading.trim(),
           section_order: sectionIndex,
           steps: section.steps.map((step, stepIndex) => ({
             step_order: stepIndex,
-            title: step.title.trim() || `Step ${stepIndex + 1}`,
+            title: step.title.trim(),
             detail: step.detail || null,
             note: null,
             rich_content_html: step.rich_content_html || null,
@@ -976,6 +1090,8 @@ export default function HowToGuidesPage() {
       await saveHowToGuideTree(treeGuide.id, treePayload);
 
       setTreeSections(migratedSections);
+      treeSavedSnapshotRef.current = buildTreeDraftSnapshot(treeGuideIntro, treeGuideNotesText, migratedSections);
+      setTreeDirty(false);
 
       if (treeGuide.language === 'en') {
         const shouldMirror = window.confirm('Also mirror this English tree content to linked Urdu guides?');
@@ -987,7 +1103,11 @@ export default function HowToGuidesPage() {
         }
       }
 
-      toast.success('Guide tree saved.');
+      if (migratedStepCount > 0) {
+        toast.success(`Guide tree saved. Converted legacy text into blocks for ${migratedStepCount} ${migratedStepCount === 1 ? 'step' : 'steps'}.`);
+      } else {
+        toast.success('Guide tree saved.');
+      }
       await openTreeEditor(treeGuide);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save guide tree.');
@@ -2429,7 +2549,17 @@ export default function HowToGuidesPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={treeDialogOpen} onOpenChange={setTreeDialogOpen}>
+      <Dialog
+        open={treeDialogOpen}
+        onOpenChange={(open) => {
+          setTreeDialogOpen(open);
+          if (!open) {
+            setTreeValidation(EMPTY_TREE_VALIDATION);
+            setTreeDirty(false);
+            treeSavedSnapshotRef.current = '';
+          }
+        }}
+      >
         <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-[92vh] sm:max-h-[92vh] overflow-hidden p-0 rounded-none sm:rounded-lg flex flex-col">
           <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] text-white">
             <div className="flex items-start gap-3">
@@ -2438,8 +2568,15 @@ export default function HowToGuidesPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <DialogTitle className="text-sm sm:text-base text-white truncate">{treeGuide?.title ?? 'Guide'}</DialogTitle>
+                <div className="mt-1 flex items-center gap-2">
+                  <span
+                    className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${treeDirty ? 'bg-amber-200/85 text-amber-950' : 'bg-white/20 text-white'}`}
+                  >
+                    {treeDirty ? 'Unsaved changes' : 'All changes saved'}
+                  </span>
+                </div>
                 <p className="text-[11px] text-white/85 mt-1 leading-snug hidden sm:block">
-                  <b>Sections</b> → <b>Steps</b> → typed <b>Blocks</b> (Text · Action · Note · Recitation) plus images. Live preview on the right mirrors the app.
+                  Author in order: <b>1) Add section</b> → <b>2) Add step</b> → <b>3) Insert blocks</b>. Use <b>Text paragraph</b> for normal instructions and the other block types when needed.
                 </p>
               </div>
               <Button
@@ -2507,7 +2644,8 @@ export default function HowToGuidesPage() {
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_30%)]">Sections</p>
-                  <p className="text-[11px] text-muted-foreground">Sections → Steps → Blocks / Images</p>
+                  <p className="text-[11px] text-muted-foreground">Add a section, then add steps inside that section, then add content blocks inside each step.</p>
+                  <p className="text-[11px] text-muted-foreground">Tip: Start with <b>Text paragraph</b> for regular instructions.</p>
                 </div>
                 <Button size="sm" onClick={addSection} disabled={!canEdit} className="gap-1 bg-[hsl(142_60%_32%)] text-white hover:bg-[hsl(142_60%_28%)]">
                   <Plus size={14} /> Add Section
@@ -2552,13 +2690,24 @@ export default function HowToGuidesPage() {
 
                   <div className="p-3 sm:p-4 space-y-4">
                   <div>
-                    <Label>Section Heading</Label>
+                    <Label>Section Heading <span className="text-rose-600">*</span></Label>
                     <Input
                       value={section.heading}
-                      onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => idx === sectionIndex ? { ...item, heading: event.target.value } : item))}
+                      className={treeValidation.sectionHeadingIndexes.includes(sectionIndex) ? 'border-rose-400 focus-visible:ring-rose-300' : ''}
+                      aria-invalid={treeValidation.sectionHeadingIndexes.includes(sectionIndex)}
+                      onChange={(event) => {
+                        const nextHeading = event.target.value;
+                        setTreeSections((prev) => prev.map((item, idx) => idx === sectionIndex ? { ...item, heading: nextHeading } : item));
+                        if (nextHeading.trim().length > 0) {
+                          clearSectionHeadingValidation(sectionIndex);
+                        }
+                      }}
                       placeholder="e.g. The method, Important notes, References"
                     />
                     <p className="mt-1 text-[11px] text-muted-foreground">Clear section headings help users scan long guides.</p>
+                    {treeValidation.sectionHeadingIndexes.includes(sectionIndex) ? (
+                      <p className="mt-1 text-[11px] text-rose-600">Section heading is required before saving.</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-3">
@@ -2608,37 +2757,52 @@ export default function HowToGuidesPage() {
                           </div>
                         </div>
 
+                        <p className="px-3 pt-2 text-[10px] text-muted-foreground">Collapse only hides this step in the editor. It does not delete any content.</p>
+
                         <div className="p-3 space-y-3">
 
                         {step.collapsed ? (
-                          <p className="text-xs text-muted-foreground">{step.title || `Step ${stepIndex + 1}`} - collapsed</p>
+                          <p className="text-xs text-muted-foreground">
+                            {step.title || `Step ${stepIndex + 1}`} - collapsed ({step.blocks.length} {step.blocks.length === 1 ? 'block' : 'blocks'}, {step.images.length} {step.images.length === 1 ? 'image' : 'images'} hidden)
+                          </p>
                         ) : (
                           <>
 
                         <div>
-                          <Label>Step Title</Label>
+                          <Label>Step Title <span className="text-rose-600">*</span></Label>
                           <Input
                             value={step.title}
-                            onChange={(event) => setTreeSections((prev) => prev.map((item, idx) => {
-                              if (idx !== sectionIndex) return item;
-                              return {
-                                ...item,
-                                steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, title: event.target.value } : stepItem),
-                              };
-                            }))}
+                            className={treeValidation.stepTitleKeys.includes(buildStepKey(sectionIndex, stepIndex)) ? 'border-rose-400 focus-visible:ring-rose-300' : ''}
+                            aria-invalid={treeValidation.stepTitleKeys.includes(buildStepKey(sectionIndex, stepIndex))}
+                            onChange={(event) => {
+                              const nextTitle = event.target.value;
+                              setTreeSections((prev) => prev.map((item, idx) => {
+                                if (idx !== sectionIndex) return item;
+                                return {
+                                  ...item,
+                                  steps: item.steps.map((stepItem, stepIdx) => stepIdx === stepIndex ? { ...stepItem, title: nextTitle } : stepItem),
+                                };
+                              }));
+                              if (nextTitle.trim().length > 0) {
+                                clearStepTitleValidation(sectionIndex, stepIndex);
+                              }
+                            }}
                             placeholder="A short, action-oriented step title."
                           />
                           <p className="mt-1 text-[11px] text-muted-foreground">The large heading rendered at the top of the step card in the app.</p>
+                          {treeValidation.stepTitleKeys.includes(buildStepKey(sectionIndex, stepIndex)) ? (
+                            <p className="mt-1 text-[11px] text-rose-600">Step title is required before saving.</p>
+                          ) : null}
                         </div>
 
                         <div className="space-y-2">
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <div>
                               <Label>Step Content</Label>
-                              <p className="text-[11px] text-muted-foreground">Build the step from structured blocks. Each block maps 1:1 to a rendered component in the app.</p>
+                              <p className="text-[11px] text-muted-foreground">Build the step from structured blocks. Start with Text paragraph for standard instruction text.</p>
                             </div>
                             <div className="flex flex-wrap items-center gap-1">
-                              <span className="text-[11px] text-muted-foreground mr-1">Insert:</span>
+                              <span className="text-[11px] text-muted-foreground mr-1">Insert block:</span>
                               {(['text', 'action', 'note', 'recitation'] as BlockKind[]).map((kind) => {
                                 const meta = blockKindMeta(kind);
                                 return (
@@ -2663,6 +2827,14 @@ export default function HowToGuidesPage() {
                               <p className="mt-1 text-[11px] text-muted-foreground">
                                 Use the "Insert" buttons above. <b>Text</b> for prose, <b>Action</b> for "do this" instructions, <b>Note</b> for coloured callouts, <b>Recitation</b> for Arabic + transliteration + meaning.
                               </p>
+                              <Button
+                                size="sm"
+                                className="mt-3 gap-1"
+                                onClick={() => addTemplateBlock(sectionIndex, stepIndex, 'text')}
+                                disabled={!canEdit}
+                              >
+                                <Plus size={14} /> Add Text Paragraph
+                              </Button>
                             </div>
                           ) : null}
 
@@ -2903,6 +3075,16 @@ export default function HowToGuidesPage() {
                       </div>
                     ))}
 
+                    {section.steps.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-[hsl(140_20%_80%)] bg-[hsl(140_30%_99%)] px-4 py-5 text-center">
+                        <p className="text-sm text-[hsl(150_30%_25%)]">No steps in this section yet.</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">Add a first step, then add a Text paragraph block to start writing content.</p>
+                        <Button size="sm" className="mt-3 gap-1" onClick={() => addStep(sectionIndex)} disabled={!canEdit}>
+                          <Plus size={14} /> Add First Step
+                        </Button>
+                      </div>
+                    ) : null}
+
                     <Button size="sm" variant="outline" onClick={() => addStep(sectionIndex)} disabled={!canEdit} className="gap-1 w-full sm:w-auto border-dashed">
                       <Plus size={14} /> Add Step
                     </Button>
@@ -2915,7 +3097,10 @@ export default function HowToGuidesPage() {
                 <div className="rounded-2xl border border-dashed border-[hsl(140_20%_80%)] bg-white px-4 py-8 text-center">
                   <FolderTree size={28} className="mx-auto text-[hsl(140_20%_70%)]" />
                   <p className="mt-2 text-sm font-medium text-[hsl(150_30%_25%)]">No sections yet</p>
-                  <p className="text-xs text-muted-foreground">Add your first section to start building the guide.</p>
+                  <p className="text-xs text-muted-foreground">Start by adding your first section, then add steps and text blocks inside it.</p>
+                  <Button size="sm" className="mt-3 gap-1" onClick={addSection} disabled={!canEdit}>
+                    <Plus size={14} /> Add First Section
+                  </Button>
                 </div>
               ) : null}
               </div>
@@ -2983,7 +3168,19 @@ export default function HowToGuidesPage() {
           </div>
 
           <DialogFooter className="px-4 sm:px-6 py-3 border-t border-[hsl(140_20%_92%)] bg-white gap-2">
-            <Button variant="outline" onClick={() => setTreeDialogOpen(false)} disabled={saving} className="flex-1 sm:flex-none">Close</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTreeDialogOpen(false);
+                setTreeValidation(EMPTY_TREE_VALIDATION);
+                setTreeDirty(false);
+                treeSavedSnapshotRef.current = '';
+              }}
+              disabled={saving}
+              className="flex-1 sm:flex-none"
+            >
+              Close
+            </Button>
             <Button
               onClick={() => void saveTree()}
               disabled={saving || !canEdit || treeLoading}

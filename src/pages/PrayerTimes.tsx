@@ -583,7 +583,7 @@ function parseDatePartsFromText(
     );
   }
 
-  const dmyMatch = text.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/);
+  const dmyMatch = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
   if (dmyMatch) {
     return buildDateParts(
       parseInt(dmyMatch[3], 10),
@@ -637,7 +637,7 @@ function parseDatePartsFromText(
       }
     }
 
-    const slashNoYear = text.match(/\b(\d{1,2})[\/-](\d{1,2})\b/);
+    const slashNoYear = text.match(/\b(\d{1,2})[/-](\d{1,2})\b/);
     if (slashNoYear) {
       return buildDateParts(defaultYear, parseInt(slashNoYear[2], 10), parseInt(slashNoYear[1], 10));
     }
@@ -661,7 +661,7 @@ function hasLikelyDateToken(raw: string): boolean {
   if (!text) return false;
 
   if (/\b\d{4}-\d{1,2}-\d{1,2}\b/.test(text)) return true;
-  if (/\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/.test(text)) return true;
+  if (/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(text)) return true;
   if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\b/i.test(text)) return true;
   if (/\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\b/i.test(text)) return true;
   if (/\b[A-Za-z]{3,9}\.?(?:\s+)\d{1,2}(?:st|nd|rd|th)?\b/i.test(text)) return true;
@@ -2465,7 +2465,7 @@ const PrayerTimes = () => {
       fieldLabel: editingIslamicEvent.field_label ?? '',
       region: editingIslamicEvent.region ?? '',
       notes: editingIslamicEvent.notes ?? '',
-      linkedGregorianDate: normalizeUiDateToIso(editingIslamicEvent.linked_gregorian_date),
+      linkedGregorianDate: normalizeUiDateToIso(editingIslamicEvent.linked_gregorian_date ?? ''),
     });
   }, [editingIslamicEvent]);
 
@@ -2532,18 +2532,18 @@ const PrayerTimes = () => {
     try {
       const payload = {
         title,
-        event_type: islamicEventForm.eventType,
+        event_type: 'important_date' as const,
         field_label: islamicEventForm.fieldLabel.trim() || null,
         region: islamicEventForm.region.trim() || null,
         notes: islamicEventForm.notes.trim() || null,
         source_name: editingIslamicEvent?.source_name ?? 'portal-manual',
         linked_hijri_day: hijriParts.day,
         linked_hijri_month: hijriParts.month,
-        linked_hijri_year: hijriParts.year,
-        linked_hijri_label: formatHijriDate(hijriParts),
+        linked_hijri_year: 0,
+        linked_hijri_label: null,
         linked_gregorian_date: normalizeUiDateToIso(islamicEventForm.linkedGregorianDate),
         original_hijri_year: editingIslamicEvent?.original_hijri_year ?? hijriParts.year,
-        auto_delete_grace_days: editingIslamicEvent?.auto_delete_grace_days ?? 3,
+        auto_delete_grace_days: 0,
       };
 
       if (editingIslamicEvent) {
@@ -2744,11 +2744,11 @@ const PrayerTimes = () => {
           source_name: 'islamic-calendar-seed',
           linked_hijri_day: linkedHijri.day,
           linked_hijri_month: linkedHijri.month,
-          linked_hijri_year: linkedHijri.year,
-          linked_hijri_label: formatHijriDate(linkedHijri),
+          linked_hijri_year: 0,
+          linked_hijri_label: null,
           linked_gregorian_date: toIsoGregorianDate(lookup),
           original_hijri_year: row.originalHijriYear,
-          auto_delete_grace_days: 3,
+          auto_delete_grace_days: 0,
         });
       }
 
@@ -2761,7 +2761,7 @@ const PrayerTimes = () => {
 
       const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-`;
       const currentMonthVisible = upserted.filter((event) => {
-        const iso = normalizeUiDateToIso(event.linked_gregorian_date);
+        const iso = normalizeUiDateToIso(event.linked_gregorian_date ?? '');
         return iso.startsWith(monthPrefix);
       }).length;
 
@@ -3206,7 +3206,7 @@ const PrayerTimes = () => {
                           <div key={event.id} className="rounded-md border border-amber-200 bg-white p-2 flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="text-xs font-semibold text-[hsl(150_30%_14%)] truncate">{event.title}</p>
-                              <p className="text-[11px] text-muted-foreground mt-0.5">{event.linked_hijri_label} • {normalizeUiDateToIso(event.linked_gregorian_date)}</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">{event.linked_hijri_label ?? `${event.linked_hijri_day}/${event.linked_hijri_month}`} • {normalizeUiDateToIso(event.linked_gregorian_date ?? '') || 'dynamic by month'}</p>
                               {(event.field_label || event.region) ? (
                                 <p className="text-[11px] text-muted-foreground mt-0.5">{[event.field_label, event.region].filter(Boolean).join(' • ')}</p>
                               ) : null}

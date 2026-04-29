@@ -90,12 +90,53 @@ function asStringArray(value: unknown): string[] {
   return [];
 }
 
+function normalizedToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z]/g, '');
+}
+
+function hasUserEnteredContent(block: BlockDraft): boolean {
+  if (block.kind === 'text') {
+    return asString(block.payload.text).trim().length > 0;
+  }
+
+  if (block.kind === 'action') {
+    const label = normalizedToken(asString(block.payload.label));
+    return asString(block.payload.text).trim().length > 0 || (label.length > 0 && label !== 'action');
+  }
+
+  if (block.kind === 'note') {
+    return asString(block.payload.text).trim().length > 0;
+  }
+
+  const label = normalizedToken(asString(block.payload.label));
+  const hasArabic = asStringArray(block.payload.arabic).some((line) => line.trim().length > 0);
+  const hasTransliteration = asStringArray(block.payload.transliteration).some((line) => line.trim().length > 0);
+  const hasMeaning = asStringArray(block.payload.meaning).some((line) => line.trim().length > 0);
+
+  return (
+    hasArabic
+    || hasTransliteration
+    || hasMeaning
+    || asString(block.payload.intro).trim().length > 0
+    || asString(block.payload.repeat).trim().length > 0
+    || asString(block.payload.source).trim().length > 0
+    || (label.length > 0 && label !== 'recite')
+  );
+}
+
 export function BlockEditor({ block, onChange, disabled }: Props) {
   const setPayload = (patch: BlockDraftPayload) => {
     onChange({ ...block, payload: { ...block.payload, ...patch } });
   };
 
   const setKind = (kind: BlockKind) => {
+    if (kind === block.kind) return;
+
+    if (hasUserEnteredContent(block)) {
+      const confirmed = window.confirm('Changing block type will replace the current block fields. Continue?');
+      if (!confirmed) return;
+    }
+
     onChange({ ...block, kind, payload: blockKindDefaults(kind) });
   };
 

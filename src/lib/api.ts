@@ -21,6 +21,7 @@ import {
   IslamicCalendarEvent,
   IslamicCalendarEventPayload,
   IslamicCalendarEventType,
+  CalendarMonthEvent,
   AdhkarContentType,
   QaseedahNaatEntry,
   QaseedahNaatEntryPayload,
@@ -441,6 +442,23 @@ export async function fetchIslamicCalendarEvents(options?: {
   return (data ?? []) as IslamicCalendarEvent[];
 }
 
+export async function fetchCalendarEventsForMonth(
+  year: number,
+  month: number,
+): Promise<CalendarMonthEvent[]> {
+  const { data, error } = await supabase
+    .rpc('get_calendar_events_for_month', {
+      p_gregorian_year: year,
+      p_gregorian_month: month,
+    });
+
+  if (error) {
+    throw new Error(`Failed to fetch monthly calendar feed: ${error.message}`);
+  }
+
+  return (data ?? []) as CalendarMonthEvent[];
+}
+
 export async function createIslamicCalendarEvent(
   data: Partial<IslamicCalendarEventPayload>
 ): Promise<IslamicCalendarEvent> {
@@ -493,9 +511,6 @@ export async function upsertIslamicCalendarEvents(
 
   const buildConflictKey = (row: Partial<IslamicCalendarEventPayload>): string | null => {
     const title = typeof row.title === 'string' ? row.title.trim() : '';
-    const eventType = (typeof row.event_type === 'string' && row.event_type.trim().length > 0
-      ? row.event_type.trim()
-      : 'important_date') as IslamicCalendarEventType;
 
     const day = Number(row.linked_hijri_day);
     const month = Number(row.linked_hijri_month);
@@ -505,7 +520,7 @@ export async function upsertIslamicCalendarEvents(
       return null;
     }
 
-    return `${title}||${eventType}||${day}||${month}||${year}`;
+    return `${title}||${day}||${month}||${year}`;
   };
 
   // Postgres cannot upsert the same conflict key twice in one statement.
@@ -536,7 +551,7 @@ export async function upsertIslamicCalendarEvents(
   const { data, error } = await supabase
     .from('islamic_calendar_events')
     .upsert(dedupedRows, {
-      onConflict: 'title,event_type,linked_hijri_day,linked_hijri_month,linked_hijri_year',
+      onConflict: 'title,linked_hijri_day,linked_hijri_month,linked_hijri_year',
     })
     .select('*');
 
