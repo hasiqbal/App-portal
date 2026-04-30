@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -42,6 +42,7 @@ import {
   updateQaseedahNaatEntry,
 } from '#/lib/api';
 import { usePermissions } from '#/hooks/usePermissions';
+import { useArabicLineTools } from '#/hooks/useArabicLineTools';
 import { PRAYER_TIME_LABELS, type QaseedahNaatEntry, type QaseedahNaatGroup, type QaseedahNaatType } from '#/types';
 import { toast } from 'sonner';
 
@@ -169,11 +170,28 @@ const PRAYER_TIME_OPTIONS = [
 
 type PrimaryLanguage = 'auto' | 'arabic' | 'transliteration' | 'urdu' | 'english';
 type SymbolSplitRule = { symbol: string; every: number };
+type LineGrouping = 'auto' | '1' | '2' | '3' | '4';
+type ManualSplitRule = { kind: 'symbol'; symbol: string; every: number } | { kind: 'lines'; every: number };
+type BulkLanguageBlockKey = 'arabic' | 'transliteration' | 'english' | 'urdu';
+
+type AlignmentStatus = {
+  primaryKey: BulkLanguageBlockKey;
+  counts: Record<BulkLanguageBlockKey, number>;
+  issues: string[];
+};
+
+type AlignmentDetail = {
+  key: BulkLanguageBlockKey;
+  summary: string;
+  missingAt: string[];
+  extraCount: number;
+  likelyCause?: string;
+};
 
 const BULK_SPLIT_PRESETS: Array<{ label: string; instruction: string }> = [
   { label: 'No manual split', instruction: '' },
-  { label: 'Urdu Couplet (after 2 ۞)', instruction: 'after the second symbol: ۞' },
-  { label: 'Urdu Line (after 1 ۞)', instruction: 'after the first symbol: ۞' },
+  { label: 'Couplet (after 2 ۞)', instruction: 'after the second symbol: ۞' },
+  { label: 'Single Line (after 1 ۞)', instruction: 'after the first symbol: ۞' },
   { label: 'Star Couplet (after 2 *)', instruction: 'after 2 symbols: *' },
   { label: 'Star Line (after 1 *)', instruction: 'after 1 symbol: *' },
 ];
@@ -185,7 +203,17 @@ type EditorFormState = {
   title: string;
   arabic_title: string;
   primary_language: PrimaryLanguage;
+  font_scale_arabic: number;
+  font_scale_transliteration: number;
+  font_scale_english: number;
+  font_scale_urdu: number;
+  default_show_arabic: boolean;
+  default_show_transliteration: boolean;
+  default_show_english: boolean;
+  default_show_urdu: boolean;
   bulk_split_instruction: string;
+  bulk_line_grouping: LineGrouping;
+  bulk_numbered_verse_continuation: boolean;
   bulk_arabic_lines: string;
   bulk_transliteration_lines: string;
   bulk_english_lines: string;
@@ -215,8 +243,18 @@ type EditorFormState = {
 const EMPTY_FORM: EditorFormState = {
   title: '',
   arabic_title: '',
-  primary_language: 'auto',
+  primary_language: 'arabic',
+  font_scale_arabic: 1,
+  font_scale_transliteration: 1,
+  font_scale_english: 1,
+  font_scale_urdu: 1,
+  default_show_arabic: true,
+  default_show_transliteration: true,
+  default_show_english: true,
+  default_show_urdu: true,
   bulk_split_instruction: '',
+  bulk_line_grouping: 'auto',
+  bulk_numbered_verse_continuation: true,
   bulk_arabic_lines: '',
   bulk_transliteration_lines: '',
   bulk_english_lines: '',
@@ -254,6 +292,8 @@ type ParsedLineRow = {
   urdu_translation: string;
 };
 
+type FixRow = ParsedLineRow & { id: string };
+
 type ChapterDraft = {
   id: string;
   title: string;
@@ -282,9 +322,251 @@ const EMPTY_CHORUS: ChorusDraft = {
 const CHORUS_MARKER = '__chorus__';
 const SETTINGS_MARKER = '__settings__';
 
+const LANGUAGE_LABELS: Record<BulkLanguageBlockKey, string> = {
+  arabic: 'Arabic',
+  transliteration: 'Transliteration',
+  english: 'English',
+  urdu: 'Urdu',
+};
+
+function toMeaningfulLines(value: string): string[] {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function blockCountsFromBulk(
+  blocks: BulkLanguageBlocks,
+  splitInstruction: string,
+  lineGrouping: LineGrouping,
+  numberedVerseContinuation: boolean,
+): Record<BulkLanguageBlockKey, number> {
+  return {
+    arabic: toVerseOnlyLines(prepareBulkLanguageBlock(blocks.arabic, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('arabic'), 'arabic', numberedVerseContinuation)).length,
+    transliteration: toVerseOnlyLines(prepareBulkLanguageBlock(blocks.transliteration, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('transliteration'), 'transliteration', numberedVerseContinuation)).length,
+    english: toVerseOnlyLines(prepareBulkLanguageBlock(blocks.english, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('english'), 'english', numberedVerseContinuation)).length,
+    urdu: toVerseOnlyLines(prepareBulkLanguageBlock(blocks.urdu, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('urdu'), 'urdu', numberedVerseContinuation)).length,
+  };
+}
+
+function buildBulkAlignmentStatus(
+  blocks: BulkLanguageBlocks,
+  primaryLanguage: PrimaryLanguage,
+  splitInstruction: string,
+  lineGrouping: LineGrouping,
+  numberedVerseContinuation: boolean,
+): AlignmentStatus | null {
+  const primaryKey = mapPrimaryLanguageToBlockKey(primaryLanguage);
+  if (!primaryKey) return null;
+
+  const counts = blockCountsFromBulk(blocks, splitInstruction, lineGrouping, numberedVerseContinuation);
+  const primaryCount = counts[primaryKey];
+  const issues: string[] = [];
+
+  if (primaryCount === 0) {
+    issues.push(`Primary language (${LANGUAGE_LABELS[primaryKey]}) has no verses.`);
+  }
+
+  (Object.keys(counts) as BulkLanguageBlockKey[]).forEach((key) => {
+    if (key === primaryKey) return;
+    if (counts[key] === 0) return;
+    if (counts[key] !== primaryCount) {
+      issues.push(
+        `${LANGUAGE_LABELS[key]} has ${counts[key]} verses but primary has ${primaryCount}.`,
+      );
+    }
+  });
+
+  return { primaryKey, counts, issues };
+}
+
+function buildChapterAlignmentStatus(
+  chapters: ChapterDraft[],
+  primaryLanguage: PrimaryLanguage,
+): AlignmentStatus | null {
+  const primaryKey = mapPrimaryLanguageToBlockKey(primaryLanguage);
+  if (!primaryKey) return null;
+
+  const totals: Record<BulkLanguageBlockKey, number> = {
+    arabic: 0,
+    transliteration: 0,
+    english: 0,
+    urdu: 0,
+  };
+  const issues: string[] = [];
+
+  chapters.forEach((chapter, chapterIndex) => {
+    const chapterCounts: Record<BulkLanguageBlockKey, number> = {
+      arabic: toMeaningfulLines(chapter.arabic).length,
+      transliteration: toMeaningfulLines(chapter.transliteration).length,
+      english: toMeaningfulLines(chapter.translation).length,
+      urdu: toMeaningfulLines(chapter.urdu_translation).length,
+    };
+
+    totals.arabic += chapterCounts.arabic;
+    totals.transliteration += chapterCounts.transliteration;
+    totals.english += chapterCounts.english;
+    totals.urdu += chapterCounts.urdu;
+
+    const chapterLabel = chapter.title.trim() || `Chapter ${chapterIndex + 1}`;
+    const primaryCount = chapterCounts[primaryKey];
+    if (primaryCount === 0) {
+      issues.push(`${chapterLabel}: primary language (${LANGUAGE_LABELS[primaryKey]}) has no verses.`);
+      return;
+    }
+
+    (Object.keys(chapterCounts) as BulkLanguageBlockKey[]).forEach((key) => {
+      if (key === primaryKey) return;
+      if (chapterCounts[key] === 0) return;
+      if (chapterCounts[key] !== primaryCount) {
+        issues.push(
+          `${chapterLabel}: ${LANGUAGE_LABELS[key]} has ${chapterCounts[key]} verses but primary has ${primaryCount}.`,
+        );
+      }
+    });
+  });
+
+  return { primaryKey, counts: totals, issues };
+}
+
+function buildVerseLabelsFromPreparedPrimary(primaryPrepared: string): string[] {
+  const lines = toBlockLines(primaryPrepared);
+  const labels: string[] = [];
+  let currentChapter = '';
+  let verseInChapter = 0;
+  let globalVerse = 0;
+
+  lines.forEach((line) => {
+    const chapter = parseChapterMarker(line);
+    if (chapter) {
+      currentChapter = chapter;
+      verseInChapter = 0;
+      return;
+    }
+
+    verseInChapter += 1;
+    globalVerse += 1;
+    labels.push(currentChapter ? `${currentChapter} · Verse ${verseInChapter}` : `Verse ${globalVerse}`);
+  });
+
+  return labels;
+}
+
+function inferLikelyGrouping(primaryCount: number, secondaryCount: number, currentGrouping: LineGrouping): string | undefined {
+  if (secondaryCount <= 0 || primaryCount <= secondaryCount) return undefined;
+  if (primaryCount % secondaryCount !== 0) return undefined;
+
+  const ratio = primaryCount / secondaryCount;
+  if (ratio < 2 || ratio > 4) return undefined;
+
+  const suggested = String(ratio) as LineGrouping;
+  if (currentGrouping === suggested) return undefined;
+  return `Likely cause: one language appears grouped by multiple source lines. Try One-Step Verse Grouping: ${ratio} lines = 1 verse.`;
+}
+
+function buildBulkAlignmentDetails(
+  blocks: BulkLanguageBlocks,
+  primaryLanguage: PrimaryLanguage,
+  splitInstruction: string,
+  lineGrouping: LineGrouping,
+  numberedVerseContinuation: boolean,
+): AlignmentDetail[] {
+  const primaryKey = mapPrimaryLanguageToBlockKey(primaryLanguage);
+  if (!primaryKey) return [];
+
+  const preparedBlocks: Record<BulkLanguageBlockKey, string> = {
+    arabic: prepareBulkLanguageBlock(blocks.arabic, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('arabic'), 'arabic', numberedVerseContinuation),
+    transliteration: prepareBulkLanguageBlock(blocks.transliteration, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('transliteration'), 'transliteration', numberedVerseContinuation),
+    english: prepareBulkLanguageBlock(blocks.english, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('english'), 'english', numberedVerseContinuation),
+    urdu: prepareBulkLanguageBlock(blocks.urdu, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('urdu'), 'urdu', numberedVerseContinuation),
+  };
+
+  const primaryLines = toVerseOnlyLines(preparedBlocks[primaryKey]);
+  const primaryLabels = buildVerseLabelsFromPreparedPrimary(preparedBlocks[primaryKey]);
+  const details: AlignmentDetail[] = [];
+
+  (Object.keys(preparedBlocks) as BulkLanguageBlockKey[]).forEach((key) => {
+    if (key === primaryKey) return;
+
+    const secondaryLines = toVerseOnlyLines(preparedBlocks[key]);
+    if (secondaryLines.length === 0) return;
+    if (secondaryLines.length === primaryLines.length) return;
+
+    const missingAt: string[] = [];
+    for (let idx = secondaryLines.length; idx < primaryLines.length; idx += 1) {
+      missingAt.push(primaryLabels[idx] ?? `Verse ${idx + 1}`);
+    }
+
+    const extraCount = Math.max(0, secondaryLines.length - primaryLines.length);
+    const ratioHint = inferLikelyGrouping(primaryLines.length, secondaryLines.length, lineGrouping);
+
+    details.push({
+      key,
+      summary: `${LANGUAGE_LABELS[key]} has ${secondaryLines.length} verses while primary has ${primaryLines.length}.`,
+      missingAt,
+      extraCount,
+      likelyCause: ratioHint,
+    });
+  });
+
+  return details;
+}
+
+function buildChapterAlignmentDetails(
+  chapters: ChapterDraft[],
+  primaryLanguage: PrimaryLanguage,
+): AlignmentDetail[] {
+  const primaryKey = mapPrimaryLanguageToBlockKey(primaryLanguage);
+  if (!primaryKey) return [];
+
+  const details: AlignmentDetail[] = [];
+
+  chapters.forEach((chapter, chapterIndex) => {
+    const chapterLabel = chapter.title.trim() || `Chapter ${chapterIndex + 1}`;
+    const byKey: Record<BulkLanguageBlockKey, string[]> = {
+      arabic: toMeaningfulLines(chapter.arabic),
+      transliteration: toMeaningfulLines(chapter.transliteration),
+      english: toMeaningfulLines(chapter.translation),
+      urdu: toMeaningfulLines(chapter.urdu_translation),
+    };
+
+    const primaryLines = byKey[primaryKey];
+    if (primaryLines.length === 0) return;
+
+    (Object.keys(byKey) as BulkLanguageBlockKey[]).forEach((key) => {
+      if (key === primaryKey) return;
+      const secondaryLines = byKey[key];
+      if (secondaryLines.length === 0) return;
+      if (secondaryLines.length === primaryLines.length) return;
+
+      const missingAt: string[] = [];
+      for (let idx = secondaryLines.length; idx < primaryLines.length; idx += 1) {
+        missingAt.push(`${chapterLabel} · Verse ${idx + 1}`);
+      }
+
+      const extraCount = Math.max(0, secondaryLines.length - primaryLines.length);
+      details.push({
+        key,
+        summary: `${chapterLabel}: ${LANGUAGE_LABELS[key]} has ${secondaryLines.length} verses while primary has ${primaryLines.length}.`,
+        missingAt,
+        extraCount,
+      });
+    });
+  });
+
+  return details;
+}
+
 function extractAutoTranslationSettingsFromSections(sections: unknown): {
   primary_language: PrimaryLanguage;
   bulk_split_instruction: string;
+  bulk_line_grouping: LineGrouping;
+  bulk_numbered_verse_continuation: boolean;
+  font_scale_arabic: number;
+  font_scale_transliteration: number;
+  font_scale_english: number;
+  font_scale_urdu: number;
   disable_auto_transliteration: boolean;
   disable_auto_arabic: boolean;
   disable_auto_english: boolean;
@@ -294,8 +576,14 @@ function extractAutoTranslationSettingsFromSections(sections: unknown): {
   disable_auto_title_urdu: boolean;
 } {
   const defaults = {
-    primary_language: 'auto' as PrimaryLanguage,
+    primary_language: 'arabic' as PrimaryLanguage,
     bulk_split_instruction: '',
+    bulk_line_grouping: 'auto' as LineGrouping,
+    bulk_numbered_verse_continuation: true,
+    font_scale_arabic: 1,
+    font_scale_transliteration: 1,
+    font_scale_english: 1,
+    font_scale_urdu: 1,
     disable_auto_transliteration: false,
     disable_auto_arabic: false,
     disable_auto_english: false,
@@ -316,6 +604,16 @@ function extractAutoTranslationSettingsFromSections(sections: unknown): {
     const allDisabled = typeof legacy === 'boolean' ? legacy : false;
     const primaryLanguageRaw = (rawSection as { primary_language?: unknown }).primary_language;
     const splitInstruction = (rawSection as { manual_split_instruction?: unknown }).manual_split_instruction;
+    const lineGroupingRaw = (rawSection as { line_grouping?: unknown }).line_grouping;
+    const numberedContinuationRaw = (rawSection as { numbered_verse_continuation?: unknown }).numbered_verse_continuation;
+    const lineGrouping: LineGrouping =
+      lineGroupingRaw === '1'
+      || lineGroupingRaw === '2'
+      || lineGroupingRaw === '3'
+      || lineGroupingRaw === '4'
+      || lineGroupingRaw === 'auto'
+        ? lineGroupingRaw
+        : 'auto';
     const primaryLanguage: PrimaryLanguage =
       primaryLanguageRaw === 'arabic'
       || primaryLanguageRaw === 'transliteration'
@@ -323,11 +621,30 @@ function extractAutoTranslationSettingsFromSections(sections: unknown): {
       || primaryLanguageRaw === 'english'
       || primaryLanguageRaw === 'auto'
         ? primaryLanguageRaw
-        : 'auto';
+        : 'arabic';
+
+    const clampScale = (value: unknown): number => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return Math.max(0.7, Math.min(1.8, Number(value.toFixed(2))));
+      }
+      if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) {
+          return Math.max(0.7, Math.min(1.8, Number(parsed.toFixed(2))));
+        }
+      }
+      return 1;
+    };
 
     return {
       primary_language: primaryLanguage,
       bulk_split_instruction: typeof splitInstruction === 'string' ? splitInstruction : '',
+      bulk_line_grouping: lineGrouping,
+      bulk_numbered_verse_continuation: typeof numberedContinuationRaw === 'boolean' ? numberedContinuationRaw : true,
+      font_scale_arabic: clampScale((rawSection as { font_scale_arabic?: unknown }).font_scale_arabic),
+      font_scale_transliteration: clampScale((rawSection as { font_scale_transliteration?: unknown }).font_scale_transliteration),
+      font_scale_english: clampScale((rawSection as { font_scale_english?: unknown }).font_scale_english),
+      font_scale_urdu: clampScale((rawSection as { font_scale_urdu?: unknown }).font_scale_urdu),
       disable_auto_transliteration: typeof (rawSection as { disable_auto_transliteration?: unknown }).disable_auto_transliteration === 'boolean'
         ? Boolean((rawSection as { disable_auto_transliteration?: unknown }).disable_auto_transliteration)
         : allDisabled,
@@ -607,9 +924,20 @@ const NUMBER_WORD_MAP: Record<string, number> = {
   ten: 10,
 };
 
-function parseManualSplitInstruction(instruction: string): SymbolSplitRule | null {
+function parseManualSplitInstruction(instruction: string): ManualSplitRule | null {
   const normalized = instruction.trim().toLowerCase();
   if (!normalized) return null;
+
+  const lineModeDigit = normalized.match(/\b(\d+)\s*lines?\s*(?:=|equals)\s*1\s*verse\b/);
+  const lineModeEvery = normalized.match(/\b(?:every|after)\s*(\d+)\s*lines?\b/);
+  if (lineModeDigit?.[1]) {
+    const every = Number(lineModeDigit[1]);
+    if (Number.isFinite(every) && every >= 1) return { kind: 'lines', every };
+  }
+  if (lineModeEvery?.[1]) {
+    const every = Number(lineModeEvery[1]);
+    if (Number.isFinite(every) && every >= 1) return { kind: 'lines', every };
+  }
 
   const digitMatch = normalized.match(/\b(\d+)\b/);
   const wordMatch = normalized.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|one|two|three|four|five|six|seven|eight|nine|ten)\b/);
@@ -628,7 +956,7 @@ function parseManualSplitInstruction(instruction: string): SymbolSplitRule | nul
     if (explicitSymbolMatch?.[1]) symbol = explicitSymbolMatch[1];
   }
 
-  return { symbol, every };
+  return { kind: 'symbol', symbol, every };
 }
 
 function applySymbolSplitRule(rawInput: string, rule: SymbolSplitRule): string {
@@ -671,7 +999,51 @@ function applySymbolSplitRule(rawInput: string, rule: SymbolSplitRule): string {
 function applyManualSplitInstruction(rawInput: string, instruction: string): string {
   const parsed = parseManualSplitInstruction(instruction);
   if (!parsed) return rawInput;
+  if (parsed.kind === 'lines') return applyLineGroupingRule(rawInput, parsed.every);
   return applySymbolSplitRule(rawInput, parsed);
+}
+
+function applyLineGroupingRule(rawInput: string, every: number): string {
+  if (!Number.isFinite(every) || every <= 1) return rawInput;
+
+  const output: string[] = [];
+  let chunk: string[] = [];
+
+  const flush = () => {
+    if (chunk.length === 0) return;
+    output.push(chunk.join(' ').replace(/\s+/g, ' ').trim());
+    chunk = [];
+  };
+
+  rawInput
+    .split('\n')
+    .forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (!line) {
+        // A whitespace-only line (e.g. one space) is an explicit manual
+        // override that forces the current grouped verse to flush.
+        // Truly empty lines are ignored.
+        if (rawLine.length > 0) {
+          flush();
+        }
+        return;
+      }
+
+      const chapter = parseChapterMarker(line);
+      if (chapter) {
+        flush();
+        output.push(line);
+        return;
+      }
+
+      chunk.push(line);
+      if (chunk.length >= every) {
+        flush();
+      }
+    });
+
+  flush();
+  return output.join('\n');
 }
 
 function inferSymbolSplitRule(rawInput: string): SymbolSplitRule | null {
@@ -746,8 +1118,11 @@ function shouldTreatAsSameLanguageCouplet(
   return leftScript === 'latin';
 }
 
+const NUMBERED_VERSE_START_REGEX = /^\s*(?:(?:verse|ayah|aya|line)\s*)?(?:#\s*)?(?:\[\s*[0-9٠-٩۰-۹]{1,3}\s*\]|\(\s*[0-9٠-٩۰-۹]{1,3}\s*\)|[0-9٠-٩۰-۹]{1,3})\s*(?:[.)\-:]\s*|\s+)\S/iu;
+const NUMBERED_VERSE_PREFIX_REGEX = /^\s*(?:(?:verse|ayah|aya|line)\s*)?(?:#\s*)?(?:\[\s*[0-9٠-٩۰-۹]{1,3}\s*\]|\(\s*[0-9٠-٩۰-۹]{1,3}\s*\)|[0-9٠-٩۰-۹]{1,3})\s*(?:[.)\-:]\s*|\s+)/iu;
+
 function trimLeadingVerseNumber(line: string): string {
-  return line.replace(/^\s*\d+\s*[.)\-:]\s*/u, '').trim();
+  return line.replace(NUMBERED_VERSE_PREFIX_REGEX, '').trim();
 }
 
 function isLikelySalwaatMarkerLine(line: string): boolean {
@@ -755,7 +1130,7 @@ function isLikelySalwaatMarkerLine(line: string): boolean {
 }
 
 function isLikelyNumberedTranslationLine(line: string): boolean {
-  return /^\s*\d+\s*[.)\-:]\s+\S/u.test(line);
+  return NUMBERED_VERSE_START_REGEX.test(line);
 }
 
 function shouldMergeAsSalwaatVerse(
@@ -1089,8 +1464,6 @@ function parseBulkLines(rawInput: string, splitInstruction?: string, primaryLang
     .filter((row): row is ParsedLineRow => Boolean(row));
 }
 
-type BulkLanguageBlockKey = 'arabic' | 'transliteration' | 'english' | 'urdu';
-
 type BulkLanguageBlocks = {
   arabic: string;
   transliteration: string;
@@ -1112,15 +1485,93 @@ function mapBlockKeyToParsedField(key: BulkLanguageBlockKey): keyof ParsedLineRo
   return key;
 }
 
-function prepareBulkLanguageBlock(text: string, splitInstruction?: string): string {
+function shouldApplyLineGroupingToLanguage(key: BulkLanguageBlockKey): boolean {
+  return key === 'arabic' || key === 'urdu';
+}
+
+function shouldCollapseNumberedVerseContinuations(key: BulkLanguageBlockKey): boolean {
+  return key === 'english' || key === 'transliteration' || key === 'urdu';
+}
+
+function collapseNumberedVerseContinuations(rawInput: string): string {
+  const lines = rawInput.split('\n');
+  const output: string[] = [];
+  let current = '';
+  let currentFromNumber = false;
+
+  const flush = () => {
+    const trimmed = current.trim();
+    if (trimmed) output.push(trimmed);
+    current = '';
+    currentFromNumber = false;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+
+    if (parseChapterMarker(line)) {
+      flush();
+      output.push(line);
+      continue;
+    }
+
+    if (isLikelyNumberedTranslationLine(line)) {
+      flush();
+      current = line;
+      currentFromNumber = true;
+      continue;
+    }
+
+    if (currentFromNumber) {
+      current = `${current} ${line}`.replace(/\s+/g, ' ').trim();
+      continue;
+    }
+
+    flush();
+    output.push(line);
+  }
+
+  flush();
+  return output.join('\n');
+}
+
+function prepareBulkLanguageBlock(
+  text: string,
+  splitInstruction?: string,
+  lineGrouping: LineGrouping = 'auto',
+  applyLineGrouping = true,
+  key?: BulkLanguageBlockKey,
+  numberedVerseContinuation = true,
+): string {
   const raw = text.trim();
   if (!raw) return '';
 
   const manual = splitInstruction?.trim() ?? '';
-  if (manual) return applyManualSplitInstruction(raw, manual);
+  const groupedEvery = lineGrouping === 'auto' ? 0 : Number(lineGrouping);
+  const hasExplicitGrouping = Number.isFinite(groupedEvery) && groupedEvery > 1;
 
-  const inferred = inferSymbolSplitRule(raw);
-  return inferred ? applySymbolSplitRule(raw, inferred) : raw;
+  const splitApplied = (() => {
+    if (manual) return applyManualSplitInstruction(raw, manual);
+    // When explicit line grouping is selected (e.g. 2 lines = 1 verse),
+    // keep source lines stable and skip heuristic symbol splitting.
+    if (hasExplicitGrouping) return raw;
+    const inferred = inferSymbolSplitRule(raw);
+    return inferred ? applySymbolSplitRule(raw, inferred) : raw;
+  })();
+
+  const grouped = applyLineGrouping && Number.isFinite(groupedEvery) && groupedEvery > 1
+    ? applyLineGroupingRule(splitApplied, groupedEvery)
+    : splitApplied;
+
+  if (numberedVerseContinuation && key && shouldCollapseNumberedVerseContinuations(key)) {
+    return collapseNumberedVerseContinuations(grouped);
+  }
+
+  return grouped;
 }
 
 function toBlockLines(raw: string): string[] {
@@ -1138,18 +1589,20 @@ function parseBulkLanguageBlocks(
   blocks: BulkLanguageBlocks,
   primaryLanguage: PrimaryLanguage,
   splitInstruction?: string,
+  lineGrouping: LineGrouping = 'auto',
+  numberedVerseContinuation = true,
 ): ParsedLineRow[] {
   const preparedBlocks: Record<BulkLanguageBlockKey, string> = {
-    arabic: prepareBulkLanguageBlock(blocks.arabic, splitInstruction),
-    transliteration: prepareBulkLanguageBlock(blocks.transliteration, splitInstruction),
-    english: prepareBulkLanguageBlock(blocks.english, splitInstruction),
-    urdu: prepareBulkLanguageBlock(blocks.urdu, splitInstruction),
+    arabic: prepareBulkLanguageBlock(blocks.arabic, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('arabic'), 'arabic', numberedVerseContinuation),
+    transliteration: prepareBulkLanguageBlock(blocks.transliteration, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('transliteration'), 'transliteration', numberedVerseContinuation),
+    english: prepareBulkLanguageBlock(blocks.english, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('english'), 'english', numberedVerseContinuation),
+    urdu: prepareBulkLanguageBlock(blocks.urdu, splitInstruction, lineGrouping, shouldApplyLineGroupingToLanguage('urdu'), 'urdu', numberedVerseContinuation),
   };
 
   const requestedPrimary = mapPrimaryLanguageToBlockKey(primaryLanguage);
   const fallbackOrder: BulkLanguageBlockKey[] = ['english', 'transliteration', 'urdu', 'arabic'];
-  const primaryKey = (requestedPrimary && preparedBlocks[requestedPrimary].trim().length > 0)
-    ? requestedPrimary
+  const primaryKey = requestedPrimary
+    ? (preparedBlocks[requestedPrimary].trim().length > 0 ? requestedPrimary : null)
     : fallbackOrder.find((key) => preparedBlocks[key].trim().length > 0);
 
   if (!primaryKey) return [];
@@ -1340,13 +1793,6 @@ function buildChapterDraftsFromSections(sections: unknown): ChapterDraft[] {
 function buildRowsFromChapterDrafts(chapters: ChapterDraft[]): ParsedLineRow[] {
   const rows: ParsedLineRow[] = [];
 
-  // In chapter mode, users often add visual blank lines between verses.
-  // Ignore empty lines so all language blocks stay index-aligned.
-  const toMeaningfulLines = (value: string): string[] => value
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
   for (const chapter of chapters) {
     const chapterTitle = chapter.title.trim() || 'Chapter 1';
     const chapterArabicTitle = chapter.title_arabic.trim();
@@ -1384,6 +1830,74 @@ function buildRowsFromChapterDrafts(chapters: ChapterDraft[]): ParsedLineRow[] {
   return rows;
 }
 
+function toFixRows(rows: ParsedLineRow[]): FixRow[] {
+  return rows.map((row, index) => ({ ...row, id: `fix-${index}-${Math.random().toString(36).slice(2, 8)}` }));
+}
+
+function splitPrimaryText(value: string): { left: string; right: string } {
+  const text = value.trim();
+  if (!text) return { left: '', right: '' };
+
+  const symbolMatch = text.match(/\s*[۞٭*•]\s*/u);
+  if (symbolMatch && typeof symbolMatch.index === 'number') {
+    const splitAt = symbolMatch.index + symbolMatch[0].length;
+    return {
+      left: text.slice(0, splitAt).trim(),
+      right: text.slice(splitAt).trim(),
+    };
+  }
+
+  const commaMatch = text.match(/[،,;:]\s*/u);
+  if (commaMatch && typeof commaMatch.index === 'number') {
+    const splitAt = commaMatch.index + commaMatch[0].length;
+    return {
+      left: text.slice(0, splitAt).trim(),
+      right: text.slice(splitAt).trim(),
+    };
+  }
+
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return { left: text, right: '' };
+  const midpoint = Math.ceil(words.length / 2);
+  return {
+    left: words.slice(0, midpoint).join(' ').trim(),
+    right: words.slice(midpoint).join(' ').trim(),
+  };
+}
+
+function fixRowsToBulkBlocks(rows: FixRow[], primaryLanguage: PrimaryLanguage): BulkLanguageBlocks {
+  const primaryKey = mapPrimaryLanguageToBlockKey(primaryLanguage) ?? 'arabic';
+  const primaryField = mapBlockKeyToParsedField(primaryKey);
+
+  const primaryLines: string[] = [];
+  const transliterationLines: string[] = [];
+  const englishLines: string[] = [];
+  const urduLines: string[] = [];
+
+  let lastChapter = '';
+
+  rows.forEach((row) => {
+    const chapter = row.chapter.trim();
+    if (chapter && chapter !== lastChapter) {
+      primaryLines.push(chapter);
+      lastChapter = chapter;
+    }
+
+    const primaryValue = (row[primaryField] as string | undefined)?.trim() ?? '';
+    primaryLines.push(primaryValue);
+    transliterationLines.push(row.transliteration ?? '');
+    englishLines.push(row.translation ?? '');
+    urduLines.push(row.urdu_translation ?? '');
+  });
+
+  return {
+    arabic: primaryKey === 'arabic' ? primaryLines.join('\n') : rows.map((row) => row.arabic ?? '').join('\n'),
+    transliteration: primaryKey === 'transliteration' ? primaryLines.join('\n') : transliterationLines.join('\n'),
+    english: primaryKey === 'english' ? primaryLines.join('\n') : englishLines.join('\n'),
+    urdu: primaryKey === 'urdu' ? primaryLines.join('\n') : urduLines.join('\n'),
+  };
+}
+
 function typeLabel(type: QaseedahNaatType | null | undefined): string {
   if (type === 'qaseedah') return 'Qaseedah';
   if (type === 'naat') return 'Naat';
@@ -1419,8 +1933,14 @@ function formFromEntry(row: QaseedahNaatEntry): EditorFormState {
   return {
     title: row.title,
     arabic_title: row.arabic_title ?? '',
-    primary_language: autoSettings.primary_language,
+    primary_language: autoSettings.primary_language === 'auto' ? 'arabic' : autoSettings.primary_language,
+    font_scale_arabic: autoSettings.font_scale_arabic,
+    font_scale_transliteration: autoSettings.font_scale_transliteration,
+    font_scale_english: autoSettings.font_scale_english,
+    font_scale_urdu: autoSettings.font_scale_urdu,
     bulk_split_instruction: autoSettings.bulk_split_instruction,
+    bulk_line_grouping: autoSettings.bulk_line_grouping,
+    bulk_numbered_verse_continuation: autoSettings.bulk_numbered_verse_continuation,
     bulk_arabic_lines: hasStructuredSections ? blocksFromSections.arabic : (row.arabic ?? ''),
     bulk_transliteration_lines: hasStructuredSections ? blocksFromSections.transliteration : (row.transliteration ?? ''),
     bulk_english_lines: hasStructuredSections ? blocksFromSections.english : (row.translation ?? ''),
@@ -1450,6 +1970,10 @@ function formFromEntry(row: QaseedahNaatEntry): EditorFormState {
 
 function normalizeText(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function clampLanguageFontScale(value: number): number {
+  return Math.max(0.7, Math.min(1.8, Number(value.toFixed(2))));
 }
 
 function hasAnyCoreText(form: EditorFormState): boolean {
@@ -1653,11 +2177,13 @@ function EntryPreviewPane({
         },
         form.primary_language,
         split,
+        form.bulk_line_grouping,
+        form.bulk_numbered_verse_continuation,
       );
     } catch {
       return [];
     }
-  }, [composeMode, chapterDrafts, form.bulk_split_instruction, form.primary_language, form.bulk_arabic_lines, form.bulk_transliteration_lines, form.bulk_english_lines, form.bulk_urdu_lines]);
+  }, [composeMode, chapterDrafts, form.bulk_split_instruction, form.bulk_line_grouping, form.bulk_numbered_verse_continuation, form.primary_language, form.bulk_arabic_lines, form.bulk_transliteration_lines, form.bulk_english_lines, form.bulk_urdu_lines]);
 
   // Group rows by chapter preserving order
   const chapters = useMemo(() => {
@@ -1871,6 +2397,7 @@ function EntryPreviewPane({
 export default function QaseedahNaats() {
   const queryClient = useQueryClient();
   const { canEdit, canDelete, role } = usePermissions();
+  const { convertManyArabicLines, converting: convertingArabicLines } = useArabicLineTools();
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [groupFilterId, setGroupFilterId] = useState<string>('all');
@@ -1883,12 +2410,17 @@ export default function QaseedahNaats() {
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [countMode, setCountMode] = useState<'preset' | 'custom'>('preset');
-  const [composeMode, setComposeMode] = useState<EntryComposeMode>('chapters');
+  const [composeMode, setComposeMode] = useState<EntryComposeMode>('bulk');
+  const [editorTab, setEditorTab] = useState<'input' | 'fix' | 'preview'>('input');
   const [chapterDrafts, setChapterDrafts] = useState<ChapterDraft[]>([createChapterDraft('Chapter 1')]);
   const [chorusDraft, setChorusDraft] = useState<ChorusDraft>({ ...EMPTY_CHORUS });
+  const [fixRows, setFixRows] = useState<FixRow[]>([]);
+  const [fixDirty, setFixDirty] = useState(false);
+  const [expandedFixRows, setExpandedFixRows] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [autoFillMode, setAutoFillMode] = useState<'transliteration' | 'english' | 'both' | null>(null);
 
   const {
     data,
@@ -1986,6 +2518,107 @@ export default function QaseedahNaats() {
       }));
   }, [filtered, groups]);
 
+  const alignmentStatus = useMemo<AlignmentStatus | null>(() => {
+    if (composeMode === 'bulk') {
+      return buildBulkAlignmentStatus(
+        {
+          arabic: form.bulk_arabic_lines,
+          transliteration: form.bulk_transliteration_lines,
+          english: form.bulk_english_lines,
+          urdu: form.bulk_urdu_lines,
+        },
+        form.primary_language,
+        form.bulk_split_instruction.trim(),
+        form.bulk_line_grouping,
+        form.bulk_numbered_verse_continuation,
+      );
+    }
+
+    return buildChapterAlignmentStatus(chapterDrafts, form.primary_language);
+  }, [
+    composeMode,
+    form.bulk_arabic_lines,
+    form.bulk_transliteration_lines,
+    form.bulk_english_lines,
+    form.bulk_urdu_lines,
+    form.bulk_split_instruction,
+    form.bulk_line_grouping,
+    form.bulk_numbered_verse_continuation,
+    form.primary_language,
+    chapterDrafts,
+  ]);
+
+  const alignmentDetails = useMemo<AlignmentDetail[]>(() => {
+    if (composeMode === 'bulk') {
+      return buildBulkAlignmentDetails(
+        {
+          arabic: form.bulk_arabic_lines,
+          transliteration: form.bulk_transliteration_lines,
+          english: form.bulk_english_lines,
+          urdu: form.bulk_urdu_lines,
+        },
+        form.primary_language,
+        form.bulk_split_instruction.trim(),
+        form.bulk_line_grouping,
+        form.bulk_numbered_verse_continuation,
+      );
+    }
+
+    return buildChapterAlignmentDetails(chapterDrafts, form.primary_language);
+  }, [
+    composeMode,
+    form.bulk_arabic_lines,
+    form.bulk_transliteration_lines,
+    form.bulk_english_lines,
+    form.bulk_urdu_lines,
+    form.bulk_split_instruction,
+    form.bulk_line_grouping,
+    form.bulk_numbered_verse_continuation,
+    form.primary_language,
+    chapterDrafts,
+  ]);
+
+  const parsedBulkRows = useMemo<ParsedLineRow[]>(() => {
+    if (composeMode !== 'bulk') return [];
+    const hasBulkInput = [
+      form.bulk_arabic_lines,
+      form.bulk_transliteration_lines,
+      form.bulk_english_lines,
+      form.bulk_urdu_lines,
+    ].some((field) => field.trim().length > 0);
+    if (!hasBulkInput) return [];
+
+    return parseBulkLanguageBlocks(
+      {
+        arabic: form.bulk_arabic_lines,
+        transliteration: form.bulk_transliteration_lines,
+        english: form.bulk_english_lines,
+        urdu: form.bulk_urdu_lines,
+      },
+      form.primary_language,
+      form.bulk_split_instruction.trim(),
+      form.bulk_line_grouping,
+      form.bulk_numbered_verse_continuation,
+    );
+  }, [
+    composeMode,
+        form.bulk_line_grouping,
+    form.bulk_numbered_verse_continuation,
+    form.bulk_arabic_lines,
+    form.bulk_transliteration_lines,
+    form.bulk_english_lines,
+    form.bulk_urdu_lines,
+    form.bulk_split_instruction,
+    form.primary_language,
+  ]);
+
+  useEffect(() => {
+    if (!modalOpen || composeMode !== 'bulk' || fixDirty) return;
+    const nextRows = toFixRows(parsedBulkRows);
+    setFixRows(nextRows);
+    setExpandedFixRows(() => Object.fromEntries(nextRows.map((row) => [row.id, true])));
+  }, [modalOpen, composeMode, parsedBulkRows, fixDirty]);
+
   const closeModal = () => {
     setModalOpen(false);
     setEditRow(null);
@@ -1993,9 +2626,13 @@ export default function QaseedahNaats() {
     setGroupMode('existing');
     setSelectedGroupId('');
     setCountMode('preset');
-    setComposeMode('chapters');
+    setComposeMode('bulk');
+    setEditorTab('input');
     setChapterDrafts([createChapterDraft('Chapter 1')]);
     setChorusDraft({ ...EMPTY_CHORUS });
+    setFixRows([]);
+    setFixDirty(false);
+    setExpandedFixRows({});
   };
 
   const openCreate = (type: QaseedahNaatType) => {
@@ -2012,9 +2649,13 @@ export default function QaseedahNaats() {
       setSelectedGroupId('');
     }
     setCountMode(COUNT_PRESETS.includes('1') ? 'preset' : 'custom');
-    setComposeMode('chapters');
+    setComposeMode('bulk');
+    setEditorTab('input');
     setChapterDrafts([createChapterDraft('Chapter 1')]);
     setChorusDraft({ ...EMPTY_CHORUS });
+    setFixRows([]);
+    setFixDirty(false);
+    setExpandedFixRows({});
     setModalOpen(true);
   };
 
@@ -2025,9 +2666,13 @@ export default function QaseedahNaats() {
     setSelectedGroupId(row.group_id);
     setGroupMode('existing');
     setCountMode(COUNT_PRESETS.includes(row.count || '1') ? 'preset' : 'custom');
-    setComposeMode(Array.isArray(row.sections) && row.sections.length > 0 ? 'chapters' : 'bulk');
+    setComposeMode('bulk');
+    setEditorTab('input');
     setChapterDrafts(buildChapterDraftsFromSections(row.sections));
     setChorusDraft(extractChorusFromSections(row.sections));
+    setFixRows([]);
+    setFixDirty(false);
+    setExpandedFixRows({});
     setModalOpen(true);
   };
 
@@ -2062,6 +2707,349 @@ export default function QaseedahNaats() {
     setChapterDrafts((prev) => prev.map((chapter) => (
       chapter.id === chapterId ? { ...chapter, ...patch } : chapter
     )));
+  };
+
+  const applyGroupingToBulkTextBoxes = (nextGrouping: LineGrouping) => {
+    const groupedEvery = nextGrouping === 'auto' ? 0 : Number(nextGrouping);
+
+    setForm((prev) => {
+      if (!Number.isFinite(groupedEvery) || groupedEvery <= 1) {
+        return { ...prev, bulk_line_grouping: nextGrouping };
+      }
+
+      return {
+        ...prev,
+        bulk_line_grouping: nextGrouping,
+        bulk_arabic_lines: applyLineGroupingRule(prev.bulk_arabic_lines, groupedEvery),
+        bulk_transliteration_lines: prev.bulk_transliteration_lines,
+        bulk_english_lines: prev.bulk_english_lines,
+        bulk_urdu_lines: applyLineGroupingRule(prev.bulk_urdu_lines, groupedEvery),
+      };
+    });
+
+    if (Number.isFinite(groupedEvery) && groupedEvery > 1) {
+      toast.success(`Applied ${groupedEvery} lines = 1 verse to Arabic and Urdu boxes.`);
+    }
+  };
+
+  const applyTwoLinesToOneBulk = () => {
+    applyGroupingToBulkTextBoxes('2');
+  };
+
+  const autoFillBulkFromArabic = async (target: 'transliteration' | 'english' | 'both') => {
+    const splitInstruction = form.bulk_split_instruction.trim();
+    const preparedArabic = prepareBulkLanguageBlock(
+      form.bulk_arabic_lines,
+      splitInstruction,
+      form.bulk_line_grouping,
+      shouldApplyLineGroupingToLanguage('arabic'),
+      'arabic',
+      form.bulk_numbered_verse_continuation,
+    );
+
+    const preparedArabicLines = toBlockLines(preparedArabic);
+    const arabicVerseLines = preparedArabicLines.filter((line) => !parseChapterMarker(line));
+
+    if (arabicVerseLines.length === 0) {
+      toast.error('Add Arabic verses first. Auto-fill uses Arabic as the source.');
+      return;
+    }
+
+    const hasExistingTarget = (
+      (target === 'transliteration' && form.bulk_transliteration_lines.trim().length > 0)
+      || (target === 'english' && form.bulk_english_lines.trim().length > 0)
+      || (target === 'both' && (form.bulk_transliteration_lines.trim().length > 0 || form.bulk_english_lines.trim().length > 0))
+    );
+
+    if (hasExistingTarget) {
+      const confirmed = window.confirm('Replace existing auto-fill target text with new verse-aligned output from Arabic?');
+      if (!confirmed) return;
+    }
+
+    setAutoFillMode(target);
+    try {
+      const converted = await convertManyArabicLines(arabicVerseLines, { silent: true });
+
+      const existingTransliteration = toVerseOnlyLines(prepareBulkLanguageBlock(
+        form.bulk_transliteration_lines,
+        splitInstruction,
+        form.bulk_line_grouping,
+        shouldApplyLineGroupingToLanguage('transliteration'),
+        'transliteration',
+        form.bulk_numbered_verse_continuation,
+      ));
+      const existingEnglish = toVerseOnlyLines(prepareBulkLanguageBlock(
+        form.bulk_english_lines,
+        splitInstruction,
+        form.bulk_line_grouping,
+        shouldApplyLineGroupingToLanguage('english'),
+        'english',
+        form.bulk_numbered_verse_continuation,
+      ));
+
+      const transliterationOutput: string[] = [];
+      const englishOutput: string[] = [];
+      let verseIndex = 0;
+
+      for (const line of preparedArabicLines) {
+        if (parseChapterMarker(line)) {
+          transliterationOutput.push(line);
+          englishOutput.push(line);
+          continue;
+        }
+
+        const lineResult = converted[verseIndex] ?? null;
+        const transliteration = lineResult?.transliteration?.trim() || existingTransliteration[verseIndex] || '';
+        const translation = lineResult?.translation?.trim() || existingEnglish[verseIndex] || '';
+
+        transliterationOutput.push(transliteration);
+        englishOutput.push(translation);
+        verseIndex += 1;
+      }
+
+      setForm((prev) => ({
+        ...prev,
+        bulk_transliteration_lines: target === 'transliteration' || target === 'both'
+          ? transliterationOutput.join('\n')
+          : prev.bulk_transliteration_lines,
+        bulk_english_lines: target === 'english' || target === 'both'
+          ? englishOutput.join('\n')
+          : prev.bulk_english_lines,
+      }));
+
+      const successCount = converted.filter((item) => item && (item.translation || item.transliteration)).length;
+      if (successCount === 0) {
+        toast.error('Auto-fill could not generate results.');
+      } else if (successCount < arabicVerseLines.length) {
+        toast.warning(`Auto-fill completed with partial results (${successCount}/${arabicVerseLines.length}).`);
+      } else {
+        toast.success('Auto-fill completed for all verses.');
+      }
+    } finally {
+      setAutoFillMode(null);
+    }
+  };
+
+  const normalizeAlignmentToPrimary = () => {
+    const primaryKey = mapPrimaryLanguageToBlockKey(form.primary_language);
+    if (!primaryKey || !alignmentStatus) return;
+
+    if (composeMode === 'bulk') {
+      const splitInstruction = form.bulk_split_instruction.trim();
+      const prepared: Record<BulkLanguageBlockKey, string[]> = {
+        arabic: toVerseOnlyLines(prepareBulkLanguageBlock(form.bulk_arabic_lines, splitInstruction, form.bulk_line_grouping, shouldApplyLineGroupingToLanguage('arabic'), 'arabic', form.bulk_numbered_verse_continuation)),
+        transliteration: toVerseOnlyLines(prepareBulkLanguageBlock(form.bulk_transliteration_lines, splitInstruction, form.bulk_line_grouping, shouldApplyLineGroupingToLanguage('transliteration'), 'transliteration', form.bulk_numbered_verse_continuation)),
+        english: toVerseOnlyLines(prepareBulkLanguageBlock(form.bulk_english_lines, splitInstruction, form.bulk_line_grouping, shouldApplyLineGroupingToLanguage('english'), 'english', form.bulk_numbered_verse_continuation)),
+        urdu: toVerseOnlyLines(prepareBulkLanguageBlock(form.bulk_urdu_lines, splitInstruction, form.bulk_line_grouping, shouldApplyLineGroupingToLanguage('urdu'), 'urdu', form.bulk_numbered_verse_continuation)),
+      };
+      const targetCount = prepared[primaryKey].length;
+
+      (Object.keys(prepared) as BulkLanguageBlockKey[]).forEach((key) => {
+        if (key === primaryKey) return;
+        if (prepared[key].length === 0) return;
+        if (prepared[key].length > targetCount) {
+          prepared[key] = prepared[key].slice(0, targetCount);
+          return;
+        }
+        while (prepared[key].length < targetCount) {
+          prepared[key].push('');
+        }
+      });
+
+      setForm((prev) => ({
+        ...prev,
+        bulk_arabic_lines: prepared.arabic.join('\n'),
+        bulk_transliteration_lines: prepared.transliteration.join('\n'),
+        bulk_english_lines: prepared.english.join('\n'),
+        bulk_urdu_lines: prepared.urdu.join('\n'),
+      }));
+      toast.success('Normalized bulk rows to match primary verse count.');
+      return;
+    }
+
+    setChapterDrafts((prev) => prev.map((chapter, index) => {
+      const chapterLabel = chapter.title.trim() || `Chapter ${index + 1}`;
+      const rowsByKey: Record<BulkLanguageBlockKey, string[]> = {
+        arabic: toMeaningfulLines(chapter.arabic),
+        transliteration: toMeaningfulLines(chapter.transliteration),
+        english: toMeaningfulLines(chapter.translation),
+        urdu: toMeaningfulLines(chapter.urdu_translation),
+      };
+      const targetCount = rowsByKey[primaryKey].length;
+
+      if (targetCount === 0) return chapter;
+
+      (Object.keys(rowsByKey) as BulkLanguageBlockKey[]).forEach((key) => {
+        if (key === primaryKey) return;
+        if (rowsByKey[key].length === 0) return;
+        if (rowsByKey[key].length > targetCount) {
+          rowsByKey[key] = rowsByKey[key].slice(0, targetCount);
+          return;
+        }
+        while (rowsByKey[key].length < targetCount) {
+          rowsByKey[key].push('');
+        }
+      });
+
+      return {
+        ...chapter,
+        title: chapterLabel,
+        arabic: rowsByKey.arabic.join('\n'),
+        transliteration: rowsByKey.transliteration.join('\n'),
+        translation: rowsByKey.english.join('\n'),
+        urdu_translation: rowsByKey.urdu.join('\n'),
+      };
+    }));
+    toast.success('Normalized chapter verse rows to match primary language.');
+  };
+
+  const applyFixRowsToBulkInput = () => {
+    const nextBlocks = fixRowsToBulkBlocks(fixRows, form.primary_language);
+    setForm((prev) => ({
+      ...prev,
+      bulk_arabic_lines: nextBlocks.arabic,
+      bulk_transliteration_lines: nextBlocks.transliteration,
+      bulk_english_lines: nextBlocks.english,
+      bulk_urdu_lines: nextBlocks.urdu,
+    }));
+    setFixDirty(false);
+    toast.success('Fix workspace changes applied to bulk input.');
+  };
+
+  const resetFixRowsFromInput = () => {
+    const nextRows = toFixRows(parsedBulkRows);
+    setFixRows(nextRows);
+    setExpandedFixRows(() => Object.fromEntries(nextRows.map((row) => [row.id, true])));
+    setFixDirty(false);
+  };
+
+  const updateFixRow = (id: string, patch: Partial<ParsedLineRow>) => {
+    setFixRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+    setFixDirty(true);
+  };
+
+  const toggleFixRowExpanded = (id: string) => {
+    setExpandedFixRows((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const setAllFixRowsExpanded = (expanded: boolean) => {
+    setExpandedFixRows(() => Object.fromEntries(fixRows.map((row) => [row.id, expanded])));
+  };
+
+  const moveFixRow = (id: string, direction: 'up' | 'down') => {
+    setFixRows((prev) => {
+      const index = prev.findIndex((row) => row.id === id);
+      if (index < 0) return prev;
+      const target = direction === 'up' ? index - 1 : index + 1;
+      if (target < 0 || target >= prev.length) return prev;
+      return arrayMove(prev, index, target);
+    });
+    setFixDirty(true);
+  };
+
+  const deleteFixRow = (id: string) => {
+    setFixRows((prev) => prev.filter((row) => row.id !== id));
+    setExpandedFixRows((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setFixDirty(true);
+  };
+
+  const insertFixRowBelow = (id: string) => {
+    const newId = `fix-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setFixRows((prev) => {
+      const index = prev.findIndex((row) => row.id === id);
+      if (index < 0) return prev;
+      const source = prev[index];
+      const blank: FixRow = {
+        id: newId,
+        chapter: source.chapter,
+        chapter_arabic: source.chapter_arabic,
+        chapter_urdu: source.chapter_urdu,
+        heading: source.heading,
+        arabic: '',
+        transliteration: '',
+        translation: '',
+        urdu_translation: '',
+      };
+      const next = [...prev];
+      next.splice(index + 1, 0, blank);
+      return next;
+    });
+    setExpandedFixRows((state) => ({ ...state, [newId]: true }));
+    setFixDirty(true);
+  };
+
+  const mergeFixRowWithNext = (id: string) => {
+    setFixRows((prev) => {
+      const index = prev.findIndex((row) => row.id === id);
+      if (index < 0 || index >= prev.length - 1) return prev;
+
+      const current = prev[index];
+      const nextRow = prev[index + 1];
+      const join = (left: string, right: string) => [left.trim(), right.trim()].filter(Boolean).join(' ');
+
+      const merged: FixRow = {
+        ...current,
+        arabic: join(current.arabic, nextRow.arabic),
+        transliteration: join(current.transliteration, nextRow.transliteration),
+        translation: join(current.translation, nextRow.translation),
+        urdu_translation: join(current.urdu_translation, nextRow.urdu_translation),
+      };
+
+      const copy = [...prev];
+      copy.splice(index, 2, merged);
+      return copy;
+    });
+    setFixDirty(true);
+  };
+
+  const splitFixRow = (id: string) => {
+    const primaryKey = mapPrimaryLanguageToBlockKey(form.primary_language) ?? 'arabic';
+    const primaryField = mapBlockKeyToParsedField(primaryKey);
+    const secondId = `fix-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    setFixRows((prev) => {
+      const index = prev.findIndex((row) => row.id === id);
+      if (index < 0) return prev;
+      const row = prev[index];
+      const primaryValue = String(row[primaryField] ?? '');
+      const { left, right } = splitPrimaryText(primaryValue);
+      if (!right) return prev;
+
+      const first: FixRow = { ...row, [primaryField]: left };
+      const second: FixRow = {
+        ...row,
+        id: secondId,
+        heading: row.heading,
+        [primaryField]: right,
+      };
+
+      if (primaryField !== 'arabic') second.arabic = '';
+      if (primaryField !== 'transliteration') second.transliteration = '';
+      if (primaryField !== 'translation') second.translation = '';
+      if (primaryField !== 'urdu_translation') second.urdu_translation = '';
+
+      const next = [...prev];
+      next.splice(index, 1, first, second);
+      return next;
+    });
+    setExpandedFixRows((state) => ({ ...state, [id]: true, [secondId]: true }));
+    setFixDirty(true);
+  };
+
+  const handleFixRowDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setFixRows((prev) => {
+      const oldIndex = prev.findIndex((row) => row.id === active.id);
+      const newIndex = prev.findIndex((row) => row.id === over.id);
+      if (oldIndex < 0 || newIndex < 0) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+    setFixDirty(true);
   };
 
   const handleDelete = async (row: QaseedahNaatEntry) => {
@@ -2255,6 +3243,16 @@ export default function QaseedahNaats() {
 
     const manualSplitInstruction = form.bulk_split_instruction.trim();
 
+    if (form.primary_language === 'auto') {
+      toast.error('Select an explicit primary language before saving.');
+      return;
+    }
+
+    if (composeMode === 'bulk' && fixDirty) {
+      toast.error('Apply Fix Workspace changes before saving.');
+      return;
+    }
+
     if (
       composeMode === 'bulk'
       && manualSplitInstruction.length > 0
@@ -2281,8 +3279,14 @@ export default function QaseedahNaats() {
         },
         form.primary_language,
         manualSplitInstruction,
+        form.bulk_line_grouping,
+        form.bulk_numbered_verse_continuation,
       )
       : [];
+
+    if (alignmentStatus && alignmentStatus.issues.length > 0) {
+      toast.error(`Alignment warning (save allowed): ${alignmentStatus.issues[0]}`);
+    }
 
     if (composeMode === 'bulk' && hasBulkInput && bulkRows.length === 0) {
       toast.error('Bulk language blocks could not be parsed. Ensure each language box has one verse per line.');
@@ -2355,6 +3359,12 @@ export default function QaseedahNaats() {
                   heading: 'Settings',
                   arabic: '-',
                   primary_language: form.primary_language,
+                  font_scale_arabic: form.font_scale_arabic,
+                  font_scale_transliteration: form.font_scale_transliteration,
+                  font_scale_english: form.font_scale_english,
+                  font_scale_urdu: form.font_scale_urdu,
+                  line_grouping: form.bulk_line_grouping,
+                  numbered_verse_continuation: form.bulk_numbered_verse_continuation,
                   manual_split_instruction: form.bulk_split_instruction.trim() || undefined,
                   bulk_source_arabic: form.bulk_arabic_lines,
                   bulk_source_arabic_locked: form.bulk_arabic_lines.trim().length === 0,
@@ -2365,13 +3375,13 @@ export default function QaseedahNaats() {
                   bulk_source_urdu: form.bulk_urdu_lines,
                   bulk_source_urdu_locked: form.bulk_urdu_lines.trim().length === 0,
                   disable_auto_translation: false,
-                  disable_auto_transliteration: form.disable_auto_transliteration,
-                  disable_auto_arabic: form.disable_auto_arabic,
-                  disable_auto_english: form.disable_auto_english,
-                  disable_auto_urdu: form.disable_auto_urdu,
-                  disable_auto_title_arabic: form.disable_auto_title_arabic,
-                  disable_auto_title_english: form.disable_auto_title_english,
-                  disable_auto_title_urdu: form.disable_auto_title_urdu,
+                  disable_auto_transliteration: false,
+                  disable_auto_arabic: false,
+                  disable_auto_english: false,
+                  disable_auto_urdu: false,
+                  disable_auto_title_arabic: false,
+                  disable_auto_title_english: false,
+                  disable_auto_title_urdu: false,
                 },
                 ...chapterSections,
               ];
@@ -2383,6 +3393,12 @@ export default function QaseedahNaats() {
                 heading: 'Settings',
                 arabic: '-',
                 primary_language: form.primary_language,
+                font_scale_arabic: form.font_scale_arabic,
+                font_scale_transliteration: form.font_scale_transliteration,
+                font_scale_english: form.font_scale_english,
+                font_scale_urdu: form.font_scale_urdu,
+                line_grouping: form.bulk_line_grouping,
+                numbered_verse_continuation: form.bulk_numbered_verse_continuation,
                 manual_split_instruction: form.bulk_split_instruction.trim() || undefined,
                 bulk_source_arabic: form.bulk_arabic_lines,
                 bulk_source_arabic_locked: form.bulk_arabic_lines.trim().length === 0,
@@ -2393,13 +3409,13 @@ export default function QaseedahNaats() {
                 bulk_source_urdu: form.bulk_urdu_lines,
                 bulk_source_urdu_locked: form.bulk_urdu_lines.trim().length === 0,
                 disable_auto_translation: false,
-                disable_auto_transliteration: form.disable_auto_transliteration,
-                disable_auto_arabic: form.disable_auto_arabic,
-                disable_auto_english: form.disable_auto_english,
-                disable_auto_urdu: form.disable_auto_urdu,
-                disable_auto_title_arabic: form.disable_auto_title_arabic,
-                disable_auto_title_english: form.disable_auto_title_english,
-                disable_auto_title_urdu: form.disable_auto_title_urdu,
+                disable_auto_transliteration: false,
+                disable_auto_arabic: false,
+                disable_auto_english: false,
+                disable_auto_urdu: false,
+                disable_auto_title_arabic: false,
+                disable_auto_title_english: false,
+                disable_auto_title_urdu: false,
               },
               ...chapterSections,
             ];
@@ -2760,9 +3776,30 @@ export default function QaseedahNaats() {
             </DialogTitle>
           </DialogHeader>
 
+          <div className="border-b border-[hsl(140_20%_90%)] bg-[hsl(140_25%_98%)] px-5 py-2.5">
+            <div className="inline-flex items-center rounded-lg border border-[hsl(140_20%_86%)] bg-white p-1">
+              {([
+                ['input', 'Input'],
+                ['fix', 'Fix'],
+                ['preview', 'Preview'],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setEditorTab(value)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${editorTab === value
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-muted-foreground hover:bg-[hsl(140_20%_96%)]'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="flex-1 min-h-0 grid lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
             <div className="min-h-0 overflow-y-auto px-5 py-5">
-          <div className="space-y-4">
+          <div className={`space-y-4 ${editorTab === 'input' ? '' : 'hidden'}`}>
             <Section
               title="Basics"
               description="Title, group, and how the entry is shown in lists."
@@ -2861,6 +3898,71 @@ export default function QaseedahNaats() {
                 </select>
               </div>
             </div>
+
+            <div className="mt-3 space-y-2 rounded-lg border border-[hsl(145_32%_82%)] bg-[hsl(145_45%_97%)] p-3">
+              <div>
+                <p className="text-sm font-semibold text-[hsl(150_32%_20%)]">Display Font Sizes (App / TV)</p>
+                <p className="text-xs text-muted-foreground">Set default text size per language for this entry.</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Arabic</Label>
+                  <Input
+                    type="number"
+                    min={0.7}
+                    max={1.8}
+                    step={0.1}
+                    value={form.font_scale_arabic}
+                    onChange={(event) => setForm((prev) => ({
+                      ...prev,
+                      font_scale_arabic: clampLanguageFontScale(Number(event.target.value || 1)),
+                    }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Transliteration</Label>
+                  <Input
+                    type="number"
+                    min={0.7}
+                    max={1.8}
+                    step={0.1}
+                    value={form.font_scale_transliteration}
+                    onChange={(event) => setForm((prev) => ({
+                      ...prev,
+                      font_scale_transliteration: clampLanguageFontScale(Number(event.target.value || 1)),
+                    }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">English</Label>
+                  <Input
+                    type="number"
+                    min={0.7}
+                    max={1.8}
+                    step={0.1}
+                    value={form.font_scale_english}
+                    onChange={(event) => setForm((prev) => ({
+                      ...prev,
+                      font_scale_english: clampLanguageFontScale(Number(event.target.value || 1)),
+                    }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Urdu</Label>
+                  <Input
+                    type="number"
+                    min={0.7}
+                    max={1.8}
+                    step={0.1}
+                    value={form.font_scale_urdu}
+                    onChange={(event) => setForm((prev) => ({
+                      ...prev,
+                      font_scale_urdu: clampLanguageFontScale(Number(event.target.value || 1)),
+                    }))}
+                  />
+                </div>
+              </div>
+            </div>
             </Section>
 
             <Section
@@ -2873,19 +3975,19 @@ export default function QaseedahNaats() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setComposeMode('chapters')}
-                  className={`rounded-lg border px-3 py-2 text-left transition-colors ${composeMode === 'chapters' ? 'border-emerald-300 bg-emerald-50' : 'border-border bg-background hover:bg-secondary/50'}`}
-                >
-                  <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Manual Chapters</p>
-                  <p className="text-xs text-muted-foreground">Create chapters individually with linked Arabic/English/Urdu line boxes.</p>
-                </button>
-                <button
-                  type="button"
                   onClick={() => setComposeMode('bulk')}
                   className={`rounded-lg border px-3 py-2 text-left transition-colors ${composeMode === 'bulk' ? 'border-emerald-300 bg-emerald-50' : 'border-border bg-background hover:bg-secondary/50'}`}
                 >
-                  <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Bulk Paste</p>
-                  <p className="text-xs text-muted-foreground">Paste all lines at once using tab/comma separators and chapter markers.</p>
+                  <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Bulk Paste (Primary)</p>
+                  <p className="text-xs text-muted-foreground">Paste all lines at once, then fix quickly using grouping + Fix Workspace.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setComposeMode('chapters')}
+                  className={`rounded-lg border px-3 py-2 text-left transition-colors ${composeMode === 'chapters' ? 'border-emerald-300 bg-emerald-50' : 'border-border bg-background hover:bg-secondary/50'}`}
+                >
+                  <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Manual Chapters (Secondary)</p>
+                  <p className="text-xs text-muted-foreground">Use only when needed for chapter-by-chapter manual entry.</p>
                 </button>
               </div>
             </div>
@@ -3061,11 +4163,86 @@ export default function QaseedahNaats() {
                 </div>
 
                 <div className="space-y-1">
+                  <Label className="text-xs">One-Step Verse Grouping</Label>
+                  <select
+                    value={form.bulk_line_grouping}
+                    onChange={(event) => applyGroupingToBulkTextBoxes(event.target.value as LineGrouping)}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="auto">Auto (keep source line-by-line)</option>
+                    <option value="1">1 line = 1 verse</option>
+                    <option value="2">2 lines = 1 verse</option>
+                    <option value="3">3 lines = 1 verse</option>
+                    <option value="4">4 lines = 1 verse</option>
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Fast setting for cases like "2 lines = 1 verse". Applied to Arabic and Urdu boxes only.
+                  </p>
+                  <div className="pt-1">
+                    <Button type="button" size="sm" variant="outline" onClick={applyTwoLinesToOneBulk}>
+                      Merge 2 Lines -&gt; 1 Verse (Arabic + Urdu)
+                    </Button>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between rounded-md border border-[hsl(140_20%_88%)] bg-white px-2.5 py-2">
+                    <div>
+                      <p className="text-xs font-medium text-[hsl(150_30%_15%)]">Numbered translation continuation</p>
+                      <p className="text-[11px] text-muted-foreground">When enabled, lines like "2. ..." or "Verse 2:" keep absorbing following lines until the next number.</p>
+                    </div>
+                    <Switch
+                      checked={form.bulk_numbered_verse_continuation}
+                      onCheckedChange={(checked) => setForm((prev) => ({ ...prev, bulk_numbered_verse_continuation: checked }))}
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Turn this off when the source format is irregular and you want full manual line control.
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void autoFillBulkFromArabic('transliteration')}
+                      disabled={!canEdit || convertingArabicLines}
+                      className="gap-1.5"
+                    >
+                      {convertingArabicLines && autoFillMode === 'transliteration' ? <Loader2 size={13} className="animate-spin" /> : null}
+                      Auto-fill Transliteration
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void autoFillBulkFromArabic('english')}
+                      disabled={!canEdit || convertingArabicLines}
+                      className="gap-1.5"
+                    >
+                      {convertingArabicLines && autoFillMode === 'english' ? <Loader2 size={13} className="animate-spin" /> : null}
+                      Auto-fill English
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void autoFillBulkFromArabic('both')}
+                      disabled={!canEdit || convertingArabicLines}
+                      className="gap-1.5"
+                    >
+                      {convertingArabicLines && autoFillMode === 'both' ? <Loader2 size={13} className="animate-spin" /> : null}
+                      Auto-fill Both
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Uses Arabic verse parsing (same as preview/app alignment) so each generated line maps to the correct verse.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Override tip: add a line that contains only spaces to force a verse break for a single ayah.
+                  </p>
+
                   <p className="text-[11px] text-muted-foreground">
                     Bulk mode ordering rule: chapters appear in app in the same order as your heading lines in this paste box.
                   </p>
 
-                  <Label className="text-xs">Manual Poetry Split Instruction (Optional)</Label>
+                  <Label className="text-xs">Manual Verse Split Instruction (Advanced, Optional)</Label>
                   <div className="flex flex-wrap gap-1.5">
                     {BULK_SPLIT_PRESETS.map((preset) => {
                       const active = form.bulk_split_instruction.trim() === preset.instruction;
@@ -3089,11 +4266,81 @@ export default function QaseedahNaats() {
                     placeholder="after the second symbol"
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Use this when Urdu poetry is in long flowing lines. Examples: after the second symbol, after 2 symbols, after the third "*" symbol.
+                    Applies to all language boxes (Arabic, Transliteration, English, Urdu). Examples: after the second symbol, after 2 symbols, 2 lines = 1 verse.
                   </p>
                 </div>
               </div>
             )}
+
+            {alignmentStatus ? (
+              <div className={`rounded-xl border p-3 space-y-2 ${alignmentStatus.issues.length > 0 ? 'border-amber-300 bg-amber-50/60' : 'border-emerald-300 bg-emerald-50/60'}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">Alignment Status</p>
+                    <p className="text-xs text-muted-foreground">
+                      Primary language: {LANGUAGE_LABELS[alignmentStatus.primaryKey]}. Secondary language counts are recommended to match this verse count.
+                    </p>
+                  </div>
+                  {alignmentStatus.issues.length > 0 ? (
+                    <Button type="button" size="sm" variant="outline" onClick={normalizeAlignmentToPrimary}>
+                      Normalize Rows
+                    </Button>
+                  ) : null}
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {(Object.keys(alignmentStatus.counts) as BulkLanguageBlockKey[]).map((key) => (
+                    <div key={key} className="rounded-md border border-[hsl(140_20%_88%)] bg-white px-2 py-1.5">
+                      <p className="text-[11px] text-muted-foreground">{LANGUAGE_LABELS[key]}</p>
+                      <p className="text-sm font-semibold text-[hsl(150_30%_15%)]">{alignmentStatus.counts[key]} verses</p>
+                    </div>
+                  ))}
+                </div>
+
+                {alignmentStatus.issues.length > 0 ? (
+                  <ul className="space-y-1">
+                    {alignmentStatus.issues.slice(0, 4).map((issue) => (
+                      <li key={issue} className="text-xs text-amber-900">• {issue}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-emerald-800">All enabled language rows are aligned.</p>
+                )}
+
+                {alignmentDetails.length > 0 ? (
+                  <div className="space-y-2 rounded-lg border border-amber-200 bg-white/70 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-amber-900">Exact mismatch locations</p>
+                      {composeMode === 'bulk' ? (
+                        <Button type="button" size="sm" variant="outline" onClick={() => setEditorTab('fix')}>
+                          Open Fix Tab
+                        </Button>
+                      ) : null}
+                    </div>
+
+                    {alignmentDetails.slice(0, 3).map((detail) => (
+                      <div key={`${detail.key}-${detail.summary}`} className="rounded-md border border-amber-200 bg-amber-50/40 p-2">
+                        <p className="text-xs font-semibold text-amber-900">{detail.summary}</p>
+                        {detail.missingAt.length > 0 ? (
+                          <p className="mt-1 text-xs text-amber-900">
+                            Missing at: {detail.missingAt.slice(0, 6).join(', ')}
+                            {detail.missingAt.length > 6 ? ` (+${detail.missingAt.length - 6} more)` : ''}
+                          </p>
+                        ) : null}
+                        {detail.extraCount > 0 ? (
+                          <p className="mt-1 text-xs text-amber-900">
+                            Extra verses after primary ends: {detail.extraCount}
+                          </p>
+                        ) : null}
+                        {detail.likelyCause ? (
+                          <p className="mt-1 text-xs text-amber-800">{detail.likelyCause}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             </Section>
 
             <Section
@@ -3147,8 +4394,8 @@ export default function QaseedahNaats() {
             </Section>
 
             <Section
-              title="Languages & Auto Translation"
-              description="Choose which language appears first in the app, and disable any language completely for this entry."
+              title="Language Priority"
+              description="Select the main language for verse anchoring and app display order."
               icon={<Globe2 size={14} />}
             >
             <div className="space-y-2">
@@ -3162,45 +4409,19 @@ export default function QaseedahNaats() {
                   }))}
                   className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
-                  <option value="auto">Auto Detect (from first line/script)</option>
                   <option value="arabic">Arabic</option>
                   <option value="transliteration">Transliteration</option>
                   <option value="urdu">Urdu</option>
                   <option value="english">English</option>
                 </select>
                 <p className="text-[11px] text-muted-foreground">
-                  Controls which language appears first when the entry is shown in app.
+                  Primary language is required and used as the source of truth for verse alignment.
                 </p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Transliteration</p>
-                  <Switch checked={form.disable_auto_transliteration} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_transliteration: checked }))} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Arabic</p>
-                  <Switch checked={form.disable_auto_arabic} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_arabic: checked }))} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable English</p>
-                  <Switch checked={form.disable_auto_english} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_english: checked }))} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Urdu</p>
-                  <Switch checked={form.disable_auto_urdu} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_urdu: checked }))} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Auto Arabic Chapter Title</p>
-                  <Switch checked={form.disable_auto_title_arabic} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_title_arabic: checked }))} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5">
-                  <p className="text-xs">Disable Auto English Chapter Title</p>
-                  <Switch checked={form.disable_auto_title_english} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_title_english: checked }))} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-[hsl(140_20%_90%)] px-2 py-1.5 md:col-span-2">
-                  <p className="text-xs">Disable Auto Urdu Chapter Title</p>
-                  <Switch checked={form.disable_auto_title_urdu} onCheckedChange={(checked) => setForm((prev) => ({ ...prev, disable_auto_title_urdu: checked }))} />
-                </div>
+              <div className="rounded-md border border-[hsl(140_20%_90%)] bg-[hsl(140_25%_98%)] px-3 py-2">
+                <p className="text-xs text-muted-foreground">
+                  Portal authoring is explicit: no language or title auto-fill is applied. Enter each language line manually or through bulk parse and correction.
+                </p>
               </div>
             </div>
             </Section>
@@ -3250,7 +4471,7 @@ export default function QaseedahNaats() {
             </div>
             </Section>
 
-            {/* Mobile-only inline preview */}
+            {/* Mobile-only inline preview (input tab only) */}
             <div className="lg:hidden space-y-2">
               <div className="flex items-center gap-2">
                 <span className="h-px flex-1 bg-[hsl(140_20%_88%)]" />
@@ -3266,16 +4487,247 @@ export default function QaseedahNaats() {
               />
             </div>
           </div>
+
+          {editorTab === 'fix' ? (
+            <div className="space-y-4">
+              <Section
+                title="Fix Workspace"
+                description="Quickly correct parse mistakes: split, merge, reorder, and edit aligned rows before saving."
+                icon={<BookOpen size={14} />}
+                tone="accent"
+              >
+                {composeMode !== 'bulk' ? (
+                  <div className="rounded-lg border border-[hsl(140_20%_88%)] bg-[hsl(140_25%_98%)] p-3 text-sm text-muted-foreground">
+                    Fix Workspace is optimized for Bulk mode parsing corrections. Switch Content Input Mode to Bulk to use split/merge row tools.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 rounded-lg border border-[hsl(140_20%_88%)] bg-[hsl(140_25%_98%)] p-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">One-Step Verse Grouping</Label>
+                        <select
+                          value={form.bulk_line_grouping}
+                          onChange={(event) => applyGroupingToBulkTextBoxes(event.target.value as LineGrouping)}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="auto">Auto (keep source line-by-line)</option>
+                          <option value="1">1 line = 1 verse</option>
+                          <option value="2">2 lines = 1 verse</option>
+                          <option value="3">3 lines = 1 verse</option>
+                          <option value="4">4 lines = 1 verse</option>
+                        </select>
+                        <p className="text-[11px] text-muted-foreground">
+                          Set this once to instantly parse patterns like 2 lines = 1 verse. Then fine-tune only problem rows.
+                        </p>
+                        <div className="pt-1">
+                          <Button type="button" size="sm" variant="outline" onClick={applyTwoLinesToOneBulk}>
+                            Merge 2 Lines -&gt; 1 Verse (Arabic + Urdu)
+                          </Button>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between rounded-md border border-[hsl(140_20%_88%)] bg-white px-2.5 py-2">
+                          <div>
+                            <p className="text-xs font-medium text-[hsl(150_30%_15%)]">Numbered translation continuation</p>
+                            <p className="text-[11px] text-muted-foreground">Use this for numbered source text. Disable if source formatting is inconsistent.</p>
+                          </div>
+                          <Switch
+                            checked={form.bulk_numbered_verse_continuation}
+                            onCheckedChange={(checked) => setForm((prev) => ({ ...prev, bulk_numbered_verse_continuation: checked }))}
+                          />
+                        </div>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void autoFillBulkFromArabic('transliteration')}
+                            disabled={!canEdit || convertingArabicLines}
+                            className="gap-1.5"
+                          >
+                            {convertingArabicLines && autoFillMode === 'transliteration' ? <Loader2 size={13} className="animate-spin" /> : null}
+                            Auto-fill Transliteration
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void autoFillBulkFromArabic('english')}
+                            disabled={!canEdit || convertingArabicLines}
+                            className="gap-1.5"
+                          >
+                            {convertingArabicLines && autoFillMode === 'english' ? <Loader2 size={13} className="animate-spin" /> : null}
+                            Auto-fill English
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                        <Button type="button" size="sm" variant="outline" onClick={() => setAllFixRowsExpanded(true)}>
+                          Expand All
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setAllFixRowsExpanded(false)}>
+                          Collapse All
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" size="sm" onClick={applyFixRowsToBulkInput} disabled={!fixDirty}>
+                        Apply Fixes
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={resetFixRowsFromInput}>
+                        Reset From Input
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        {fixDirty ? 'Unapplied changes present.' : 'Fix rows are synced with bulk input.'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-white overflow-hidden">
+                      <div className="px-3 py-2 text-[11px] font-semibold text-muted-foreground border-b border-[hsl(140_20%_90%)] bg-[hsl(140_25%_98%)]">
+                        Drag rows using the handle, then expand a row to edit full verse text in all languages.
+                      </div>
+
+                      <div className="max-h-[54vh] overflow-y-auto">
+                        <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleFixRowDragEnd}>
+                          <SortableContext items={fixRows.map((row) => row.id)} strategy={verticalListSortingStrategy}>
+                            {fixRows.map((row, index) => (
+                              <SortableItem key={row.id} id={row.id} className="border-b border-[hsl(140_20%_92%)] last:border-b-0">
+                                {({ dragHandle }) => (
+                                  <div className="p-3 space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <button
+                                        type="button"
+                                        {...dragHandle}
+                                        className="rounded border border-[hsl(140_20%_88%)] p-1.5 hover:bg-[hsl(140_20%_95%)]"
+                                        title="Drag row"
+                                      >
+                                        <GripVertical size={13} />
+                                      </button>
+                                      <span className="inline-flex items-center rounded-full bg-[hsl(140_25%_94%)] px-2 py-0.5 text-xs font-semibold text-[hsl(150_30%_20%)]">
+                                        Verse {index + 1}
+                                      </span>
+                                      <Input
+                                        value={row.chapter}
+                                        onChange={(event) => updateFixRow(row.id, { chapter: event.target.value })}
+                                        placeholder="Chapter"
+                                        className="h-8 w-[220px]"
+                                      />
+                                      <Button type="button" variant="outline" size="sm" onClick={() => toggleFixRowExpanded(row.id)}>
+                                        {expandedFixRows[row.id] ? 'Hide Full' : 'Show Full'}
+                                      </Button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                                      <div className="rounded-md border border-[hsl(140_20%_90%)] bg-[hsl(140_25%_98%)] p-2">
+                                        <p className="font-semibold text-muted-foreground mb-1">Arabic Preview</p>
+                                        <p dir="rtl" className="font-arabic text-base leading-loose text-right whitespace-pre-wrap line-clamp-2">{row.arabic || '—'}</p>
+                                      </div>
+                                      <div className="rounded-md border border-[hsl(140_20%_90%)] bg-[hsl(140_25%_98%)] p-2">
+                                        <p className="font-semibold text-muted-foreground mb-1">Urdu Preview</p>
+                                        <p dir="rtl" className="font-urdu text-base leading-loose text-right whitespace-pre-wrap line-clamp-2">{row.urdu_translation || '—'}</p>
+                                      </div>
+                                      <div className="rounded-md border border-[hsl(140_20%_90%)] bg-[hsl(140_25%_98%)] p-2">
+                                        <p className="font-semibold text-muted-foreground mb-1">Transliteration Preview</p>
+                                        <p className="whitespace-pre-wrap line-clamp-2">{row.transliteration || '—'}</p>
+                                      </div>
+                                      <div className="rounded-md border border-[hsl(140_20%_90%)] bg-[hsl(140_25%_98%)] p-2">
+                                        <p className="font-semibold text-muted-foreground mb-1">English Preview</p>
+                                        <p className="whitespace-pre-wrap line-clamp-2">{row.translation || '—'}</p>
+                                      </div>
+                                    </div>
+
+                                    {expandedFixRows[row.id] ? (
+                                      <div className="grid grid-cols-1 gap-3 pt-1">
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">Arabic (full verse)</Label>
+                                          <Textarea
+                                            value={row.arabic}
+                                            onChange={(event) => updateFixRow(row.id, { arabic: event.target.value })}
+                                            rows={5}
+                                            dir="rtl"
+                                            className="min-h-[120px] font-arabic text-xl leading-loose text-right"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">Transliteration (full verse)</Label>
+                                          <Textarea
+                                            value={row.transliteration}
+                                            onChange={(event) => updateFixRow(row.id, { transliteration: event.target.value })}
+                                            rows={4}
+                                            className="min-h-[96px]"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">English (full verse)</Label>
+                                          <Textarea
+                                            value={row.translation}
+                                            onChange={(event) => updateFixRow(row.id, { translation: event.target.value })}
+                                            rows={4}
+                                            className="min-h-[96px]"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">Urdu (full verse)</Label>
+                                          <Textarea
+                                            value={row.urdu_translation}
+                                            onChange={(event) => updateFixRow(row.id, { urdu_translation: event.target.value })}
+                                            rows={5}
+                                            dir="rtl"
+                                            className="min-h-[120px] font-urdu text-xl leading-loose text-right"
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : null}
+
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      <Button type="button" variant="outline" size="sm" onClick={() => moveFixRow(row.id, 'up')}>Up</Button>
+                                      <Button type="button" variant="outline" size="sm" onClick={() => moveFixRow(row.id, 'down')}>Down</Button>
+                                      <Button type="button" variant="outline" size="sm" onClick={() => splitFixRow(row.id)}>Split</Button>
+                                      <Button type="button" variant="outline" size="sm" onClick={() => mergeFixRowWithNext(row.id)}>Merge Next</Button>
+                                      <Button type="button" variant="outline" size="sm" onClick={() => insertFixRowBelow(row.id)}>Insert</Button>
+                                      <Button type="button" variant="outline" size="sm" onClick={() => deleteFixRow(row.id)} className="text-destructive">Delete</Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </SortableItem>
+                            ))}
+                          </SortableContext>
+                        </DndContext>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Section>
+            </div>
+          ) : null}
+
+          {editorTab === 'preview' ? (
+            <div className="space-y-3">
+              <EntryPreviewPane
+                form={form}
+                chorusDraft={chorusDraft}
+                chapterDrafts={chapterDrafts}
+                composeMode={composeMode}
+                modalType={modalType}
+              />
+            </div>
+          ) : null}
             </div>
             <aside className="hidden lg:flex flex-col min-h-0 border-l border-[hsl(140_20%_90%)] bg-[hsl(140_25%_98%)]">
               <div className="px-4 py-4 overflow-y-auto">
-                <EntryPreviewPane
-                  form={form}
-                  chorusDraft={chorusDraft}
-                  chapterDrafts={chapterDrafts}
-                  composeMode={composeMode}
-                  modalType={modalType}
-                />
+                {editorTab === 'preview' ? (
+                  <div className="rounded-lg border border-[hsl(140_20%_90%)] bg-white p-4 text-sm text-muted-foreground">
+                    Preview is shown in the main pane.
+                  </div>
+                ) : (
+                  <EntryPreviewPane
+                    form={form}
+                    chorusDraft={chorusDraft}
+                    chapterDrafts={chapterDrafts}
+                    composeMode={composeMode}
+                    modalType={modalType}
+                  />
+                )}
               </div>
             </aside>
           </div>

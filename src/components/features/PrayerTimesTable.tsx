@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PrayerTime, HijriCalendarEntry, PrayerTimeUpdate } from '#/types';
 import { Pencil, ChevronDown, ChevronRight, Star } from 'lucide-react';
 import { getDayInfo } from '#/lib/dateUtils';
@@ -484,6 +484,58 @@ const MobileRow = ({
 const PrayerTimesTable = ({
   data, year, hijriOffset, hijriCalendar, previewHijri = new Map(), pendingChanges = {}, eidPrayers, onEdit, highlightDay, showHijriCoverageBar = true,
 }: PrayerTimesTableProps) => {
+  const month = data[0]?.month ?? new Date().getMonth() + 1;
+  const today = new Date();
+  const maxDay = data.reduce((max, row) => Math.max(max, row.day), 0);
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1;
+  const currentDay = isCurrentMonth ? today.getDate() : null;
+  const weekRanges: Array<{ key: string; start: number; end: number; rows: PrayerTime[]; openByDefault: boolean }> = [];
+
+  if (maxDay > 0) {
+    const firstEnd = Math.min(6, maxDay);
+    const firstRows = data.filter((row) => row.day >= 1 && row.day <= firstEnd);
+    if (firstRows.length > 0) {
+      weekRanges.push({
+        key: `1-${firstEnd}`,
+        start: 1,
+        end: firstEnd,
+        rows: firstRows,
+        openByDefault: currentDay ? (currentDay >= 1 && currentDay <= firstEnd) : true,
+      });
+    }
+
+    for (let start = 7; start <= maxDay; start += 7) {
+      const end = Math.min(start + 6, maxDay);
+      const rows = data.filter((row) => row.day >= start && row.day <= end);
+      if (rows.length === 0) continue;
+      weekRanges.push({
+        key: `${start}-${end}`,
+        start,
+        end,
+        rows,
+        openByDefault: !!(currentDay && currentDay >= start && currentDay <= end),
+      });
+    }
+  }
+
+  const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (weekRanges.length === 0) {
+      setOpenWeeks({});
+      return;
+    }
+
+    const hasDefaultOpen = weekRanges.some((range) => range.openByDefault);
+    setOpenWeeks((prev) => {
+      const next: Record<string, boolean> = {};
+      weekRanges.forEach((range, index) => {
+        next[range.key] = prev[range.key] ?? (range.openByDefault || (!hasDefaultOpen && index === 0));
+      });
+      return next;
+    });
+  }, [month, year, maxDay]);
+
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-muted-foreground text-sm rounded-xl border border-border/20 bg-white">
@@ -492,8 +544,6 @@ const PrayerTimesTable = ({
     );
   }
 
-  const month = data[0]?.month ?? new Date().getMonth() + 1;
-  const today = new Date();
   const hijriCount   = data.filter(r => !!hijriCalendar.get(r.day)?.hijri_date).length;
   const previewCount = previewHijri.size;
   const diffCount    = previewCount > 0
@@ -539,24 +589,48 @@ const PrayerTimesTable = ({
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[hsl(150_35%_28%)]">Current Month</span>
           <span className="text-sm font-bold text-[hsl(150_40%_20%)]">{MONTH_NAMES[month - 1]} {year}</span>
         </div>
-        {data.map((row) => {
-          const isToday = year === today.getFullYear() && month === today.getMonth() + 1 && row.day === today.getDate();
-          return (
-            <MobileRow
-              key={row.id}
-              row={row}
-              year={year}
-              month={month}
-              hijriOffset={hijriOffset}
-              hijriEntry={hijriCalendar.get(row.day)}
-              previewDate={previewHijri.get(row.day)}
-              eidPrayers={eidPrayers}
-              isToday={isToday}
-              isHighlighted={highlightDay === row.day}
-              onEdit={onEdit}
-            />
-          );
-        })}
+        {weekRanges.map((range) => (
+          <div
+            key={range.key}
+            className="group rounded-xl border border-[hsl(140_20%_88%)] bg-white overflow-hidden"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setOpenWeeks((prev) => ({ ...prev, [range.key]: !prev[range.key] }));
+              }}
+              className="w-full cursor-pointer px-3 py-2 flex items-center justify-between gap-2 bg-[hsl(140_25%_97%)] border-b border-[hsl(140_20%_90%)] text-left"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-[hsl(142_60%_30%)] text-white text-[8px] font-bold uppercase tracking-wider">Week</span>
+                <span className="text-[11px] font-semibold text-[hsl(150_30%_20%)]">{range.start}-{range.end}</span>
+                <span className="text-[10px] text-muted-foreground">{range.rows.length} day{range.rows.length === 1 ? '' : 's'}</span>
+              </div>
+              <ChevronDown size={14} className={`text-muted-foreground transition-transform ${openWeeks[range.key] ? 'rotate-180' : ''}`} />
+            </button>
+
+            {openWeeks[range.key] && <div className="p-2 space-y-2 bg-[hsl(140_30%_97%)]">
+              {range.rows.map((row) => {
+                const isToday = isCurrentMonth && row.day === today.getDate();
+                return (
+                  <MobileRow
+                    key={row.id}
+                    row={row}
+                    year={year}
+                    month={month}
+                    hijriOffset={hijriOffset}
+                    hijriEntry={hijriCalendar.get(row.day)}
+                    previewDate={previewHijri.get(row.day)}
+                    eidPrayers={eidPrayers}
+                    isToday={isToday}
+                    isHighlighted={highlightDay === row.day}
+                    onEdit={onEdit}
+                  />
+                );
+              })}
+            </div>}
+          </div>
+        ))}
       </div>
 
       {/* ── Desktop layout ── */}

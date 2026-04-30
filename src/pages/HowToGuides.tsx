@@ -236,6 +236,10 @@ function toBlockDraft(block: PreviewGuideBlock, blockOrder: number): BlockDraft 
   const arabic = (block.arabic ?? []).map((line) => line.trim()).filter((line) => line.length > 0);
   if (arabic.length === 0) return null;
 
+  const flags = block.flags
+    ?.map((flag) => flag.trim())
+    .filter((flag) => flag.length > 0);
+
   return {
     block_order: blockOrder,
     kind: 'recitation',
@@ -247,6 +251,7 @@ function toBlockDraft(block: PreviewGuideBlock, blockOrder: number): BlockDraft 
       meaning: block.meaning?.map((line) => line.trim()).filter((line) => line.length > 0) || undefined,
       repeat: block.repeat?.trim() || undefined,
       source: block.source?.trim() || undefined,
+      flags: flags && flags.length > 0 ? flags : undefined,
     },
   };
 }
@@ -502,6 +507,7 @@ export default function HowToGuidesPage() {
   }, [guides]);
 
   const [showMobilePreview, setShowMobilePreview] = useState(false);
+  const [treeDragLocked, setTreeDragLocked] = useState(false);
   const urduTranslationCacheRef = useRef<Map<string, string>>(new Map());
   const urduLabelsBackfillStartedRef = useRef(false);
   const urduLabelsBackfillRunningRef = useRef(false);
@@ -2560,7 +2566,7 @@ export default function HowToGuidesPage() {
           }
         }}
       >
-        <DialogContent className="w-[100vw] sm:w-[98vw] max-w-[98vw] h-[100dvh] sm:h-[92vh] sm:max-h-[92vh] overflow-hidden p-0 rounded-none sm:rounded-lg flex flex-col">
+        <DialogContent className="left-0 top-0 w-screen max-w-none translate-x-0 translate-y-0 sm:left-[50%] sm:top-[50%] sm:w-[98vw] sm:max-w-[98vw] sm:-translate-x-1/2 sm:-translate-y-1/2 h-[100svh] sm:h-[92svh] sm:max-h-[92svh] overflow-hidden p-0 rounded-none sm:rounded-lg flex flex-col gap-0">
           <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-[hsl(140_20%_92%)] bg-gradient-to-r from-[hsl(142_55%_28%)] via-[hsl(152_50%_32%)] to-[hsl(168_48%_36%)] text-white">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-xl bg-white/15 ring-1 ring-white/30 flex items-center justify-center shrink-0">
@@ -2596,6 +2602,32 @@ export default function HowToGuidesPage() {
             ) : (
               <div className="grid lg:grid-cols-[minmax(0,1fr)_440px] h-full min-h-0 overflow-hidden">
                 <div className={`${showMobilePreview ? 'hidden' : 'block'} lg:block min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 border-r border-[hsl(140_20%_92%)]`}>
+              <div
+                onFocusCapture={(event) => {
+                  const target = event.target;
+                  if (
+                    target instanceof HTMLInputElement
+                    || target instanceof HTMLTextAreaElement
+                    || (target instanceof HTMLElement && target.isContentEditable)
+                  ) {
+                    setTreeDragLocked(true);
+                  }
+                }}
+                onBlurCapture={() => {
+                  window.requestAnimationFrame(() => {
+                    const active = document.activeElement;
+                    const editing = (
+                      active instanceof HTMLInputElement
+                      || active instanceof HTMLTextAreaElement
+                      || (active instanceof HTMLElement && active.isContentEditable)
+                    );
+                    if (!editing) {
+                      setTreeDragLocked(false);
+                    }
+                  });
+                }}
+                className="space-y-4"
+              >
               <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-gradient-to-br from-[hsl(140_40%_97%)] to-white p-4 space-y-3 shadow-sm">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2">
@@ -2656,7 +2688,7 @@ export default function HowToGuidesPage() {
                 <div
                   key={`section-${sectionIndex}`}
                   className="rounded-2xl border border-[hsl(140_20%_86%)] bg-white overflow-hidden shadow-sm"
-                  draggable={canEdit}
+                  draggable={canEdit && !treeDragLocked}
                   onDragStart={(event) => {
                     if (shouldBlockDragStart(event.target)) {
                       event.preventDefault();
@@ -2715,7 +2747,7 @@ export default function HowToGuidesPage() {
                       <div
                         key={`step-${sectionIndex}-${stepIndex}`}
                         className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(140_30%_99%)] overflow-hidden"
-                        draggable={canEdit}
+                        draggable={canEdit && !treeDragLocked}
                         onDragStart={(event) => {
                           if (shouldBlockDragStart(event.target)) {
                             event.preventDefault();
@@ -2841,7 +2873,7 @@ export default function HowToGuidesPage() {
                           {step.blocks.map((block, blockIndex) => (
                             <div
                               key={`block-${sectionIndex}-${stepIndex}-${blockIndex}`}
-                              draggable={canEdit}
+                              draggable={canEdit && !treeDragLocked}
                               onDragStart={(event) => {
                                 if (shouldBlockDragStart(event.target)) {
                                   event.preventDefault();
@@ -2926,7 +2958,7 @@ export default function HowToGuidesPage() {
                             <div
                               key={`image-${sectionIndex}-${stepIndex}-${imageIndex}`}
                               className="rounded-md border p-2 space-y-2 bg-white"
-                              draggable={canEdit}
+                              draggable={canEdit && !treeDragLocked}
                               onDragStart={(event) => {
                                 if (shouldBlockDragStart(event.target)) {
                                   event.preventDefault();
@@ -3110,6 +3142,7 @@ export default function HowToGuidesPage() {
                   </Button>
                 </div>
               ) : null}
+              </div>
               </div>
 
                 <aside className={`${showMobilePreview ? 'block' : 'hidden'} lg:block min-h-0 overflow-y-auto bg-gradient-to-b from-[hsl(140_30%_98%)] to-white`}>

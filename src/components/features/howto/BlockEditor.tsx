@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { Button } from '#/components/ui/button';
 import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
@@ -26,6 +26,22 @@ const NOTE_VARIANTS: { value: GuideNoteVariant; label: string; swatch: string }[
   { value: 'fasting', label: 'Fasting Note', swatch: 'bg-orange-200' },
   { value: 'key', label: 'Key Reminder', swatch: 'bg-yellow-200' },
 ];
+
+const RECITATION_FLAG_SUGGESTIONS = [
+  'Fardh',
+  'Wajib',
+  'Sunnah',
+  'Sunnah Muakkadah',
+  'Mustahab',
+  'Makruh',
+] as const;
+
+const ARABIC_KEYBOARD_ROWS = [
+  ['ض', 'ص', 'ث', 'ق', 'ف', 'غ', 'ع', 'ه', 'خ', 'ح', 'ج', 'د'],
+  ['ش', 'س', 'ي', 'ب', 'ل', 'ا', 'ت', 'ن', 'م', 'ك', 'ط'],
+  ['ئ', 'ء', 'ؤ', 'ر', 'لا', 'ى', 'ة', 'و', 'ز', 'ظ'],
+  ['َ', 'ُ', 'ِ', 'ّ', 'ْ', 'ً', 'ٌ', 'ٍ', 'ٓ', 'ٰ'],
+] as const;
 
 const KIND_META: Record<BlockKind, { title: string; hint: string; accent: string; badge: string }> = {
   text: {
@@ -67,7 +83,7 @@ export function blockKindDefaults(kind: BlockKind): BlockDraftPayload {
     case 'note':
       return { variant: 'note', text: '' };
     case 'recitation':
-      return { label: 'Recite:', arabic: [''], transliteration: [''], meaning: [''] };
+      return { label: 'Recite:', arabic: [''], transliteration: [''], meaning: [''], flags: [] };
     default:
       return {};
   }
@@ -112,11 +128,18 @@ function hasUserEnteredContent(block: BlockDraft): boolean {
   const hasArabic = asStringArray(block.payload.arabic).some((line) => line.trim().length > 0);
   const hasTransliteration = asStringArray(block.payload.transliteration).some((line) => line.trim().length > 0);
   const hasMeaning = asStringArray(block.payload.meaning).some((line) => line.trim().length > 0);
+  const flagsFromArray = asStringArray(block.payload.flags);
+  const flagsFromString = asString(block.payload.flags)
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  const hasFlags = [...flagsFromArray, ...flagsFromString].some((line) => line.trim().length > 0);
 
   return (
     hasArabic
     || hasTransliteration
     || hasMeaning
+    || hasFlags
     || asString(block.payload.intro).trim().length > 0
     || asString(block.payload.repeat).trim().length > 0
     || asString(block.payload.source).trim().length > 0
@@ -262,9 +285,19 @@ function RecitationFields({
   setPayload: (patch: BlockDraftPayload) => void;
   disabled?: boolean;
 }) {
+  const arabicInputRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
+  const [activeArabicLine, setActiveArabicLine] = useState(0);
+  const [showArabicKeyboard, setShowArabicKeyboard] = useState(false);
+
   const arabic = asStringArray(payload.arabic);
   const transliteration = asStringArray(payload.transliteration);
   const meaning = asStringArray(payload.meaning);
+  const rawFlags = Array.isArray(payload.flags)
+    ? payload.flags.map((flag) => (typeof flag === 'string' ? flag : ''))
+    : typeof payload.flags === 'string'
+      ? payload.flags.split(/[\n,]/)
+      : [];
+  const flags = rawFlags.map((flag) => flag.trim()).filter((flag) => flag.length > 0);
 
   const ensureLen = (list: string[], len: number): string[] => {
     if (list.length >= len) return list;
@@ -301,12 +334,107 @@ function RecitationFields({
 
   const lineCount = Math.max(arabic.length, transliteration.length, meaning.length, 1);
 
+  const normalizeFlags = (raw: string[]): string[] => {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    raw.forEach((item) => {
+      const trimmed = item.trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      normalized.push(trimmed);
+    });
+    return normalized;
+  };
+
+  const updateFlagsFromInput = (value: string) => {
+    const parsed = value
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    setPayload({ flags: normalizeFlags(parsed) });
+  };
+
+  const toggleSuggestedFlag = (flag: string) => {
+    const exists = flags.some((item) => item.toLowerCase() === flag.toLowerCase());
+    if (exists) {
+      setPayload({ flags: flags.filter((item) => item.toLowerCase() !== flag.toLowerCase()) });
+      return;
+    }
+    setPayload({ flags: normalizeFlags([...flags, flag]) });
+  };
+
+  const insertArabicAtCaret = (token: string) => {
+    const normalizedLine = Math.min(Math.max(activeArabicLine, 0), Math.max(lineCount - 1, 0));
+    const target = arabicInputRefs.current[normalizedLine];
+    const fallbackText = arabic[normalizedLine] ?? '';
+
+    if (!target) {
+      updateLine('arabic', normalizedLine, `${fallbackText}${token}`);
+      return;
+    }
+
+    const start = target.selectionStart ?? fallbackText.length;
+    const end = target.selectionEnd ?? fallbackText.length;
+    const next = `${fallbackText.slice(0, start)}${token}${fallbackText.slice(end)}`;
+
+    updateLine('arabic', normalizedLine, next);
+
+    window.requestAnimationFrame(() => {
+      const refreshed = arabicInputRefs.current[normalizedLine];
+      if (!refreshed) return;
+      const caret = start + token.length;
+      refreshed.focus();
+      refreshed.setSelectionRange(caret, caret);
+    });
+  };
+
+  const backspaceArabicAtCaret = () => {
+    const normalizedLine = Math.min(Math.max(activeArabicLine, 0), Math.max(lineCount - 1, 0));
+    const target = arabicInputRefs.current[normalizedLine];
+    const fallbackText = arabic[normalizedLine] ?? '';
+
+    if (!target) {
+      if (!fallbackText) return;
+      updateLine('arabic', normalizedLine, fallbackText.slice(0, -1));
+      return;
+    }
+
+    const start = target.selectionStart ?? fallbackText.length;
+    const end = target.selectionEnd ?? fallbackText.length;
+
+    if (start !== end) {
+      const next = `${fallbackText.slice(0, start)}${fallbackText.slice(end)}`;
+      updateLine('arabic', normalizedLine, next);
+      window.requestAnimationFrame(() => {
+        const refreshed = arabicInputRefs.current[normalizedLine];
+        if (!refreshed) return;
+        refreshed.focus();
+        refreshed.setSelectionRange(start, start);
+      });
+      return;
+    }
+
+    if (start <= 0) return;
+    const next = `${fallbackText.slice(0, start - 1)}${fallbackText.slice(start)}`;
+    updateLine('arabic', normalizedLine, next);
+    window.requestAnimationFrame(() => {
+      const refreshed = arabicInputRefs.current[normalizedLine];
+      if (!refreshed) return;
+      const caret = start - 1;
+      refreshed.focus();
+      refreshed.setSelectionRange(caret, caret);
+    });
+  };
+
   return (
     <div className="space-y-3">
       <div className="grid gap-2 md:grid-cols-3">
         <div>
           <Label className="text-xs">Label (optional)</Label>
           <Input
+            data-no-drag="true"
             value={asString(payload.label)}
             disabled={disabled}
             onChange={(event) => setPayload({ label: event.target.value })}
@@ -316,6 +444,7 @@ function RecitationFields({
         <div>
           <Label className="text-xs">Repeat (optional)</Label>
           <Input
+            data-no-drag="true"
             value={asString(payload.repeat)}
             disabled={disabled}
             onChange={(event) => setPayload({ repeat: event.target.value })}
@@ -325,6 +454,7 @@ function RecitationFields({
         <div>
           <Label className="text-xs">Source (optional)</Label>
           <Input
+            data-no-drag="true"
             value={asString(payload.source)}
             disabled={disabled}
             onChange={(event) => setPayload({ source: event.target.value })}
@@ -336,6 +466,7 @@ function RecitationFields({
       <div>
         <Label className="text-xs">Intro (optional)</Label>
         <Textarea
+          data-no-drag="true"
           rows={2}
           className="mt-1 min-h-[56px]"
           value={asString(payload.intro)}
@@ -345,16 +476,55 @@ function RecitationFields({
         />
       </div>
 
+      <div>
+        <Label className="text-xs">Flags (optional)</Label>
+        <Input
+          data-no-drag="true"
+          className="mt-1"
+          value={flags.join(', ')}
+          disabled={disabled}
+          onChange={(event) => updateFlagsFromInput(event.target.value)}
+          placeholder="Comma separated, e.g. Wajib, Sunnah"
+        />
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {RECITATION_FLAG_SUGGESTIONS.map((flag) => {
+            const active = flags.some((item) => item.toLowerCase() === flag.toLowerCase());
+            return (
+              <button
+                key={flag}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggleSuggestedFlag(flag)}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${active ? 'border-[hsl(142_60%_32%)] bg-[hsl(142_50%_95%)] text-[hsl(142_60%_22%)]' : 'border-input bg-background text-muted-foreground'}`}
+              >
+                {flag}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="rounded-md border bg-white/60 p-2 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-800">
             Recitation lines
           </span>
-          <Button size="sm" variant="outline" onClick={addLine} disabled={disabled}>
-            Add line
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              onClick={() => setShowArabicKeyboard((prev) => !prev)}
+              disabled={disabled}
+            >
+              {showArabicKeyboard ? 'Hide Arabic Keyboard' : 'Arabic Keyboard'}
+            </Button>
+            <Button size="sm" variant="outline" onClick={addLine} disabled={disabled}>
+              Add line
+            </Button>
+          </div>
         </div>
-        <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1 text-[11px] font-semibold text-muted-foreground">
+        <div className="hidden md:grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-[11px] font-semibold text-muted-foreground">
           <span>Arabic</span>
           <span>Transliteration</span>
           <span>Meaning</span>
@@ -362,29 +532,51 @@ function RecitationFields({
         </div>
         {Array.from({ length: lineCount }).map((_, lineIndex) => (
           <Fragment key={`line-${lineIndex}`}>
-            <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1">
-              <Input
+            <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold text-muted-foreground md:hidden">Arabic</span>
+                <Textarea
+                data-no-drag="true"
+                ref={(element) => {
+                  arabicInputRefs.current[lineIndex] = element;
+                }}
                 dir="rtl"
                 lang="ar"
-                className="font-['Scheherazade_New',_'Amiri',_serif] text-base"
+                rows={3}
+                className="min-h-[84px] font-['Scheherazade_New',_'Amiri',_serif] text-base leading-8"
                 value={arabic[lineIndex] ?? ''}
                 disabled={disabled}
+                onFocus={() => setActiveArabicLine(lineIndex)}
                 onChange={(event) => updateLine('arabic', lineIndex, event.target.value)}
                 placeholder="بِسْمِ اللَّهِ"
               />
-              <Input
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold text-muted-foreground md:hidden">Transliteration</span>
+                <Textarea
+                data-no-drag="true"
+                rows={3}
+                className="min-h-[84px]"
                 value={transliteration[lineIndex] ?? ''}
                 disabled={disabled}
                 onChange={(event) => updateLine('transliteration', lineIndex, event.target.value)}
                 placeholder="Bismillah"
               />
-              <Input
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold text-muted-foreground md:hidden">Meaning</span>
+                <Textarea
+                data-no-drag="true"
+                rows={3}
+                className="min-h-[84px]"
                 value={meaning[lineIndex] ?? ''}
                 disabled={disabled}
                 onChange={(event) => updateLine('meaning', lineIndex, event.target.value)}
                 placeholder="In the name of Allah"
               />
-              <Button
+              </div>
+              <div className="flex items-start justify-end md:pt-1">
+                <Button
                 size="sm"
                 variant="ghost"
                 disabled={disabled || lineCount <= 1}
@@ -393,9 +585,53 @@ function RecitationFields({
               >
                 ×
               </Button>
+              </div>
             </div>
           </Fragment>
         ))}
+        {showArabicKeyboard ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50/70 p-2 space-y-1" data-no-drag="true">
+            <p className="text-[11px] text-emerald-900">Click to insert into the focused Arabic line.</p>
+            {ARABIC_KEYBOARD_ROWS.map((row, rowIndex) => (
+              <div key={`ar-row-${rowIndex}`} className="flex flex-wrap gap-1">
+                {row.map((key) => (
+                  <button
+                    key={`ar-key-${rowIndex}-${key}`}
+                    type="button"
+                    disabled={disabled}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => insertArabicAtCaret(key)}
+                    className="min-w-9 rounded border border-emerald-300 bg-white px-2 py-1 text-base leading-none text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    {key}
+                  </button>
+                ))}
+                {rowIndex === ARABIC_KEYBOARD_ROWS.length - 1 ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => insertArabicAtCaret(' ')}
+                      className="rounded border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                    >
+                      Space
+                    </button>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={backspaceArabicAtCaret}
+                      className="rounded border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                    >
+                      Backspace
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
         <p className="text-[11px] text-muted-foreground">
           Leave transliteration empty to let the app auto-transliterate at render time.
         </p>

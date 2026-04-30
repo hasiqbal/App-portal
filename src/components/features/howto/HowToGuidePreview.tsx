@@ -33,40 +33,91 @@ const NOTE_LABELS: Record<GuideNoteVariant, string> = {
   key: 'Key Reminder',
 };
 
-const NOTE_STYLES: Record<GuideNoteVariant, string> = {
-  note: 'border-slate-300 bg-slate-50 text-slate-700',
-  tip: 'border-lime-300 bg-lime-50 text-lime-800',
-  important: 'border-amber-300 bg-amber-50 text-amber-800',
-  reminder: 'border-sky-300 bg-sky-50 text-sky-800',
-  safety: 'border-emerald-300 bg-emerald-50 text-emerald-800',
-  warning: 'border-rose-300 bg-rose-50 text-rose-800',
-  hanafi: 'border-indigo-300 bg-indigo-50 text-indigo-800',
-  fasting: 'border-orange-300 bg-orange-50 text-orange-800',
-  key: 'border-yellow-300 bg-yellow-50 text-yellow-800',
+const NOTE_STYLES: Record<GuideNoteVariant, { container: string; body: string }> = {
+  note: { container: 'border-slate-300 bg-slate-50 text-slate-700 p-3.5', body: 'text-sm leading-6' },
+  tip: { container: 'border-lime-300 bg-lime-50 text-lime-800 p-2.5', body: 'text-xs leading-5' },
+  important: { container: 'border-amber-300 bg-amber-50 text-amber-800 p-3.5', body: 'text-sm leading-6' },
+  reminder: { container: 'border-sky-300 bg-sky-50 text-sky-800 p-3', body: 'text-[13px] leading-6' },
+  safety: { container: 'border-emerald-300 bg-emerald-50 text-emerald-800 p-3', body: 'text-[13px] leading-6' },
+  warning: { container: 'border-rose-300 bg-rose-50 text-rose-800 p-3.5', body: 'text-sm leading-6' },
+  hanafi: { container: 'border-indigo-300 bg-indigo-50 text-indigo-800 p-2.5', body: 'text-xs leading-5' },
+  fasting: { container: 'border-orange-300 bg-orange-50 text-orange-800 p-2.5', body: 'text-xs leading-5' },
+  key: { container: 'border-yellow-300 bg-yellow-50 text-yellow-800 p-2.5', body: 'text-xs leading-5' },
 };
+
+function recitationFlags(block: Extract<PreviewGuideBlock, { kind: 'recitation' }>): string[] {
+  const badges: string[] = [];
+
+  if (block.repeat?.trim()) {
+    badges.push(`Repeat: ${block.repeat.trim()}`);
+  }
+
+  if (block.source?.trim()) {
+    badges.push(`Source: ${block.source.trim()}`);
+  }
+
+  const customFlags = Array.isArray(block.flags)
+    ? block.flags
+    : typeof (block as { flags?: unknown }).flags === 'string'
+      ? ((block as { flags?: string }).flags ?? '').split(/[\n,]/)
+      : [];
+
+  customFlags.forEach((flag) => {
+    const trimmed = flag.trim();
+    if (!trimmed) return;
+    if (!badges.some((item) => item.toLowerCase() === trimmed.toLowerCase())) {
+      badges.push(trimmed);
+    }
+  });
+
+  return badges;
+}
 
 function renderBlock(block: PreviewGuideBlock, index: number, previewLanguage: PreviewLanguage) {
   if (block.kind === 'recitation') {
+    const badges = recitationFlags(block);
+
     return (
-      <div key={`block-${index}`} className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
-        {block.intro ? <p className="mb-2 whitespace-pre-wrap text-sm text-slate-700">{block.intro}</p> : null}
-        {block.label ? <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-700">{block.label}</p> : null}
-        <div className="space-y-2 text-center">
+      <div key={`block-${index}`} className="overflow-hidden rounded-md border border-emerald-200 bg-emerald-50/60">
+        <div className="border-b border-emerald-200/70 px-4 py-3">
+          {block.label ? <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-700">{block.label}</p> : null}
+          {block.intro ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{block.intro}</p> : null}
+        </div>
+        <div className="space-y-2 px-4 py-4 text-center">
           {block.arabic.map((line, lineIndex) => (
-            <p key={`arabic-${lineIndex}`} className="text-xl leading-10 text-slate-900">{line}</p>
+            <p
+              key={`arabic-${lineIndex}`}
+              className="text-[clamp(1.65rem,2.8vw,2.15rem)] leading-[1.95] text-slate-900 [text-wrap:balance]"
+            >
+              {line}
+            </p>
           ))}
         </div>
         {block.transliteration?.length ? (
-          <div className="mt-3 space-y-1">
+          <div className="border-t border-emerald-200/70 bg-white/45 px-4 py-3">
             {block.transliteration.map((line, lineIndex) => (
-              <p key={`trans-${lineIndex}`} className="text-sm italic text-slate-600">{line}</p>
+              <p key={`trans-${lineIndex}`} className="w-full break-words px-1 text-center text-sm italic leading-7 text-slate-600">
+                {line}
+              </p>
             ))}
           </div>
         ) : null}
         {block.meaning?.length ? (
-          <div className="mt-3 space-y-1">
+          <div className="border-t border-emerald-200/70 px-4 py-3">
             {block.meaning.map((line, lineIndex) => (
-              <p key={`meaning-${lineIndex}`} className="text-sm text-slate-700">{line}</p>
+              <p key={`meaning-${lineIndex}`} className="text-sm leading-7 text-slate-700">{line}</p>
+            ))}
+          </div>
+        ) : null}
+        {badges.length > 0 ? (
+          <div className="flex flex-wrap gap-2 border-t border-emerald-200/70 px-4 py-3">
+            {badges.map((badge, badgeIndex) => (
+              <span
+                key={`recitation-badge-${badgeIndex}`}
+                className="rounded-full border border-emerald-300 bg-emerald-100/80 px-2 py-0.5 text-[11px] font-semibold text-emerald-800"
+              >
+                {badge}
+              </span>
             ))}
           </div>
         ) : null}
@@ -75,10 +126,12 @@ function renderBlock(block: PreviewGuideBlock, index: number, previewLanguage: P
   }
 
   if (block.kind === 'note') {
+    const style = NOTE_STYLES[block.variant];
+
     return (
-      <div key={`block-${index}`} className={`rounded-lg border-l-4 p-3 ${NOTE_STYLES[block.variant]}`}>
+      <div key={`block-${index}`} className={`rounded-lg border-l-4 ${style.container}`}>
         <p className="text-[11px] font-bold uppercase tracking-[0.16em]">{NOTE_LABELS[block.variant]}</p>
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{block.text}</p>
+        <p className={`mt-1 whitespace-pre-wrap ${style.body}`}>{block.text}</p>
       </div>
     );
   }
@@ -171,9 +224,28 @@ export function HowToGuidePreview({
                           <div className="grid gap-3 sm:grid-cols-2">
                             {step.images.map((image, imageIndex) => (
                               <div key={`image-${imageIndex}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                <p className="truncate text-xs font-medium text-slate-500">{image.image_url}</p>
-                                {image.caption ? <p className="mt-2 text-sm text-slate-700">{image.caption}</p> : null}
-                                {image.source ? <p className="mt-1 text-xs text-slate-500">Source: {image.source}</p> : null}
+                                {image.image_url ? (
+                                  <img
+                                    src={image.image_url}
+                                    alt={image.caption || 'Step visual'}
+                                    className="h-40 w-full rounded-md border border-slate-200 bg-white object-cover"
+                                    loading="lazy"
+                                  />
+                                ) : null}
+                                {image.caption ? <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{image.caption}</p> : null}
+                                <div className="mt-2 flex items-center justify-between gap-2">
+                                  {image.source ? <p className="text-xs text-slate-500">Source: {image.source}</p> : <span />}
+                                  {image.image_url ? (
+                                    <a
+                                      href={image.image_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-xs font-medium text-emerald-700 underline underline-offset-2"
+                                    >
+                                      Open
+                                    </a>
+                                  ) : null}
+                                </div>
                               </div>
                             ))}
                           </div>

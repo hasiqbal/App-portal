@@ -5,7 +5,7 @@ import Sidebar from '#/components/layout/Sidebar';
 import { fetchPrayerTimes, fetchAdhkar, fetchAnnouncements, fetchAdhkarGroups } from '#/lib/api';
 import {
   CalendarDays, BookOpen, Bell, Clock, ChevronRight,
-  Star, BellRing, Timer, Sunrise, Sunset, Moon,
+  Star, BellRing, Sunrise, Sunset, Moon, ChevronDown,
 } from 'lucide-react';
 import masjidPhoto from '#/assets/masjid-photo.png';
 import { supabaseAdmin } from '#/lib/supabase';
@@ -35,16 +35,6 @@ function toMinutes(timeStr: string | null | undefined): number | null {
   return s === null ? null : Math.floor(s / 60);
 }
 
-function formatCountdown(totalSeconds: number): string {
-  if (totalSeconds <= 0) return 'Now';
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`;
-  if (m > 0) return `${m}m ${String(s).padStart(2,'0')}s`;
-  return `${s}s`;
-}
-
 function monthIsBstByMidMonth(year: number, month: number): boolean {
   return isBST(year, month, 15);
 }
@@ -72,12 +62,6 @@ function getDominantJumuahPair(rows: PrayerTime[]): { first: string | null; seco
   return { first: best?.first ?? null, second: best?.second ?? null };
 }
 
-const SmallTimeTag = ({ label, value }: { label: string; value: string | null }) => (
-  <div className="px-2 py-1 rounded-md border border-white/70 bg-white text-[10px] font-semibold text-[hsl(150_30%_18%)]">
-    {label}: <span className="tabular-nums font-extrabold">{value ?? '—'}</span>
-  </div>
-);
-
 const YearSpecialTimesBlocks = ({
   gmtTimes,
   bstTimes,
@@ -104,51 +88,39 @@ const YearSpecialTimesBlocks = ({
         <div className="flex-1 h-px bg-[hsl(140_20%_88%)]" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_45%_96%)] px-3 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(142_60%_32%)] mb-1.5">Jumu'ah · GMT (Winter)</p>
-            <div className="flex flex-wrap gap-1.5">
-              <SmallTimeTag label="1st" value={gmtTimes.first} />
-              <SmallTimeTag label="2nd" value={gmtTimes.second} />
-            </div>
-          </div>
+      <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_45%_97%)] px-2.5 sm:px-3 py-2 space-y-2">
+        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap text-[12px] sm:text-[13px]">
+          <span className="inline-flex items-center px-2 py-1 rounded-lg bg-[hsl(142_55%_92%)] text-[hsl(142_60%_30%)] font-bold uppercase text-[10px]">Jumu'ah GMT</span>
+          <span className="inline-flex items-center px-2 py-1 rounded-lg bg-white border border-[hsl(140_20%_88%)] font-bold tabular-nums">J1 {gmtTimes.first ?? '—'}</span>
+          <span className="inline-flex items-center px-2 py-1 rounded-lg bg-white border border-[hsl(140_20%_88%)] font-bold tabular-nums">J2 {gmtTimes.second ?? '—'}</span>
 
-          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(187_55%_96%)] px-3 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-700 mb-1.5">Jumu'ah · BST (Summer)</p>
-            <div className="flex flex-wrap gap-1.5">
-              <SmallTimeTag label="1st" value={bstTimes.first} />
-              <SmallTimeTag label="2nd" value={bstTimes.second} />
-            </div>
-          </div>
+          <span className="inline-flex items-center px-2 py-1 rounded-lg bg-cyan-100 text-cyan-700 font-bold uppercase text-[10px]">Jumu'ah BST</span>
+          <span className="inline-flex items-center px-2 py-1 rounded-lg bg-white border border-[hsl(140_20%_88%)] font-bold tabular-nums">J1 {bstTimes.first ?? '—'}</span>
+          <span className="inline-flex items-center px-2 py-1 rounded-lg bg-white border border-[hsl(140_20%_88%)] font-bold tabular-nums">J2 {bstTimes.second ?? '—'}</span>
         </div>
 
-        <div className="space-y-2">
-          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_50%_96%)] px-3 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-1.5">Eid al-Fitr · 1st Shawwal</p>
-            {fitrTimes.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No Eid times set.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {fitrTimes.map((entry) => (
-                  <SmallTimeTag key={`fitr-${entry.jamaat_number}`} label={`J${entry.jamaat_number}`} value={entry.time} />
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap text-[12px] sm:text-[13px]">
+          <span className="inline-flex items-center px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-bold uppercase text-[10px]">Eid al-Fitr</span>
+          {fitrTimes.length === 0 ? (
+            <span className="inline-flex items-center px-2 py-1 rounded-lg bg-white/70 border border-[hsl(140_20%_88%)] text-muted-foreground">No times</span>
+          ) : (
+            fitrTimes.map((entry) => (
+              <span key={`fitr-${entry.jamaat_number}`} className="inline-flex items-center px-2 py-1 rounded-lg bg-white border border-[hsl(140_20%_88%)] font-bold tabular-nums">
+                J{entry.jamaat_number} {entry.time}
+              </span>
+            ))
+          )}
 
-          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(38_85%_96%)] px-3 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1.5">Eid al-Adha · 10th Dhul Hijjah</p>
-            {adhaTimes.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No Eid times set.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {adhaTimes.map((entry) => (
-                  <SmallTimeTag key={`adha-${entry.jamaat_number}`} label={`J${entry.jamaat_number}`} value={entry.time} />
-                ))}
-              </div>
-            )}
-          </div>
+          <span className="inline-flex items-center px-2 py-1 rounded-lg bg-amber-100 text-amber-700 font-bold uppercase text-[10px]">Eid al-Adha</span>
+          {adhaTimes.length === 0 ? (
+            <span className="inline-flex items-center px-2 py-1 rounded-lg bg-white/70 border border-[hsl(140_20%_88%)] text-muted-foreground">No times</span>
+          ) : (
+            adhaTimes.map((entry) => (
+              <span key={`adha-${entry.jamaat_number}`} className="inline-flex items-center px-2 py-1 rounded-lg bg-white border border-[hsl(140_20%_88%)] font-bold tabular-nums">
+                J{entry.jamaat_number} {entry.time}
+              </span>
+            ))
+          )}
         </div>
       </div>
     </section>
@@ -267,134 +239,6 @@ const KeyHijriDatesCard = ({ rows }: { rows: Array<{ label: string; hijriDate: s
   </section>
 );
 
-// ─── Next Prayer Countdown ────────────────────────────────────────────────────
-
-interface PrayerEntry {
-  label: string;
-  startTime: string | null;
-  jamatTime?: string | null;
-  color: string;
-}
-
-type CountdownPhase = 'to-start' | 'to-jamat' | 'in-jamat';
-
-interface CountdownState {
-  next: PrayerEntry & { secsToStart: number };
-  phase: CountdownPhase;
-  secsRemaining: number;
-  phaseLabel: string;
-}
-
-function computeCountdown(prayers: PrayerEntry[], nowSecs: number): CountdownState | null {
-  const entries = prayers
-    .filter((p) => p.startTime)
-    .map((p) => ({
-      ...p,
-      startSecs: toSeconds(p.startTime) ?? 0,
-      jamatSecs: toSeconds(p.jamatTime) ?? null,
-    }));
-
-  // Check if we're currently between start and jamat of any prayer
-  for (const e of entries) {
-    if (e.jamatSecs !== null && nowSecs >= e.startSecs && nowSecs < e.jamatSecs) {
-      return {
-        next: { ...e, secsToStart: 0 },
-        phase: 'to-jamat',
-        secsRemaining: e.jamatSecs - nowSecs,
-        phaseLabel: 'Until Jamāʿat',
-      };
-    }
-    if (e.jamatSecs !== null && nowSecs >= e.jamatSecs && nowSecs < e.jamatSecs + 300) {
-      return {
-        next: { ...e, secsToStart: 0 },
-        phase: 'in-jamat',
-        secsRemaining: 0,
-        phaseLabel: 'Jamāʿat Now',
-      };
-    }
-  }
-
-  // Otherwise find next upcoming prayer by start time
-  const upcoming = entries
-    .filter((e) => e.startSecs > nowSecs)
-    .sort((a, b) => a.startSecs - b.startSecs);
-
-  if (!upcoming.length) return null;
-  const next = upcoming[0];
-  return {
-    next: { ...next, secsToStart: next.startSecs - nowSecs },
-    phase: 'to-start',
-    secsRemaining: next.startSecs - nowSecs,
-    phaseLabel: 'Until Start',
-  };
-}
-
-const NextPrayerCountdown = ({ prayers }: { prayers: PrayerEntry[] }) => {
-  const [nowSecs, setNowSecs] = useState(() => {
-    const n = new Date();
-    return n.getHours() * 3600 + n.getMinutes() * 60 + n.getSeconds();
-  });
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      const n = new Date();
-      setNowSecs(n.getHours() * 3600 + n.getMinutes() * 60 + n.getSeconds());
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const state = computeCountdown(prayers, nowSecs);
-  if (!state) return null;
-
-  const { next, phase, secsRemaining, phaseLabel } = state;
-
-  const bgColor = phase === 'in-jamat'
-    ? 'linear-gradient(135deg, hsl(25 100% 96%), hsl(25 80% 98%))'
-    : 'linear-gradient(135deg, hsl(142 50% 96%), hsl(142 40% 98%))';
-  const borderColor = phase === 'in-jamat' ? 'hsl(25 80% 82%)' : 'hsl(142 40% 82%)';
-  const countdownColor = phase === 'in-jamat' ? '#ea580c' : next.color;
-
-  return (
-    <div
-      className="rounded-xl px-4 py-3 flex items-center gap-4 border"
-      style={{ background: bgColor, borderColor }}
-    >
-      <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-        style={{ background: countdownColor + '22', border: `1.5px solid ${countdownColor}33` }}
-      >
-        <Timer size={18} style={{ color: countdownColor }} className={phase === 'in-jamat' ? 'animate-pulse' : ''} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-          {phase === 'to-start' ? 'Next Prayer' : phase === 'to-jamat' ? next.label + ' — In Progress' : next.label}
-        </p>
-        <p className="text-sm font-extrabold text-[hsl(150_30%_12%)]">
-          {phase === 'in-jamat' ? 'Jamāʿat in progress' : next.label}
-        </p>
-        {phase === 'to-start' && next.jamatTime && (
-          <p className="text-[11px] text-muted-foreground">Jamāʿat at {next.jamatTime}</p>
-        )}
-        {phase === 'to-jamat' && (
-          <p className="text-[11px] text-muted-foreground">Started at {next.startTime}</p>
-        )}
-      </div>
-      <div className="text-right shrink-0">
-        {phase === 'in-jamat' ? (
-          <p className="text-sm font-extrabold px-2 py-1 rounded-lg bg-orange-100 text-orange-600">Jamāʿat Now</p>
-        ) : (
-          <>
-            <p className="text-2xl font-extrabold tabular-nums" style={{ color: countdownColor }}>
-              {formatCountdown(secsRemaining)}
-            </p>
-            <p className="text-[10px] text-muted-foreground">{phaseLabel}</p>
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // ─── Today's Prayer Cards ─────────────────────────────────────────────────────
 
 interface PrayerRow {
@@ -408,15 +252,14 @@ interface PrayerRow {
 
 const TodayPrayerCards = ({
   rows,
-  isFriday,
-  jumuah1,
-  jumuah2,
+  todayDateLabel,
+  todayHijriLabel,
 }: {
   rows: PrayerRow[];
-  isFriday: boolean;
-  jumuah1: string | null;
-  jumuah2: string | null;
+  todayDateLabel: string;
+  todayHijriLabel: string;
 }) => {
+  const [collapsed, setCollapsed] = useState(false);
   const now = new Date();
   const currentMins = now.getHours() * 60 + now.getMinutes();
 
@@ -428,113 +271,121 @@ const TodayPrayerCards = ({
     return currentMins >= startMins && currentMins < nextMins;
   };
 
-  // Main 5 prayer rows only (not sunrise/ishraq/zawaal — those are in solar card)
-  const mainRows = rows.filter(r => ['Fajr','Zuhr','Asr','Maghrib','Isha'].includes(r.label));
+  // Main 5 prayers in compact rows
+  const mainRows = rows.filter(r => ['Fajr', 'Zuhr', 'Asr', 'Maghrib', 'Isha'].includes(r.label));
+  // Solar reference times in a single compact pill row
+  const solarRows = rows.filter(r => ['Sunrise', 'Ishrāq', 'Zawāal'].includes(r.label));
 
   return (
-    <div className="space-y-2.5 sm:space-y-3">
-      {/* 5 prayer rows */}
-      <div className="space-y-1.5 sm:space-y-2">
-        {mainRows.map((row, idx) => {
-          const isCurrent = isCurrentPrayer(row, mainRows[idx + 1]);
-          return (
-            <div
-              key={row.label}
-              className={`relative rounded-xl border overflow-hidden transition-all ${
-                isCurrent
-                  ? 'shadow-sm ring-1'
-                  : 'bg-white border-[hsl(140_20%_88%)]'
-              }`}
-              style={isCurrent ? {
-                background: row.color + '10',
-                borderColor: row.color + '55',
-                boxShadow: `0 0 0 1px ${row.color}28`,
-              } : {}}
-            >
-              {isCurrent && (
-                <div
-                  className="absolute top-0 left-0 bottom-0 w-0.5"
-                  style={{ background: row.color }}
-                />
-              )}
-              <div className="px-2.5 sm:px-3 py-2 flex items-center gap-2.5 sm:gap-3">
-                <div
-                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: row.color + '1a' }}
-                >
-                  <span className="text-sm leading-none">{row.emoji}</span>
-                </div>
+    <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-white overflow-hidden">
+      <button
+        type="button"
+        className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 border-b border-[hsl(140_20%_90%)] bg-[hsl(140_25%_97%)] flex items-center gap-2 text-left"
+        onClick={() => setCollapsed((value) => !value)}
+      >
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-[hsl(142_60%_30%)] text-white text-[8px] sm:text-[9px] font-bold uppercase tracking-wider">
+          Today
+        </span>
+        <span className="text-[10px] sm:text-[11px] font-semibold text-[hsl(150_30%_20%)] truncate">{todayDateLabel}</span>
+        <span className="hidden sm:inline text-[10px] text-muted-foreground ml-auto truncate">{todayHijriLabel}</span>
+        <ChevronDown size={14} className={`text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+      </button>
 
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="text-[11px] font-bold uppercase tracking-wide truncate"
-                    style={{ color: isCurrent ? row.color : 'hsl(150 30% 25%)' }}
-                  >
-                    {row.label}
+      {!collapsed && <div className="p-1.5 sm:p-2 space-y-1.5 sm:space-y-2">
+        <div>
+          <p className="px-1 text-[8px] sm:text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Prayer Times</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1">
+            {mainRows.map((row, idx) => {
+              const isCurrent = isCurrentPrayer(row, mainRows[idx + 1]);
+              return (
+                <div
+                  key={row.label}
+                  className="rounded-md border p-1.5 sm:p-2 bg-white min-h-[74px] sm:min-h-[80px]"
+                  style={{
+                    borderColor: isCurrent ? row.color + '66' : 'hsl(140 20% 88%)',
+                    background: isCurrent ? row.color + '0e' : 'white',
+                  }}
+                >
+                  <div className="flex items-center gap-1 min-w-0">
+                    <span className="text-[11px] leading-none">{row.emoji}</span>
+                    <p
+                      className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide truncate leading-none"
+                      style={{ color: isCurrent ? row.color : 'hsl(150 30% 25%)' }}
+                    >
+                      {row.label}
+                    </p>
                     {isCurrent && (
                       <span
-                        className="ml-1 inline-flex items-center text-[8px] font-bold px-1 py-0.5 rounded-full text-white align-middle"
+                        className="ml-auto inline-flex items-center text-[7px] font-bold px-1 py-0 rounded-full text-white leading-none"
                         style={{ background: row.color }}
                       >
                         NOW
                       </span>
                     )}
-                  </p>
-                </div>
-
-                <div className="text-right min-w-[64px] sm:min-w-[72px]">
-                  <p className="text-[8px] font-semibold text-muted-foreground uppercase tracking-wide">Start</p>
-                  <p
-                    className="text-base sm:text-lg font-extrabold tabular-nums leading-none"
-                    style={{ color: row.start ? (isCurrent ? row.color : 'hsl(150 30% 12%)') : 'hsl(var(--muted-foreground) / 0.3)' }}
-                  >
-                    {row.start ?? '—'}
-                  </p>
-                </div>
-
-                {row.showJamat && (
-                  <div className="text-right min-w-[72px] sm:min-w-[80px]">
-                    <p className="text-[8px] font-semibold text-muted-foreground uppercase tracking-wide">Jamāʿat</p>
-                    <p
-                      className="text-sm sm:text-base font-bold tabular-nums leading-none"
-                      style={{ color: row.jamat ? row.color + 'cc' : 'hsl(var(--muted-foreground) / 0.3)' }}
-                    >
-                      {row.jamat ?? '—'}
-                    </p>
                   </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Jumu'ah card — only on Fridays */}
-      {isFriday && (
-        <div className="rounded-2xl border border-amber-300 bg-[hsl(50_100%_97%)] px-3.5 sm:px-4 py-2.5 sm:py-3 flex items-center gap-3 sm:gap-4">
-          <span className="text-xl sm:text-2xl shrink-0">🕌</span>
-          <div className="flex-1">
-            <p className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-amber-700">Jumu'ah — Friday Prayer</p>
-            <div className="flex items-center gap-4 sm:gap-5 mt-1">
-              {jumuah1 && (
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-amber-500 uppercase">1st Khutbah</span>
-                  <span className="text-lg sm:text-xl font-extrabold tabular-nums text-amber-700">{jumuah1}</span>
+                  <div className="mt-1 grid grid-cols-2 gap-1">
+                    <div>
+                      <p className="text-[7px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">Start</p>
+                      <p
+                        className="text-[16px] sm:text-[18px] font-extrabold tabular-nums leading-none mt-0.5"
+                        style={{ color: row.start ? (isCurrent ? row.color : 'hsl(150 30% 12%)') : 'hsl(var(--muted-foreground) / 0.3)' }}
+                      >
+                        {row.start ?? '—'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[7px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">Jamāʿat</p>
+                      <p
+                        className="text-[16px] sm:text-[18px] font-bold tabular-nums leading-none mt-0.5"
+                        style={{ color: row.jamat ? row.color + 'cc' : 'hsl(var(--muted-foreground) / 0.3)' }}
+                      >
+                        {row.jamat ?? '—'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              )}
-              {jumuah2 && (
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-amber-500 uppercase">2nd Khutbah</span>
-                  <span className="text-lg sm:text-xl font-extrabold tabular-nums text-amber-700">{jumuah2}</span>
-                </div>
-              )}
-              {!jumuah1 && !jumuah2 && (
-                <span className="text-sm text-amber-600/50">Times not set</span>
-              )}
-            </div>
+              );
+            })}
           </div>
         </div>
-      )}
+
+        {solarRows.length > 0 && (
+          <div>
+            <p className="px-1 text-[8px] sm:text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Solar Reference</p>
+            <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
+              {solarRows.map((row) => {
+                return (
+                  <div
+                    key={`solar-${row.label}`}
+                    className="rounded-md border px-2 py-1.5 sm:px-2.5 sm:py-1.5 flex items-center justify-between gap-2 bg-white"
+                    style={{
+                      borderColor: 'hsl(140 20% 88%)',
+                      background: 'white',
+                    }}
+                  >
+                    <div className="min-w-0 flex items-center gap-1.5">
+                      <span className="text-[11px] leading-none">{row.emoji}</span>
+                      <span
+                        className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide truncate"
+                        style={{ color: 'hsl(150 30% 25%)' }}
+                      >
+                        {row.label}
+                      </span>
+                    </div>
+                    <span
+                      className="text-[14px] sm:text-[16px] font-extrabold tabular-nums leading-none"
+                      style={{ color: row.start ? 'hsl(150 30% 12%)' : 'hsl(var(--muted-foreground) / 0.3)' }}
+                    >
+                      {row.start ?? '—'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>}
+
     </div>
   );
 };
@@ -578,31 +429,31 @@ export const SolarTimesCard = ({
   ];
 
   return (
-    <div className="bg-white rounded-2xl border border-[hsl(140_20%_88%)] shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-[hsl(140_20%_88%)] shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="px-3.5 sm:px-4 py-2.5 sm:py-3 border-b border-[hsl(140_20%_90%)] bg-[hsl(47_100%_97%)] flex items-center gap-2">
-        <Moon size={12} className="text-amber-500" />
-        <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-amber-700">Solar Times Today</span>
-        <span className="hidden sm:inline text-[10px] text-amber-600/70 font-medium ml-auto">Non-prayer reference times</span>
+      <div className="px-2.5 sm:px-3 py-1.5 sm:py-2 border-b border-[hsl(140_20%_90%)] bg-[hsl(47_100%_97%)] flex items-center gap-1.5">
+        <Moon size={11} className="text-amber-500" />
+        <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-amber-700">Solar Times Today</span>
+        <span className="hidden sm:inline text-[9px] text-amber-600/70 font-medium ml-auto">Non-prayer reference times</span>
       </div>
       {/* Three columns */}
       <div className="grid grid-cols-3 divide-x divide-[hsl(140_20%_90%)]">
         {items.map(({ icon: Icon, label, desc, value, color, bg, border, textColor }) => (
-          <div key={label} className={`${bg} px-2 py-2.5 sm:px-2.5 sm:py-3 flex flex-col items-center text-center gap-1`}>
+          <div key={label} className={`${bg} px-1.5 sm:px-2 py-1.5 sm:py-2 flex flex-col items-center text-center gap-0.5`}>
             <div
-              className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0"
+              className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg flex items-center justify-center shrink-0"
               style={{ background: color + '20', border: `1.5px solid ${color}30` }}
             >
-              <Icon size={13} style={{ color }} />
+              <Icon size={11} style={{ color }} />
             </div>
-            <p className={`text-[11px] sm:text-xs font-bold ${textColor}`}>{label}</p>
+            <p className={`text-[10px] sm:text-[11px] font-bold leading-none ${textColor}`}>{label}</p>
             <p
-              className="text-base sm:text-lg font-extrabold tabular-nums shrink-0"
+              className="text-[22px] sm:text-2xl font-extrabold tabular-nums leading-none shrink-0"
               style={{ color: value ? color : 'hsl(var(--muted-foreground) / 0.3)' }}
             >
               {value ?? '—'}
             </p>
-            <p className="text-[8px] sm:text-[9px] text-muted-foreground leading-tight line-clamp-2">{desc}</p>
+            <p className="text-[8px] text-muted-foreground leading-none line-clamp-1">{desc}</p>
           </div>
         ))}
       </div>
@@ -772,21 +623,14 @@ const Dashboard = () => {
   // Full prayer rows for the cards
   const prayerRows: PrayerRow[] = [
     { label: 'Fajr',    start: todayRow?.fajr    ?? null, jamat: todayRow?.fajr_jamat,    color: '#2563eb', showJamat: true,  emoji: '🌙' },
+    { label: 'Sunrise', start: todayRow?.sunrise ?? null, jamat: null,                     color: '#dc8a10', showJamat: false, emoji: '🌅' },
+    { label: 'Ishrāq',  start: todayRow?.ishraq  ?? null, jamat: null,                     color: '#0891b2', showJamat: false, emoji: '🌤️' },
+    { label: 'Zawāal',  start: todayRow?.zawaal  ?? null, jamat: null,                     color: '#7c3aed', showJamat: false, emoji: '☀️' },
     { label: 'Zuhr',    start: todayRow?.zuhr     ?? null, jamat: todayRow?.zuhr_jamat,    color: '#b45309', showJamat: true,  emoji: '☀️' },
     { label: 'Asr',     start: todayRow?.asr      ?? null, jamat: todayRow?.asr_jamat,     color: '#15803d', showJamat: true,  emoji: '🌤️' },
     { label: 'Maghrib', start: todayRow?.maghrib   ?? null, jamat: todayRow?.maghrib_jamat, color: '#b91c1c', showJamat: true,  emoji: '🌅' },
     { label: 'Isha',    start: todayRow?.isha      ?? null, jamat: todayRow?.isha_jamat,    color: '#7c3aed', showJamat: true,  emoji: '🌙' },
   ];
-
-  // Prayers for next-prayer countdown (main 5 + Ishraq)
-  const countdownPrayers: PrayerEntry[] = prayerRows
-    .filter((r) => ['Fajr','Ishraq','Zuhr','Asr','Maghrib','Isha'].includes(r.label))
-    .map((r) => ({
-      label: r.label,
-      startTime: r.start,
-      jamatTime: r.jamat,
-      color: r.color,
-    }));
 
   const hijriDate = todayHijriDate ?? getFallbackHijriDate(hijriOffset);
   const todayEidType = detectEidTypeFromHijriDate(hijriDate);
@@ -879,7 +723,7 @@ const Dashboard = () => {
 
           {/* ── Today's Prayer Times ── */}
           <section>
-            <div className="flex items-center gap-3 mb-3">
+            <div className="flex items-center gap-3 mb-2">
               <div className="flex items-center gap-2">
                 <Clock size={15} className="text-[hsl(142_60%_35%)]" />
                 <h2 className="text-sm font-bold text-[hsl(150_30%_12%)]">
@@ -898,53 +742,68 @@ const Dashboard = () => {
             </div>
 
             {todayRow ? (
-              <div className="space-y-2.5 sm:space-y-3">
-                {/* Next prayer countdown */}
-                <NextPrayerCountdown prayers={countdownPrayers} />
-
-                {/* Individual prayer cards */}
+              <div className="space-y-1.5 sm:space-y-2">
                 <TodayPrayerCards
                   rows={prayerRows}
-                  isFriday={isFriday}
-                  jumuah1={todayRow.jumu_ah_1 ?? null}
-                  jumuah2={todayRow.jumu_ah_2 ?? null}
+                  todayDateLabel={`${dayName}, ${MONTHS_FULL[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`}
+                  todayHijriLabel={hijriDate}
                 />
 
-                <SolarTimesCard
-                  sunrise={todayRow.sunrise ?? null}
-                  ishraq={todayRow.ishraq ?? null}
-                  zawaal={todayRow.zawaal ?? null}
-                />
-
-                {todayEidType && todayEidConfig && (
+                {(isFriday || (todayEidType && todayEidConfig)) && (
                   <div
-                    className="rounded-xl border px-4 py-3"
-                    style={{ background: todayEidConfig.bg, borderColor: todayEidConfig.border }}
+                    className="rounded-xl border px-2.5 sm:px-3 py-1.5 sm:py-2"
+                    style={{
+                      background: todayEidConfig ? 'hsl(50 100% 98%)' : 'hsl(50 100% 97%)',
+                      borderColor: todayEidConfig ? (todayEidConfig.border ?? 'hsl(45 90% 82%)') : 'hsl(45 90% 82%)',
+                    }}
                   >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Star size={13} style={{ color: todayEidConfig.color }} />
-                      <p className="text-xs font-bold uppercase tracking-wide" style={{ color: todayEidConfig.color }}>
-                        {todayEidConfig.label} Today
-                      </p>
-                      <span className="ml-auto text-sm font-bold" style={{ color: todayEidConfig.color, fontFamily: 'serif' }} dir="rtl">
-                        {todayEidConfig.arabic}
-                      </span>
+                    <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-1">Special Prayers</div>
+                    <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
+                      {isFriday && (
+                        <>
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase px-2 py-1 rounded-lg bg-amber-100 text-amber-700 border border-amber-200">
+                            <span>🕌</span>
+                            Jumu'ah
+                          </span>
+                          {todayRow.jumu_ah_1 && (
+                            <span className="inline-flex items-center gap-1 text-[12px] font-bold tabular-nums px-2 py-1 rounded-lg bg-white border border-amber-200 text-amber-700">
+                              J1 {todayRow.jumu_ah_1}
+                            </span>
+                          )}
+                          {todayRow.jumu_ah_2 && (
+                            <span className="inline-flex items-center gap-1 text-[12px] font-bold tabular-nums px-2 py-1 rounded-lg bg-white border border-amber-200 text-amber-700">
+                              J2 {todayRow.jumu_ah_2}
+                            </span>
+                          )}
+                          {!todayRow.jumu_ah_1 && !todayRow.jumu_ah_2 && (
+                            <span className="text-xs text-amber-600/50">Times not set</span>
+                          )}
+                        </>
+                      )}
+
+                      {todayEidType && todayEidConfig && (
+                        <>
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase px-2 py-1 rounded-lg border"
+                            style={{ background: todayEidConfig.color + '12', color: todayEidConfig.color, borderColor: todayEidConfig.border }}>
+                            <Star size={10} />
+                            {todayEidConfig.label}
+                          </span>
+                          {todayEidTimes.length === 0 ? (
+                            <span className="text-xs text-muted-foreground">No Eid times set</span>
+                          ) : (
+                            todayEidTimes.map((entry) => (
+                              <span
+                                key={`today-eid-${entry.eid_type}-${entry.jamaat_number}`}
+                                className="inline-flex items-center gap-1 text-[12px] font-bold tabular-nums px-2 py-1 rounded-lg border"
+                                style={{ background: todayEidConfig.color + '15', color: todayEidConfig.color, borderColor: todayEidConfig.border }}
+                              >
+                                J{entry.jamaat_number} {entry.time}
+                              </span>
+                            ))
+                          )}
+                        </>
+                      )}
                     </div>
-                    {todayEidTimes.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No Eid jamaat times set yet.</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {todayEidTimes.map((entry) => (
-                          <div
-                            key={`today-eid-${entry.eid_type}-${entry.jamaat_number}`}
-                            className="text-sm font-bold tabular-nums px-2.5 py-1 rounded-lg"
-                            style={{ background: todayEidConfig.color + '15', color: todayEidConfig.color }}
-                          >
-                            J{entry.jamaat_number} · {entry.time}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
