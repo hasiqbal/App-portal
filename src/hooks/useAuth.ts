@@ -36,7 +36,6 @@ export async function logActivity(params: {
     entity_id:    params.entity_id   ?? null,
     entity_label: params.entity_label ?? null,
     details:      params.details      ?? null,
-    ip_address:   null,
   };
 
   try {
@@ -255,7 +254,6 @@ export function useAuthState(): AuthState {
         supabaseAdmin.from('portal_users').upsert(
           [
             { username: 'masjid_editor', name: 'Masjid Editor', password: 'editor123', role: 'editor', is_active: true, created_by: 'admin' },
-            { username: 'masjid_viewer', name: 'Masjid Viewer', password: 'viewer123', role: 'viewer', is_active: true, created_by: 'admin' },
           ],
           { onConflict: 'username', ignoreDuplicates: true }
         ).then(() => {});

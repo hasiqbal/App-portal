@@ -44,7 +44,7 @@ export interface NotificationAutomation {
   id: string;
   name: string;
   enabled: boolean;
-  schedule_type: 'one_time' | 'daily' | 'weekly' | 'prayer';
+  schedule_type: 'one_time' | 'daily' | 'weekly' | 'every_n_days' | 'monthly' | 'prayer';
   schedule_timezone: string;
   one_time_at: string | null;
   next_run_at: string | null;
@@ -81,7 +81,7 @@ export interface NotificationAutomationEvent {
 export interface UpsertAutomationPayload {
   name: string;
   enabled: boolean;
-  schedule_type: 'one_time' | 'daily' | 'weekly' | 'prayer';
+  schedule_type: 'one_time' | 'daily' | 'weekly' | 'every_n_days' | 'monthly' | 'prayer';
   schedule_timezone: string;
   one_time_at?: string | null;
   next_run_at?: string | null;
@@ -340,6 +340,28 @@ export const notificationAutomationService = {
       .select('*')
       .single();
     if (error) throw new Error(`Failed to create automation rule: ${error.message}`);
+    return data as NotificationAutomation;
+  },
+
+  /** Update an existing automation rule. */
+  update: async (id: string, payload: UpsertAutomationPayload): Promise<NotificationAutomation> => {
+    if (payload.schedule_type === 'prayer') {
+      throw new Error('Prayer-linked automations are disabled to avoid duplicate mobile prayer notifications.');
+    }
+
+    const { data, error } = await supabase
+      .from('notification_automations')
+      .update({
+        ...payload,
+        recurrence_days: payload.recurrence_days ?? [],
+        prayer_names: payload.prayer_names ?? [],
+        audience: payload.audience ?? 'all',
+        category: payload.category ?? 'general',
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) throw new Error(`Failed to update automation rule: ${error.message}`);
     return data as NotificationAutomation;
   },
 

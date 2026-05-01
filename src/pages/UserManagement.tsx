@@ -13,7 +13,7 @@ import { Label } from '#/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
 import Sidebar from '#/components/layout/Sidebar';
 import { supabaseAdmin } from '#/lib/supabase';
-import { useAuth } from '#/hooks/useAuth';
+import { useAuth, logActivity } from '#/hooks/useAuth';
 import { toast } from 'sonner';
 
 // ─── External Supabase — read activity logs from here ────────────────────────
@@ -58,7 +58,7 @@ interface ActivityLog {
   entity_id: string | null;
   entity_label: string | null;
   details: Record<string, unknown> | null;
-  ip_address: string | null;
+  ip_address?: string | null;
   created_at: string;
 }
 
@@ -67,7 +67,6 @@ interface ActivityLog {
 const ROLES = [
   { value: 'admin',  label: 'Admin',  desc: 'Full access — can manage users, settings, and all content', color: 'bg-purple-100 text-purple-700 border-purple-200' },
   { value: 'editor', label: 'Editor', desc: 'Can edit all content but cannot manage users or settings',   color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  { value: 'viewer', label: 'Viewer', desc: 'Read-only access — cannot make any changes',                 color: 'bg-slate-100 text-slate-600 border-slate-200' },
 ];
 
 const ROLE_COLORS: Record<string, string> = {
@@ -95,8 +94,50 @@ const ACTION_META: Record<string, { icon: React.ReactNode; color: string; bg: st
   import:  { icon: <FileText size={13} />,  color: '#16a34a', bg: '#dcfce7', label: 'Import'  },
 };
 
+const CONTENT_ACTIONS = ['create', 'update', 'delete', 'toggle', 'reorder', 'import', 'send'];
+
 function getActionMeta(action: string) {
-  return ACTION_META[action] ?? { icon: <Activity size={13} />, color: '#6b7280', bg: '#f3f4f6', label: action };
+  const key = action.toLowerCase();
+  return ACTION_META[key] ?? { icon: <Activity size={13} />, color: '#6b7280', bg: '#f3f4f6', label: action };
+}
+
+function includesAnyText(text: string, needles: string[]) {
+  return needles.some((needle) => text.includes(needle));
+}
+
+function isNotificationActivity(log: ActivityLog) {
+  const action = (log.action ?? '').toLowerCase();
+  const text = `${log.entity_type ?? ''} ${log.entity_label ?? ''} ${JSON.stringify(log.details ?? {})}`.toLowerCase();
+  return action === 'send' || includesAnyText(text, ['notification', 'announcement', 'broadcast', 'push']);
+}
+
+function isPrayerActivity(log: ActivityLog) {
+  const text = `${log.entity_type ?? ''} ${log.entity_label ?? ''} ${JSON.stringify(log.details ?? {})}`.toLowerCase();
+  return includesAnyText(text, ['prayer', 'adhan', 'adhaan', 'jamaat', 'iqamah', 'salah', 'namaz']);
+}
+
+function getActivityBrief(log: ActivityLog) {
+  const action = (log.action ?? '').toLowerCase();
+  const entity = log.entity_label || log.entity_type || 'Item';
+
+  if (action === 'login') return 'Signed in';
+  if (action === 'logout') return 'Signed out';
+
+  if (isNotificationActivity(log)) return 'Notification sent';
+
+  if (isPrayerActivity(log) && ['update', 'edit', 'toggle', 'reorder'].includes(action)) {
+    return 'Prayer time changed';
+  }
+
+  if (action === 'create') return `${entity} created`;
+  if (action === 'update') return `${entity} updated`;
+  if (action === 'delete') return `${entity} deleted`;
+  if (action === 'toggle') return `${entity} toggled`;
+  if (action === 'reorder') return `${entity} reordered`;
+  if (action === 'import') return `${entity} imported`;
+  if (action === 'send') return `${entity} sent`;
+
+  return log.entity_label || `${getActionMeta(log.action).label} action`;
 }
 
 function timeAgo(iso: string) {
@@ -134,6 +175,18 @@ function groupByDate(logs: ActivityLog[]): { date: string; logs: ActivityLog[] }
   return Object.entries(groups).map(([date, logs]) => ({ date, logs }));
 }
 
+function toBriefActionText(actionCounts: Record<string, number>, maxItems = 3) {
+  const ranked = Object.entries(actionCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxItems);
+
+  if (ranked.length === 0) return 'No actions';
+
+  return ranked
+    .map(([action, count]) => `${count} ${action}`)
+    .join(' · ');
+}
+
 // ─── Export helper ────────────────────────────────────────────────────────────
 
 function exportToCsv(logs: ActivityLog[]) {
@@ -159,7 +212,7 @@ function exportToCsv(logs: ActivityLog[]) {
 
 // ─── Activity Log Panel ───────────────────────────────────────────────────────
 
-type ActionTab = 'all' | 'auth' | 'content' | 'settings';
+type EventScope = 'all' | 'auth' | 'changes' | 'notifications' | 'prayer';
 
 const ActivityLogPanel = ({
   logs,
@@ -172,9 +225,10 @@ const ActivityLogPanel = ({
 }) => {
   const [search,      setSearch]      = useState('');
   const [filterUser,  setFilterUser]  = useState('all');
-  const [activeTab,   setActiveTab]   = useState<ActionTab>('all');
+  const [eventScope,  setEventScope]  = useState<EventScope>('all');
   const [expanded,    setExpanded]    = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [summarySelectedOnly, setSummarySelectedOnly] = useState(false);
 
   // Auto-refresh every 30s
   useEffect(() => {
@@ -186,18 +240,23 @@ const ActivityLogPanel = ({
   const uniqueUsers = useMemo(() =>
     [...new Set(logs.map((l) => l.username))].sort(), [logs]);
 
-  const tabFilteredLogs = useMemo(() => {
-    switch (activeTab) {
-      case 'auth':     return logs.filter((l) => ['login', 'logout'].includes(l.action));
-      case 'content':  return logs.filter((l) => ['create', 'update', 'delete', 'toggle', 'reorder', 'import', 'send'].includes(l.action));
-      case 'settings': return logs.filter((l) => l.entity_type === 'settings' || l.entity_type === 'user');
+  const scopedLogs = useMemo(() => {
+    switch (eventScope) {
+      case 'auth':
+        return logs.filter((l) => ['login', 'logout'].includes((l.action ?? '').toLowerCase()));
+      case 'changes':
+        return logs.filter((l) => CONTENT_ACTIONS.includes((l.action ?? '').toLowerCase()));
+      case 'notifications':
+        return logs.filter((l) => isNotificationActivity(l));
+      case 'prayer':
+        return logs.filter((l) => isPrayerActivity(l));
       default:         return logs;
     }
-  }, [logs, activeTab]);
+  }, [logs, eventScope]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return tabFilteredLogs.filter((l) => {
+    return scopedLogs.filter((l) => {
       const matchSearch = !q
         || l.username.toLowerCase().includes(q)
         || l.action.toLowerCase().includes(q)
@@ -206,9 +265,51 @@ const ActivityLogPanel = ({
       const matchUser = filterUser === 'all' || l.username === filterUser;
       return matchSearch && matchUser;
     });
-  }, [tabFilteredLogs, search, filterUser]);
+  }, [scopedLogs, search, filterUser]);
+
+  const summaryLogs = useMemo(() => {
+    if (!summarySelectedOnly || filterUser === 'all') return scopedLogs;
+    return scopedLogs.filter((l) => l.username === filterUser);
+  }, [scopedLogs, summarySelectedOnly, filterUser]);
 
   const grouped = useMemo(() => groupByDate(filtered), [filtered]);
+
+  const userActionSummary = useMemo(() => {
+    const byUser = new Map<string, {
+      user_role: string;
+      total: number;
+      lastAt: string;
+      latestAction: string;
+      actions: Record<string, number>;
+    }>();
+
+    for (const log of summaryLogs) {
+      const existing = byUser.get(log.username);
+      const actionKey = (log.action || 'unknown').toLowerCase();
+
+      if (!existing) {
+        byUser.set(log.username, {
+          user_role: log.user_role,
+          total: 1,
+          lastAt: log.created_at,
+          latestAction: log.action,
+          actions: { [actionKey]: 1 },
+        });
+        continue;
+      }
+
+      existing.total += 1;
+      if (new Date(log.created_at).getTime() > new Date(existing.lastAt).getTime()) {
+        existing.lastAt = log.created_at;
+        existing.latestAction = log.action;
+      }
+      existing.actions[actionKey] = (existing.actions[actionKey] ?? 0) + 1;
+    }
+
+    return [...byUser.entries()]
+      .map(([username, data]) => ({ username, ...data }))
+      .sort((a, b) => b.total - a.total);
+  }, [summaryLogs]);
 
   // Stats
   const todayCount  = useMemo(() => {
@@ -216,15 +317,8 @@ const ActivityLogPanel = ({
     return logs.filter((l) => new Date(l.created_at).toDateString() === today).length;
   }, [logs]);
 
-  const loginCount  = logs.filter((l) => l.action === 'login').length;
+  const loginCount  = logs.filter((l) => (l.action ?? '').toLowerCase() === 'login').length;
   const activeUsers = new Set(logs.map((l) => l.username)).size;
-
-  const tabs: { key: ActionTab; label: string; count: number }[] = [
-    { key: 'all',      label: 'All',      count: logs.length },
-    { key: 'auth',     label: 'Auth',     count: logs.filter((l) => ['login','logout'].includes(l.action)).length },
-    { key: 'content',  label: 'Content',  count: logs.filter((l) => ['create','update','delete','toggle','reorder','import','send'].includes(l.action)).length },
-    { key: 'settings', label: 'Settings', count: logs.filter((l) => l.entity_type === 'settings' || l.entity_type === 'user').length },
-  ];
 
   return (
     <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
@@ -250,7 +344,7 @@ const ActivityLogPanel = ({
               }`}
             >
               <Clock size={12} className={autoRefresh ? 'animate-pulse' : ''} />
-              <span className="hidden sm:inline">{autoRefresh ? 'Live' : 'Live'}</span>
+              <span className="hidden sm:inline">{autoRefresh ? 'Live' : 'Paused'}</span>
             </button>
             <Button
               variant="outline" size="sm"
@@ -284,30 +378,6 @@ const ActivityLogPanel = ({
           ))}
         </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1 mb-4 border-b border-border -mx-5 px-5 overflow-x-auto">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors ${
-                activeTab === tab.key
-                  ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-              }`}
-            >
-              {tab.label}
-              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                activeTab === tab.key
-                  ? 'bg-primary/10 text-primary'
-                  : 'bg-muted text-muted-foreground'
-              }`}>
-                {tab.count}
-              </span>
-            </button>
-          ))}
-        </div>
-
         {/* Filters */}
         <div className="flex flex-wrap gap-2">
           <div className="relative flex-1 min-w-[160px]">
@@ -315,9 +385,24 @@ const ActivityLogPanel = ({
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by user, action, entity…"
+              placeholder="Search user, action, or what was done…"
               className="pl-8 h-8 text-xs"
             />
+          </div>
+          <div className="relative">
+            <Filter size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <select
+              value={eventScope}
+              onChange={(e) => setEventScope(e.target.value as EventScope)}
+              className="h-8 pl-7 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring appearance-none"
+              title="Filter by event scope"
+            >
+              <option value="all">All events</option>
+              <option value="auth">Auth only</option>
+              <option value="notifications">Notifications</option>
+              <option value="prayer">Prayer updates</option>
+              <option value="changes">Content changes</option>
+            </select>
           </div>
           <div className="relative">
             <Filter size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -360,6 +445,55 @@ const ActivityLogPanel = ({
         </div>
       ) : (
         <div className="divide-y divide-border/40">
+          {/* Brief per-user action summary */}
+          <div className="px-5 py-3 bg-muted/10 border-b border-border/50">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <p className="text-xs font-semibold text-foreground">User actions (brief)</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSummarySelectedOnly((v) => !v)}
+                  className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                    summarySelectedOnly
+                      ? 'bg-primary/10 text-primary border-primary/30'
+                      : 'bg-background text-muted-foreground border-border'
+                  }`}
+                  title="Limit summary to selected user filter"
+                >
+                  {summarySelectedOnly ? 'Selected user only' : 'All users summary'}
+                </button>
+                <span className="text-[11px] text-muted-foreground">{userActionSummary.length} user(s)</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {userActionSummary.slice(0, 8).map((item) => (
+                <div
+                  key={item.username}
+                  className="rounded-lg border border-border/70 bg-background px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-foreground">@{item.username}</span>
+                    <span
+                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${ROLE_COLORS[item.user_role] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}
+                    >
+                      {item.user_role}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{item.total} event(s)</span>
+                  </div>
+                  <p className="text-[11px] text-foreground/80 mt-1">{toBriefActionText(item.actions)}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Latest: {getActionMeta(item.latestAction).label} · {timeAgo(item.lastAt)}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {userActionSummary.length > 8 && (
+              <p className="text-[10px] text-muted-foreground mt-2">
+                Showing top 8 users by activity. Use filters to narrow down further.
+              </p>
+            )}
+          </div>
+
           {grouped.map(({ date, logs: dateLogs }) => (
             <div key={date}>
               {/* Date group header */}
@@ -419,16 +553,8 @@ const ActivityLogPanel = ({
                           >
                             {meta.label}
                           </span>
-                          {log.entity_type && log.entity_type !== 'session' && (
-                            <span className="text-[11px] text-muted-foreground">
-                              {log.entity_type}
-                              {log.entity_label ? ` · ${log.entity_label}` : ''}
-                            </span>
-                          )}
-                          {log.entity_type === 'session' && log.entity_label && (
-                            <span className="text-[11px] text-muted-foreground">{log.entity_label}</span>
-                          )}
                         </div>
+                        <p className="text-[11px] text-muted-foreground mt-1">{getActivityBrief(log)}</p>
                       </div>
 
                       {/* Timestamp + expand chevron */}
@@ -446,6 +572,7 @@ const ActivityLogPanel = ({
                         <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-3">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 text-xs">
                             {[
+                              { label: 'Summary',     value: getActivityBrief(log) },
                               { label: 'Timestamp',   value: formatDateTime(log.created_at) },
                               { label: 'Action',      value: log.action },
                               { label: 'Entity type', value: log.entity_type || '—' },
@@ -506,7 +633,7 @@ const UserModal = ({
   onSaved: (u: PortalUser) => void;
 }) => {
   const isEdit = !!user;
-  const [form, setForm] = useState({ username: '', name: '', password: '', role: 'viewer' as PortalUser['role'], is_active: true });
+  const [form, setForm] = useState({ username: '', name: '', password: '', role: 'editor' as PortalUser['role'], is_active: true });
   const [showPassword, setShowPassword] = useState(false);
   const [usernameChanged, setUsernameChanged] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -515,7 +642,7 @@ const UserModal = ({
   if (user !== lastUser) {
     setLastUser(user);
     if (user) setForm({ username: user.username, name: user.name, password: '', role: user.role, is_active: user.is_active });
-    else       setForm({ username: '', name: '', password: '', role: 'viewer', is_active: true });
+    else       setForm({ username: '', name: '', password: '', role: 'editor', is_active: true });
     setShowPassword(false);
     setUsernameChanged(false);
   }
@@ -698,7 +825,7 @@ const UserCard = ({
           <p className="text-xs text-muted-foreground mt-0.5">@{user.username}</p>
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
             <span className="text-[10px] text-muted-foreground mr-0.5">Role:</span>
-            {(['admin', 'editor', 'viewer'] as const).map((r) => (
+            {(['admin', 'editor'] as const).map((r) => (
               <button key={r}
                 onClick={() => !isSelf && r !== user.role && onRoleChange(user, r)}
                 disabled={isSelf || roleChanging === user.id}
@@ -776,18 +903,54 @@ const UserManagement = () => {
     total:  users.length,
     active: users.filter((u) => u.is_active).length,
     admins: users.filter((u) => u.role === 'admin').length,
-    logins: logs.filter((l) => l.action === 'login').length,
+    logins: logs.filter((l) => (l.action ?? '').toLowerCase() === 'login').length,
   }), [users, logs]);
 
   const openCreate = () => { setEditUser(null); setModalOpen(true); };
   const openEdit   = (u: PortalUser) => { setEditUser(u); setModalOpen(true); };
 
   const handleSaved = (saved: PortalUser) => {
+    const action = editUser ? 'update' : 'create';
+    const details: Record<string, unknown> = editUser
+      ? {
+          before: {
+            username: editUser.username,
+            name: editUser.name,
+            role: editUser.role,
+            is_active: editUser.is_active,
+          },
+          after: {
+            username: saved.username,
+            name: saved.name,
+            role: saved.role,
+            is_active: saved.is_active,
+          },
+        }
+      : {
+          username: saved.username,
+          name: saved.name,
+          role: saved.role,
+          is_active: saved.is_active,
+        };
+
     queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) => {
       const exists = old.some((u) => u.id === saved.id);
       return exists ? old.map((u) => (u.id === saved.id ? saved : u)) : [saved, ...old];
     });
     void queryClient.invalidateQueries({ queryKey: ['portal-users'] });
+
+    if (currentUser?.username) {
+      void logActivity({
+        username: currentUser.username,
+        user_role: currentUser.role,
+        action,
+        entity_type: 'user',
+        entity_id: saved.id,
+        entity_label: `@${saved.username}`,
+        details,
+      });
+    }
+
     setModalOpen(false);
     setEditUser(null);
     void refetchLogs();
@@ -805,6 +968,23 @@ const UserManagement = () => {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
         old.map((x) => (x.id === u.id ? data as PortalUser : x)));
       toast.success(`${u.name}'s role updated to ${role}.`);
+
+      if (currentUser?.username) {
+        void logActivity({
+          username: currentUser.username,
+          user_role: currentUser.role,
+          action: 'update',
+          entity_type: 'user',
+          entity_id: u.id,
+          entity_label: `@${u.username}`,
+          details: {
+            field: 'role',
+            before: prev,
+            after: role,
+          },
+        });
+      }
+
       void refetchLogs();
     } catch {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
@@ -827,6 +1007,23 @@ const UserManagement = () => {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
         old.map((x) => (x.id === u.id ? data as PortalUser : x)));
       toast.success(`${u.name} ${newActive ? 'activated' : 'deactivated'}.`);
+
+      if (currentUser?.username) {
+        void logActivity({
+          username: currentUser.username,
+          user_role: currentUser.role,
+          action: 'toggle',
+          entity_type: 'user',
+          entity_id: u.id,
+          entity_label: `@${u.username}`,
+          details: {
+            field: 'is_active',
+            before: u.is_active,
+            after: newActive,
+          },
+        });
+      }
+
       void refetchLogs();
     } catch {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) =>
@@ -846,6 +1043,24 @@ const UserManagement = () => {
       const { error } = await supabaseAdmin.from('portal_users').delete().eq('id', u.id);
       if (error) throw error;
       toast.success(`User "${u.name}" deleted.`);
+
+      if (currentUser?.username) {
+        void logActivity({
+          username: currentUser.username,
+          user_role: currentUser.role,
+          action: 'delete',
+          entity_type: 'user',
+          entity_id: u.id,
+          entity_label: `@${u.username}`,
+          details: {
+            username: u.username,
+            name: u.name,
+            role: u.role,
+            is_active: u.is_active,
+          },
+        });
+      }
+
       void refetchLogs();
     } catch {
       queryClient.setQueryData<PortalUser[]>(['portal-users'], (old = []) => [u, ...old]);
@@ -912,7 +1127,7 @@ const UserManagement = () => {
                 <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users…" className="pl-9 h-9 text-sm" />
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
-                {(['all', 'admin', 'editor', 'viewer'] as const).map((r) => {
+                {(['all', 'admin', 'editor'] as const).map((r) => {
                   const count = r === 'all' ? users.length : users.filter((u) => u.role === r).length;
                   return (
                     <button key={r} onClick={() => setFilterRole(r)}
@@ -969,19 +1184,19 @@ const UserManagement = () => {
                 </thead>
                 <tbody>
                   {[
-                    { label: 'View all content',           admin: true,  editor: true,  viewer: true  },
-                    { label: 'Edit adhkar & prayer times', admin: true,  editor: true,  viewer: false },
-                    { label: 'Create announcements',       admin: true,  editor: true,  viewer: false },
-                    { label: 'Send push notifications',    admin: true,  editor: true,  viewer: false },
-                    { label: 'Manage sunnah reminders',    admin: true,  editor: true,  viewer: false },
-                    { label: 'Import CSV data',            admin: true,  editor: true,  viewer: false },
-                    { label: 'Access settings',            admin: true,  editor: false, viewer: false },
-                    { label: 'Manage portal users',        admin: true,  editor: false, viewer: false },
-                    { label: 'View activity logs',         admin: true,  editor: false, viewer: false },
+                    { label: 'View all content',           admin: true,  editor: true  },
+                    { label: 'Edit adhkar & prayer times', admin: true,  editor: true  },
+                    { label: 'Create announcements',       admin: true,  editor: true  },
+                    { label: 'Send push notifications',    admin: true,  editor: true  },
+                    { label: 'Manage sunnah reminders',    admin: true,  editor: true  },
+                    { label: 'Import CSV data',            admin: true,  editor: true  },
+                    { label: 'Access settings',            admin: true,  editor: false },
+                    { label: 'Manage portal users',        admin: true,  editor: false },
+                    { label: 'View activity logs',         admin: true,  editor: false },
                   ].map((perm, idx) => (
                     <tr key={perm.label} className={`border-b border-border/40 ${idx % 2 === 0 ? '' : 'bg-muted/10'}`}>
                       <td className="px-5 py-2.5 font-medium text-foreground/80">{perm.label}</td>
-                      {(['admin', 'editor', 'viewer'] as const).map((role) => (
+                      {(['admin', 'editor'] as const).map((role) => (
                         <td key={role} className="px-4 py-2.5 text-center">
                           {perm[role]
                             ? <CheckCircle2 size={14} className="text-emerald-500 mx-auto" />

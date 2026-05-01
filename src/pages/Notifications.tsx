@@ -6,7 +6,7 @@ import {
   Smartphone, Megaphone, Search, Filter, Upload, X,
   RotateCcw, Bookmark, Calendar, Tag, LayoutGrid,
   Layers, ChevronRight, Code2, Copy, CircleAlert, Eye,
-  Sparkles,
+  Sparkles, Pencil,
 } from 'lucide-react';
 import { Button } from '#/components/ui/button';
 import { Input } from '#/components/ui/input';
@@ -18,6 +18,7 @@ import { invokeExternalFunction, onspaceCloud, supabase } from '#/lib/supabase';
 import { toast } from 'sonner';
 import { useUrduTranslation } from '#/hooks/useUrduTranslation';
 import { usePermissions } from '#/hooks/usePermissions';
+import { logActivity, useAuth } from '#/hooks/useAuth';
 import { notificationAutomationService } from '#/services/notificationService';
 
 // â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -81,7 +82,7 @@ interface NotificationAutomation {
   id: string;
   name: string;
   enabled: boolean;
-  schedule_type: 'one_time' | 'daily' | 'weekly' | 'prayer';
+  schedule_type: 'one_time' | 'daily' | 'weekly' | 'every_n_days' | 'monthly' | 'prayer';
   schedule_timezone: string;
   one_time_at: string | null;
   next_run_at: string | null;
@@ -369,6 +370,12 @@ function normalizeTemplateId(value: string): string {
   return cleaned || `template-${Date.now()}`;
 }
 
+function renderLocalTemplatePreview(value: string): string {
+  return value
+    .replace(/\{prayerName\}/g, 'Fajr')
+    .replace(/\{minutes\}/g, '10');
+}
+
 function normalizeComposeTemplate(value: unknown, fallbackId: string): Template | null {
   if (!value || typeof value !== 'object') return null;
 
@@ -426,6 +433,8 @@ function buildNextRunAt(
   oneTimeAt: string,
   scheduleTime: string,
   recurrenceDays: number[],
+  intervalDays: number,
+  monthlyDay: number,
 ): string | null {
   const now = new Date();
 
@@ -454,6 +463,33 @@ function buildNextRunAt(
     return candidate.toISOString();
   }
 
+  if (scheduleType === 'every_n_days') {
+    const clampedInterval = Math.max(1, Math.min(90, Math.floor(intervalDays || 1)));
+    const candidate = new Date(now);
+    candidate.setHours(h, m, 0, 0);
+    if (candidate <= now) {
+      candidate.setDate(candidate.getDate() + clampedInterval);
+    }
+    return candidate.toISOString();
+  }
+
+  if (scheduleType === 'monthly') {
+    const clampedDay = Math.max(1, Math.min(31, Math.floor(monthlyDay || 1)));
+    const buildMonthlyCandidate = (year: number, month: number) => {
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const day = Math.min(clampedDay, daysInMonth);
+      return new Date(year, month, day, h, m, 0, 0);
+    };
+
+    const currentCandidate = buildMonthlyCandidate(now.getFullYear(), now.getMonth());
+    if (currentCandidate > now) {
+      return currentCandidate.toISOString();
+    }
+
+    const nextCandidate = buildMonthlyCandidate(now.getFullYear(), now.getMonth() + 1);
+    return nextCandidate.toISOString();
+  }
+
   const selectedDays = recurrenceDays.length > 0 ? recurrenceDays : [now.getDay()];
   for (let step = 0; step < 14; step += 1) {
     const candidate = new Date(now);
@@ -475,6 +511,8 @@ type AutomationDraft = {
   oneTimeAt: string;
   scheduleTime: string;
   recurrenceDays: number[];
+  intervalDays: number;
+  monthlyDay: number;
   prayerNames: string[];
   title: string;
   body: string;
@@ -490,6 +528,8 @@ const EMPTY_AUTOMATION_DRAFT: AutomationDraft = {
   oneTimeAt: '',
   scheduleTime: '13:00',
   recurrenceDays: [5],
+  intervalDays: 3,
+  monthlyDay: 1,
   prayerNames: [],
   title: '',
   body: '',
@@ -497,6 +537,48 @@ const EMPTY_AUTOMATION_DRAFT: AutomationDraft = {
   audience: 'all',
   category: 'general',
 };
+
+function toDateTimeLocalInput(value: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const hh = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
+function automationToDraft(automation: NotificationAutomation): AutomationDraft {
+  const recurrence = automation.recurrence_days ?? [];
+  const weeklyDays = recurrence.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+  const intervalDays = Math.max(1, Math.min(90, Math.floor(recurrence[0] ?? 3)));
+  const monthlyDay = Math.max(1, Math.min(31, Math.floor(recurrence[0] ?? 1)));
+  const baseDate = automation.next_run_at ? new Date(automation.next_run_at) : null;
+  const scheduleTime = baseDate && !Number.isNaN(baseDate.getTime())
+    ? `${String(baseDate.getHours()).padStart(2, '0')}:${String(baseDate.getMinutes()).padStart(2, '0')}`
+    : EMPTY_AUTOMATION_DRAFT.scheduleTime;
+
+  return {
+    id: automation.id,
+    name: automation.name,
+    enabled: automation.enabled,
+    scheduleType: automation.schedule_type,
+    oneTimeAt: toDateTimeLocalInput(automation.one_time_at ?? automation.next_run_at),
+    scheduleTime,
+    recurrenceDays: weeklyDays,
+    intervalDays,
+    monthlyDay,
+    prayerNames: automation.prayer_names ?? [],
+    title: automation.title,
+    body: automation.body,
+    urduBody: automation.urdu_body ?? '',
+    audience: automation.audience,
+    category: automation.category,
+  };
+}
 
 // â”€â”€â”€ Urdu Auto-Translate Button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -674,10 +756,12 @@ const ComposePanel = ({
   initialData,
   onSent,
   onRefetchHistory,
+  activityActor,
 }: {
   initialData?: Partial<ComposeData>;
   onSent: (notif: PushNotification) => void;
   onRefetchHistory: () => void;
+  activityActor?: { username: string; role: string };
 }) => {
   const [form, setForm] = useState<ComposeData>({ ...EMPTY_COMPOSE, ...initialData });
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -764,6 +848,23 @@ const ComposePanel = ({
         // Save as scheduled â€” no immediate delivery
         const saved = await saveToDb('scheduled');
         onSent(saved);
+        if (activityActor?.username) {
+          void logActivity({
+            username: activityActor.username,
+            user_role: activityActor.role,
+            action: 'send',
+            entity_type: 'notification',
+            entity_id: saved.id,
+            entity_label: 'Notification scheduled',
+            details: {
+              mode: 'scheduled',
+              title: form.title.trim(),
+              audience: form.audience,
+              category: form.category,
+              scheduled_for: form.scheduledFor,
+            },
+          });
+        }
         toast.success('Notification scheduled.');
         setForm(EMPTY_COMPOSE);
         return;
@@ -796,6 +897,23 @@ const ComposePanel = ({
         toast.error(`Send failed: ${errorMessage}`);
         // Mark as failed in DB
         await supabase.from('push_notifications').update({ status: 'failed', error_message: errorMessage }).eq('id', draft.id);
+        if (activityActor?.username) {
+          void logActivity({
+            username: activityActor.username,
+            user_role: activityActor.role,
+            action: 'send',
+            entity_type: 'notification',
+            entity_id: draft.id,
+            entity_label: 'Notification send failed',
+            details: {
+              mode: 'instant',
+              title: form.title.trim(),
+              audience: form.audience,
+              category: form.category,
+              error: errorMessage,
+            },
+          });
+        }
       } else {
         const sent: number = data?.sent ?? 0;
         const total: number = data?.total ?? 0;
@@ -805,6 +923,24 @@ const ComposePanel = ({
           toast.success(`Delivered to ${sent.toLocaleString()} device${sent !== 1 ? 's' : ''}.`);
         } else {
           toast.success(`Delivered to ${sent} of ${total} devices. Check history for details.`);
+        }
+        if (activityActor?.username) {
+          void logActivity({
+            username: activityActor.username,
+            user_role: activityActor.role,
+            action: 'send',
+            entity_type: 'notification',
+            entity_id: draft.id,
+            entity_label: 'Notification sent',
+            details: {
+              mode: 'instant',
+              title: form.title.trim(),
+              audience: form.audience,
+              category: form.category,
+              sent,
+              total,
+            },
+          });
         }
         setForm(EMPTY_COMPOSE);
       }
@@ -1144,12 +1280,16 @@ const HistoryRow = ({
   onLoad,
   canDelete,
   canEdit,
+  selected,
+  onToggleSelect,
 }: {
   notif: PushNotification;
   onDelete: (id: string) => void;
   onLoad: (notif: PushNotification) => void;
   canDelete: boolean;
   canEdit: boolean;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const cfg = statusConfig[notif.status] ?? statusConfig.draft;
@@ -1161,6 +1301,15 @@ const HistoryRow = ({
         className="px-4 py-3.5 flex items-start gap-3 hover:bg-muted/20 transition-colors cursor-pointer"
         onClick={() => setExpanded((v) => !v)}
       >
+        <div className="pt-0.5" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(notif.id)}
+            className="h-4 w-4 rounded border-border"
+            aria-label={`Select ${notif.title}`}
+          />
+        </div>
         <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1448,21 +1597,46 @@ const ScheduledQueuePanel = ({
 const AutomationsPanel = ({
   automations,
   events,
+  templates,
+  templatesDirty,
+  templatesSaving,
+  templatesFetching,
   canEdit,
   onSave,
+  onSaveAsTemplate,
+  onReloadTemplates,
+  onResetTemplates,
+  onSaveTemplates,
+  onAddTemplate,
+  onMoveTemplate,
+  onDeleteTemplate,
+  onUpdateTemplateField,
   onToggle,
   onDelete,
 }: {
   automations: NotificationAutomation[];
   events: NotificationAutomationEvent[];
+  templates: Template[];
+  templatesDirty: boolean;
+  templatesSaving: boolean;
+  templatesFetching: boolean;
   canEdit: boolean;
   onSave: (draft: AutomationDraft) => Promise<void>;
+  onSaveAsTemplate: (draft: AutomationDraft) => Promise<void>;
+  onReloadTemplates: () => Promise<unknown>;
+  onResetTemplates: () => void;
+  onSaveTemplates: () => Promise<void>;
+  onAddTemplate: () => void;
+  onMoveTemplate: (id: string, direction: 'up' | 'down') => void;
+  onDeleteTemplate: (id: string) => void;
+  onUpdateTemplateField: (id: string, field: 'label' | 'icon' | 'category' | 'title' | 'body', value: string) => void;
   onToggle: (automation: NotificationAutomation) => Promise<void>;
   onDelete: (automation: NotificationAutomation) => Promise<void>;
 }) => {
-  const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
   const [draft, setDraft] = useState<AutomationDraft>(EMPTY_AUTOMATION_DRAFT);
+  const isEditing = Boolean(draft.id);
 
   const setDraftField = useCallback(<K extends keyof AutomationDraft>(key: K, value: AutomationDraft[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -1491,7 +1665,7 @@ const AutomationsPanel = ({
     try {
       await onSave(draft);
       setDraft(EMPTY_AUTOMATION_DRAFT);
-      toast.success('Automation rule saved.');
+      toast.success(isEditing ? 'Automation rule updated.' : 'Automation rule saved.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save automation rule.');
     } finally {
@@ -1499,26 +1673,232 @@ const AutomationsPanel = ({
     }
   };
 
-  return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50 shadow-sm overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full px-5 py-4 border-b border-amber-200 flex items-center justify-between text-left hover:bg-amber-100/50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <Clock size={14} className="text-amber-700" />
-          <span className="text-sm font-bold text-amber-900">Automations</span>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">{automations.length}</span>
-        </div>
-        {expanded ? <ChevronUp size={14} className="text-amber-700" /> : <ChevronDown size={14} className="text-amber-700" />}
-      </button>
+  const startEdit = (automation: NotificationAutomation) => {
+    setDraft(automationToDraft(automation));
+  };
 
-      {expanded && (
-        <div className="px-5 py-4 space-y-4">
-          <p className="text-[11px] text-amber-900/80 leading-relaxed">
+  const cancelEdit = () => {
+    setDraft(EMPTY_AUTOMATION_DRAFT);
+  };
+
+  const applyTemplate = (template: Template) => {
+    setDraft((prev) => ({
+      ...prev,
+      name: prev.name.trim() ? prev.name : template.label,
+      title: template.title,
+      body: template.body,
+      category: template.category,
+    }));
+    toast.info(`Template "${template.label}" applied.`);
+  };
+
+  const saveAsTemplate = async () => {
+    if (!canEdit) {
+      toast.error('Your role is read-only for settings updates.');
+      return;
+    }
+    if (!draft.title.trim() || !draft.body.trim()) {
+      toast.error('Please add title and body before saving template.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSaveAsTemplate(draft);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save template.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Clock size={14} style={{ color: 'hsl(var(--primary))' }} />
+          <h3 className="text-sm font-bold text-foreground">Automation Rules</h3>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">{automations.length}</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-1">Build recurring notification rules in the same compose-style flow.</p>
+      </div>
+
+      <div className="px-5 py-4 space-y-4">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
             Automated sends run in Europe/London timezone.
           </p>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 sm:gap-5 min-w-0">
+            <div className="min-w-0 space-y-4">
+          <div className="rounded-xl border border-border bg-background/40 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Bookmark size={12} className="text-[hsl(142_60%_32%)]" />
+                <p className="text-[11px] font-semibold text-foreground">Templates</p>
+              </div>
+              {canEdit && (
+                <Button variant="outline" size="sm" onClick={() => setTemplateManagerOpen((prev) => !prev)} className="h-7 text-[10px] gap-1.5">
+                  <Sparkles size={11} /> {templateManagerOpen ? 'Hide Manager' : 'Manage'}
+                </Button>
+              )}
+            </div>
+            {templates.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">No templates yet. Save one from this form or App Templates.</p>
+            ) : (
+              <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+                {templates.slice(0, 15).map((template) => {
+                  const category = getCategoryMeta(template.category);
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => applyTemplate(template)}
+                      className="group shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-[hsl(140_20%_88%)] bg-white hover:border-[hsl(142_50%_70%)] hover:bg-[hsl(142_50%_96%)] transition-all text-left"
+                      title={template.title}
+                    >
+                      <span className="text-base leading-none">{template.icon}</span>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-foreground leading-tight whitespace-nowrap">{template.label}</p>
+                        <span className={`inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${category.color}`}>{category.label}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {templateManagerOpen && (
+              <div className="mt-3 rounded-xl border border-border bg-card overflow-hidden">
+                <div className="px-3 py-2 border-b border-border flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold text-foreground">Template Manager</p>
+                  <div className="flex items-center gap-1.5">
+                    <Button variant="outline" size="sm" onClick={() => void onReloadTemplates()} disabled={templatesFetching || templatesSaving} className="h-7 text-[10px] gap-1.5">
+                      <RefreshCw size={11} className={templatesFetching ? 'animate-spin' : ''} /> Reload
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={onResetTemplates} disabled={!templatesDirty || templatesSaving || templatesFetching} className="h-7 text-[10px] gap-1.5">
+                      <RotateCcw size={11} /> Reset
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={onAddTemplate} disabled={!canEdit || templatesSaving || templatesFetching} className="h-7 text-[10px]">
+                      Add
+                    </Button>
+                    <Button size="sm" onClick={() => void onSaveTemplates()} disabled={!canEdit || !templatesDirty || templatesSaving || templatesFetching} className="h-7 text-[10px] gap-1.5 bg-[hsl(142_60%_32%)] hover:bg-[hsl(142_60%_28%)] text-white">
+                      {templatesSaving ? <RefreshCw size={11} className="animate-spin" /> : <Bookmark size={11} />} Save
+                    </Button>
+                  </div>
+                </div>
+                <div className="px-3 py-3 space-y-2.5 max-h-80 overflow-y-auto">
+                  {templates.map((template, index) => {
+                    const catMeta = getCategoryMeta(template.category);
+                    return (
+                      <div key={template.id} className="rounded-lg border border-border bg-background/40 p-2.5 space-y-2">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border text-muted-foreground">#{index + 1}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${catMeta.color}`}>{catMeta.label}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => onMoveTemplate(template.id, 'up')}
+                              disabled={!canEdit || index === 0 || templatesSaving}
+                              className="p-1.5 rounded-md border border-input hover:bg-muted disabled:opacity-50"
+                              title="Move up"
+                            >
+                              <ChevronUp size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onMoveTemplate(template.id, 'down')}
+                              disabled={!canEdit || index === templates.length - 1 || templatesSaving}
+                              className="p-1.5 rounded-md border border-input hover:bg-muted disabled:opacity-50"
+                              title="Move down"
+                            >
+                              <ChevronDown size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteTemplate(template.id)}
+                              disabled={!canEdit || templatesSaving || templates.length <= 1}
+                              className="p-1.5 rounded-md border border-input hover:bg-destructive/10 text-destructive/70 disabled:opacity-50"
+                              title="Delete template"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Label</Label>
+                            <Input
+                              value={template.label}
+                              onChange={(e) => onUpdateTemplateField(template.id, 'label', e.target.value)}
+                              disabled={!canEdit || templatesSaving}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Icon</Label>
+                            <Input
+                              value={template.icon}
+                              onChange={(e) => onUpdateTemplateField(template.id, 'icon', e.target.value)}
+                              disabled={!canEdit || templatesSaving}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Category</Label>
+                            <select
+                              value={template.category}
+                              onChange={(e) => onUpdateTemplateField(template.id, 'category', e.target.value)}
+                              disabled={!canEdit || templatesSaving}
+                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                            >
+                              {CATEGORIES.map((cat) => (
+                                <option key={cat.value} value={cat.value}>{cat.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px]">Title</Label>
+                          <Input
+                            value={template.title}
+                            onChange={(e) => onUpdateTemplateField(template.id, 'title', e.target.value)}
+                            disabled={!canEdit || templatesSaving}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px]">Body</Label>
+                          <Textarea
+                            rows={2}
+                            value={template.body}
+                            onChange={(e) => onUpdateTemplateField(template.id, 'body', e.target.value)}
+                            disabled={!canEdit || templatesSaving}
+                            className="text-xs"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {isEditing && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 flex items-center justify-between gap-2">
+              <p className="text-[11px] text-blue-700 font-medium truncate">
+                Editing rule: <span className="font-semibold">{draft.name || 'Untitled rule'}</span>
+              </p>
+              <Button variant="outline" size="sm" onClick={cancelEdit} className="h-7 text-[10px]">
+                Cancel Edit
+              </Button>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -1536,6 +1916,8 @@ const AutomationsPanel = ({
                 <option value="one_time">One-time</option>
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
+                <option value="every_n_days">Every N days</option>
+                <option value="monthly">Monthly</option>
               </select>
             </div>
           </div>
@@ -1547,12 +1929,39 @@ const AutomationsPanel = ({
             </div>
           )}
 
-          {(draft.scheduleType === 'daily' || draft.scheduleType === 'weekly') && (
+          {(draft.scheduleType === 'daily' || draft.scheduleType === 'weekly' || draft.scheduleType === 'every_n_days' || draft.scheduleType === 'monthly') && (
             <div className="space-y-2">
               <div className="space-y-1.5">
                 <Label>Clock time</Label>
                 <Input type="time" value={draft.scheduleTime} onChange={(e) => setDraftField('scheduleTime', e.target.value)} disabled={!canEdit || saving} />
               </div>
+              {draft.scheduleType === 'every_n_days' && (
+                <div className="space-y-1.5">
+                  <Label>Repeat every (days)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={draft.intervalDays}
+                    onChange={(e) => setDraftField('intervalDays', Number(e.target.value) || 1)}
+                    disabled={!canEdit || saving}
+                  />
+                </div>
+              )}
+              {draft.scheduleType === 'monthly' && (
+                <div className="space-y-1.5">
+                  <Label>Day of month</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={draft.monthlyDay}
+                    onChange={(e) => setDraftField('monthlyDay', Number(e.target.value) || 1)}
+                    disabled={!canEdit || saving}
+                  />
+                  <p className="text-[10px] text-muted-foreground">If a month has fewer days, it sends on that month&apos;s last day.</p>
+                </div>
+              )}
               {draft.scheduleType === 'weekly' && (
                 <div className="space-y-1.5">
                   <Label>Weekdays</Label>
@@ -1622,25 +2031,46 @@ const AutomationsPanel = ({
             <Textarea value={draft.body} rows={2} onChange={(e) => setDraftField('body', e.target.value)} disabled={!canEdit || saving} />
           </div>
           <div className="space-y-1.5">
-            <Label>Body (Urdu, optional)</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="flex items-center gap-1.5">
+                Body (Urdu, optional)
+              </Label>
+              <UrduAutoTranslateBtn
+                sourceText={draft.body || draft.title}
+                onResult={(value) => setDraftField('urduBody', value)}
+              />
+            </div>
             <Textarea value={draft.urduBody} rows={2} onChange={(e) => setDraftField('urduBody', e.target.value)} disabled={!canEdit || saving} />
           </div>
 
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={submit} disabled={!canEdit || saving} className="gap-2">
-              {saving ? <RefreshCw size={12} className="animate-spin" /> : <Clock size={12} />} Save Rule
+            <Button
+              size="sm"
+              onClick={submit}
+              disabled={!canEdit || saving}
+              className="gap-2 bg-[hsl(142_60%_32%)] hover:bg-[hsl(142_60%_28%)] text-white"
+            >
+              {saving ? <RefreshCw size={12} className="animate-spin" /> : <Clock size={12} />} {isEditing ? 'Update Rule' : 'Save Rule'}
             </Button>
+            <Button variant="outline" size="sm" onClick={saveAsTemplate} disabled={!canEdit || saving} className="gap-2">
+              <Bookmark size={12} /> Save as Template
+            </Button>
+            {isEditing && (
+              <Button variant="outline" size="sm" onClick={cancelEdit} disabled={saving}>
+                Reset Form
+              </Button>
+            )}
             {!canEdit && <p className="text-[11px] text-muted-foreground">Read-only for your role.</p>}
           </div>
 
-          <div className="rounded-xl border border-amber-200 bg-white overflow-hidden">
-            <div className="px-3 py-2 border-b border-amber-100 text-xs font-bold text-amber-800">Existing rules</div>
+          <div className="rounded-xl border border-border bg-background overflow-hidden">
+            <div className="px-3 py-2 border-b border-border text-xs font-bold text-foreground">Existing rules</div>
             {automations.length === 0 ? (
-              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation rules yet. Create one above to schedule one-time, daily, or weekly sends.</p>
+              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation rules yet. Create one above to schedule one-time, daily, weekly, every-N-days, or monthly sends.</p>
             ) : (
-              <div className="divide-y divide-amber-100 bg-amber-50/30">
+              <div className="divide-y divide-border/60">
                 {automations.slice(0, 20).map((automation) => (
-                  <div key={automation.id} className="px-3 py-3 flex items-start justify-between gap-3 hover:bg-amber-50 transition-colors">
+                  <div key={automation.id} className="px-3 py-3 flex items-start justify-between gap-3 hover:bg-muted/20 transition-colors">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
                         <p className="text-xs font-semibold text-foreground truncate max-w-[220px]">{automation.name}</p>
@@ -1657,6 +2087,15 @@ const AutomationsPanel = ({
                       {automation.last_error && <p className="text-[10px] text-red-600 truncate mt-0.5">last error: {automation.last_error}</p>}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => startEdit(automation)}
+                        disabled={!canEdit}
+                        className="px-2 py-1 rounded text-[10px] font-semibold border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 inline-flex items-center gap-1"
+                        title="Edit automation"
+                      >
+                        <Pencil size={10} /> Edit
+                      </button>
                       <button
                         type="button"
                         onClick={() => onToggle(automation)}
@@ -1680,6 +2119,21 @@ const AutomationsPanel = ({
               </div>
             )}
           </div>
+
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border bg-background/40 px-3 py-3">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Sparkles size={12} className="text-[hsl(142_60%_32%)]" />
+                  <p className="text-[11px] font-semibold text-foreground">Automation tips</p>
+                </div>
+                <div className="space-y-1.5 text-[11px] text-muted-foreground leading-relaxed">
+                  <p>Use one-time for announcements, weekly for khutbah reminders, and monthly for repeating notices.</p>
+                  <p>Keep titles concise so lock-screen previews stay readable.</p>
+                  <p>Use templates to maintain wording consistency across recurring sends.</p>
+                </div>
+              </div>
 
           <div className="rounded-xl border border-border bg-white overflow-hidden">
             <div className="px-3 py-2 border-b border-border text-xs font-bold text-foreground">Recent automation events</div>
@@ -1716,8 +2170,10 @@ const AutomationsPanel = ({
               </div>
             )}
           </div>
+
+            </div>
+          </div>
         </div>
-      )}
     </div>
   );
 };
@@ -1997,8 +2453,14 @@ const Notifications = () => {
   const [composeTemplateDirty, setComposeTemplateDirty] = useState(false);
   const [savingComposeTemplateEditor, setSavingComposeTemplateEditor] = useState(false);
   const [mobileQuickTemplatesPosition, setMobileQuickTemplatesPosition] = useState<'top' | 'after-form'>('top');
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set());
+  const [selectedLocalTemplateKey, setSelectedLocalTemplateKey] = useState<LocalNotificationTemplateKey>(
+    TEMPLATE_EDITOR_SECTIONS[0].key,
+  );
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
   const { canEdit, canDelete, role } = usePermissions();
+  const canManageHistoryDelete = canDelete || canEdit;
 
   const {
     data: notifications = [],
@@ -2116,15 +2578,49 @@ const Notifications = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!canDelete) {
+    if (!canManageHistoryDelete) {
       toast.error('Your role is read-only for deleting notifications.');
       return;
     }
     if (!confirm('Delete this notification from history?')) return;
     queryClient.setQueryData<PushNotification[]>(['push-notifications'], (old = []) => old.filter((n) => n.id !== id));
+    setSelectedHistoryIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     const { error } = await supabase.from('push_notifications').delete().eq('id', id);
     if (error) { toast.error('Failed to delete.'); refetch(); }
     else toast.success('Deleted from history.');
+  };
+
+  const handleBulkDeleteHistory = async (ids: string[]) => {
+    if (!canManageHistoryDelete) {
+      toast.error('Your role is read-only for deleting notifications.');
+      return;
+    }
+
+    if (ids.length === 0) {
+      toast.info('Select notifications to delete.');
+      return;
+    }
+
+    if (!confirm(`Delete ${ids.length} selected notification${ids.length !== 1 ? 's' : ''} from history?`)) {
+      return;
+    }
+
+    const idSet = new Set(ids);
+    queryClient.setQueryData<PushNotification[]>(['push-notifications'], (old = []) => old.filter((n) => !idSet.has(n.id)));
+    setSelectedHistoryIds(new Set());
+
+    const { error } = await supabase.from('push_notifications').delete().in('id', ids);
+    if (error) {
+      toast.error('Failed to bulk delete.');
+      refetch();
+      return;
+    }
+
+    toast.success(`Deleted ${ids.length} notification${ids.length !== 1 ? 's' : ''}.`);
   };
 
   const handleLoadIntoCompose = (notif: PushNotification) => {
@@ -2268,6 +2764,44 @@ const Notifications = () => {
     }
   }, [canEdit, composeTemplateEditor, refetchComposeTemplateSetting]);
 
+  const handleSaveAutomationAsTemplate = useCallback(async (draft: AutomationDraft) => {
+    if (!canEdit) {
+      toast.error('Your role is read-only for settings updates.');
+      return;
+    }
+
+    const nextTemplate: Template = {
+      id: normalizeTemplateId(`automation-${Date.now()}`),
+      label: normalizeTemplateLine(draft.name, draft.title.slice(0, 30) || 'Automation Template'),
+      icon: 'AT',
+      category: normalizeTemplateLine(draft.category, 'general').toLowerCase(),
+      title: draft.title.trim(),
+      body: draft.body.trim(),
+    };
+
+    const normalized = [...composeTemplateEditor, nextTemplate]
+      .map((entry, index) => normalizeComposeTemplate(entry, `template-${index + 1}`))
+      .filter((entry): entry is Template => Boolean(entry));
+
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert(
+        {
+          key: COMPOSE_TEMPLATES_APP_SETTING_KEY,
+          value: toStoredComposeTemplatesValue(normalized),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' },
+      );
+
+    if (error) throw error;
+
+    setComposeTemplateEditor(normalized);
+    setComposeTemplateDirty(false);
+    await refetchComposeTemplateSetting();
+    toast.success('Template saved for automations and compose.');
+  }, [canEdit, composeTemplateEditor, refetchComposeTemplateSetting]);
+
   const filtered = useMemo(() => {
     return notifications.filter((n) => {
       const matchStatus = statusFilter === 'all' || n.status === statusFilter;
@@ -2277,6 +2811,48 @@ const Notifications = () => {
       return matchStatus && matchCat && matchSearch;
     });
   }, [notifications, statusFilter, categoryFilter, search]);
+
+  const selectedLocalTemplateSection = useMemo(
+    () => TEMPLATE_EDITOR_SECTIONS.find((section) => section.key === selectedLocalTemplateKey) ?? TEMPLATE_EDITOR_SECTIONS[0],
+    [selectedLocalTemplateKey],
+  );
+
+  const selectedLocalTemplateEntry = templateEditor[selectedLocalTemplateSection.key];
+
+  useEffect(() => {
+    setSelectedHistoryIds((prev) => {
+      const validIds = new Set(notifications.map((n) => n.id));
+      const next = new Set(Array.from(prev).filter((id) => validIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [notifications]);
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((n) => selectedHistoryIds.has(n.id));
+
+  const toggleHistorySelection = useCallback((id: string) => {
+    setSelectedHistoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllFilteredHistory = useCallback(() => {
+    setSelectedHistoryIds((prev) => {
+      const next = new Set(prev);
+      if (filtered.length > 0 && filtered.every((n) => next.has(n.id))) {
+        filtered.forEach((n) => next.delete(n.id));
+      } else {
+        filtered.forEach((n) => next.add(n.id));
+      }
+      return next;
+    });
+  }, [filtered]);
+
+  const handleDeleteAllFilteredHistory = useCallback(async () => {
+    await handleBulkDeleteHistory(filtered.map((n) => n.id));
+  }, [filtered]);
 
   const scheduledNotifs = notifications.filter((n) => n.status === 'scheduled');
 
@@ -2375,13 +2951,15 @@ const Notifications = () => {
       draft.oneTimeAt,
       draft.scheduleTime,
       draft.recurrenceDays,
+      draft.intervalDays,
+      draft.monthlyDay,
     );
 
     if (draft.scheduleType === 'one_time' && !nextRunAt) {
       throw new Error('Please provide a valid one-time date and time.');
     }
 
-    if ((draft.scheduleType === 'daily' || draft.scheduleType === 'weekly') && !nextRunAt) {
+    if ((draft.scheduleType === 'daily' || draft.scheduleType === 'weekly' || draft.scheduleType === 'every_n_days' || draft.scheduleType === 'monthly') && !nextRunAt) {
       throw new Error('Please provide a valid schedule time.');
     }
 
@@ -2396,7 +2974,14 @@ const Notifications = () => {
       schedule_timezone: 'Europe/London',
       one_time_at: draft.scheduleType === 'one_time' ? nextRunAt : null,
       next_run_at: nextRunAt,
-      recurrence_days: draft.scheduleType === 'weekly' ? draft.recurrenceDays : [],
+      recurrence_days:
+        draft.scheduleType === 'weekly'
+          ? draft.recurrenceDays
+          : draft.scheduleType === 'every_n_days'
+          ? [Math.max(1, Math.min(90, Math.floor(draft.intervalDays || 1)))]
+          : draft.scheduleType === 'monthly'
+          ? [Math.max(1, Math.min(31, Math.floor(draft.monthlyDay || 1)))]
+          : [],
       prayer_names: [],
       title: draft.title.trim(),
       body: draft.body.trim(),
@@ -2408,7 +2993,11 @@ const Notifications = () => {
       category: draft.category,
     };
 
-    await notificationAutomationService.create(payload);
+    if (draft.id) {
+      await notificationAutomationService.update(draft.id, payload);
+    } else {
+      await notificationAutomationService.create(payload);
+    }
 
     await Promise.all([refetchAutomations(), refetchAutomationEvents()]);
   };
@@ -2449,6 +3038,7 @@ const Notifications = () => {
       initialData={composeData}
       onSent={handleSent}
       onRefetchHistory={refetch}
+      activityActor={currentUser ? { username: currentUser.username, role: currentUser.role } : undefined}
     />
   ) : (
     <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
@@ -2691,6 +3281,38 @@ const Notifications = () => {
                     </div>
                   </div>
 
+                  {canManageHistoryDelete && filtered.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background/60 px-3 py-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        {selectedHistoryIds.size > 0
+                          ? `${selectedHistoryIds.size} selected`
+                          : 'Select notifications for bulk delete'}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={toggleSelectAllFilteredHistory} className="h-7 text-[11px]">
+                          {allFilteredSelected ? 'Unselect all' : 'Select all (filtered)'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleDeleteAllFilteredHistory()}
+                          className="h-7 text-[11px] gap-1.5 text-red-700 border-red-200 hover:bg-red-50"
+                        >
+                          <Trash2 size={12} /> Select all & delete filtered
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleBulkDeleteHistory(Array.from(selectedHistoryIds))}
+                          disabled={selectedHistoryIds.size === 0}
+                          className="h-7 text-[11px] gap-1.5 text-red-700 border-red-200 hover:bg-red-50"
+                        >
+                          <Trash2 size={12} /> Delete selected
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-1 flex-wrap">
                     <Filter size={11} className="text-muted-foreground mr-0.5" />
                     {(['all', 'sent', 'scheduled', 'draft', 'failed'] as const).map((f) => {
@@ -2755,8 +3377,10 @@ const Notifications = () => {
                         notif={notif}
                         onDelete={handleDelete}
                         onLoad={handleLoadIntoCompose}
-                        canDelete={canDelete}
+                        canDelete={canManageHistoryDelete}
                         canEdit={canEdit}
+                        selected={selectedHistoryIds.has(notif.id)}
+                        onToggleSelect={toggleHistorySelection}
                       />
                     ))}
                   </div>
@@ -2798,8 +3422,20 @@ const Notifications = () => {
               <AutomationsPanel
                 automations={automations}
                 events={automationEvents}
+                templates={composeTemplateEditor}
+                templatesDirty={composeTemplateDirty}
+                templatesSaving={savingComposeTemplateEditor}
+                templatesFetching={composeTemplateSettingFetching}
                 canEdit={canEdit}
                 onSave={handleSaveAutomation}
+                onSaveAsTemplate={handleSaveAutomationAsTemplate}
+                onReloadTemplates={refetchComposeTemplateSetting}
+                onResetTemplates={handleResetComposeTemplateEditor}
+                onSaveTemplates={handleSaveComposeTemplateEditor}
+                onAddTemplate={addComposeTemplate}
+                onMoveTemplate={moveComposeTemplate}
+                onDeleteTemplate={deleteComposeTemplate}
+                onUpdateTemplateField={updateComposeTemplateField}
                 onToggle={handleToggleAutomation}
                 onDelete={handleDeleteAutomation}
               />
@@ -2859,22 +3495,46 @@ const Notifications = () => {
                   )}
                 </div>
 
-                <div className="px-5 py-5 space-y-4">
-                  {TEMPLATE_EDITOR_SECTIONS.map((section) => (
-                    <div key={section.key} className="rounded-xl border border-border bg-background/40 p-4 space-y-2.5">
+                <div className="px-4 sm:px-5 py-4 sm:py-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_320px] gap-4 sm:gap-5 min-w-0">
+                    <div className="rounded-xl border border-border bg-background/40 p-2.5 h-fit">
+                      <p className="px-1.5 pb-2 text-[11px] font-semibold text-foreground">Template sections</p>
+                      <div className="space-y-1">
+                        {TEMPLATE_EDITOR_SECTIONS.map((section) => {
+                          const selected = section.key === selectedLocalTemplateSection.key;
+                          return (
+                            <button
+                              key={section.key}
+                              type="button"
+                              onClick={() => setSelectedLocalTemplateKey(section.key)}
+                              className={`w-full text-left rounded-lg border px-2.5 py-2 transition-colors ${
+                                selected
+                                  ? 'border-primary bg-primary/10'
+                                  : 'border-transparent hover:border-border hover:bg-background'
+                              }`}
+                            >
+                              <p className={`text-[11px] font-semibold ${selected ? 'text-primary' : 'text-foreground'}`}>{section.label}</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{section.helper}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-background/40 p-4 space-y-3">
                       <div>
-                        <p className="text-xs font-semibold text-foreground">{section.label}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{section.helper}</p>
+                        <p className="text-sm font-semibold text-foreground">{selectedLocalTemplateSection.label}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{selectedLocalTemplateSection.helper}</p>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
-                          Placeholders: <span className="font-mono">{section.placeholders}</span>
+                          Placeholders: <span className="font-mono">{selectedLocalTemplateSection.placeholders}</span>
                         </p>
                       </div>
 
                       <div className="space-y-1.5">
                         <Label className="text-[11px]">Title template</Label>
                         <Input
-                          value={templateEditor[section.key].title}
-                          onChange={(e) => updateTemplateField(section.key, 'title', e.target.value)}
+                          value={selectedLocalTemplateEntry.title}
+                          onChange={(e) => updateTemplateField(selectedLocalTemplateSection.key, 'title', e.target.value)}
                           disabled={!canEdit || savingTemplateEditor}
                         />
                       </div>
@@ -2882,14 +3542,39 @@ const Notifications = () => {
                       <div className="space-y-1.5">
                         <Label className="text-[11px]">Body template</Label>
                         <Textarea
-                          rows={2}
-                          value={templateEditor[section.key].body}
-                          onChange={(e) => updateTemplateField(section.key, 'body', e.target.value)}
+                          rows={3}
+                          value={selectedLocalTemplateEntry.body}
+                          onChange={(e) => updateTemplateField(selectedLocalTemplateSection.key, 'body', e.target.value)}
                           disabled={!canEdit || savingTemplateEditor}
                         />
                       </div>
                     </div>
-                  ))}
+
+                    <div className="rounded-xl border border-border bg-card overflow-hidden h-fit">
+                      <div className="px-3 py-2.5 border-b border-border bg-muted/30 flex items-center gap-2">
+                        <Smartphone size={12} className="text-muted-foreground" />
+                        <p className="text-[11px] font-semibold text-foreground uppercase tracking-wide">Live Preview</p>
+                      </div>
+                      <div className="px-3 py-3 space-y-2.5">
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <p className="text-[10px] text-muted-foreground mb-1">Notification title</p>
+                          <p className="text-sm font-semibold text-foreground leading-snug">
+                            {renderLocalTemplatePreview(selectedLocalTemplateEntry.title) || 'Title preview'}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground mt-2 mb-1">Notification message</p>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            {renderLocalTemplatePreview(selectedLocalTemplateEntry.body) || 'Body preview'}
+                          </p>
+                        </div>
+
+                        <div className="rounded-lg border border-border bg-background/60 p-2.5">
+                          <p className="text-[10px] font-semibold text-foreground">Preview tokens</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">{`{prayerName} = Fajr`}</p>
+                          <p className="text-[10px] text-muted-foreground">{`{minutes} = 10`}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 

@@ -22,7 +22,7 @@ type AutomationRow = {
   id: string;
   name: string;
   enabled: boolean;
-  schedule_type: 'one_time' | 'daily' | 'weekly' | 'prayer';
+  schedule_type: 'one_time' | 'daily' | 'weekly' | 'every_n_days' | 'monthly' | 'prayer';
   next_run_at: string | null;
   recurrence_days: number[] | null;
   prayer_names: string[] | null;
@@ -101,6 +101,38 @@ function getNextWeeklyRun(currentRunIso: string, recurrenceDays: number[] | null
   }
 
   return addDays(currentRunIso, 7);
+}
+
+function getIntervalDays(recurrenceDays: number[] | null): number {
+  const raw = recurrenceDays?.[0];
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(1, Math.min(90, Math.floor(raw)));
+}
+
+function getMonthlyDay(recurrenceDays: number[] | null): number {
+  const raw = recurrenceDays?.[0];
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(1, Math.min(31, Math.floor(raw)));
+}
+
+function getNextMonthlyRun(currentRunIso: string, recurrenceDays: number[] | null): string {
+  const current = new Date(currentRunIso);
+  const dayOfMonth = getMonthlyDay(recurrenceDays);
+  const hour = current.getUTCHours();
+  const minute = current.getUTCMinutes();
+  const second = current.getUTCSeconds();
+  const ms = current.getUTCMilliseconds();
+
+  for (let delta = 1; delta <= 24; delta += 1) {
+    const probe = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + delta, 1, hour, minute, second, ms));
+    const daysInMonth = new Date(Date.UTC(probe.getUTCFullYear(), probe.getUTCMonth() + 1, 0)).getUTCDate();
+    probe.setUTCDate(Math.min(dayOfMonth, daysInMonth));
+    if (probe.getTime() > current.getTime()) {
+      return probe.toISOString();
+    }
+  }
+
+  return addDays(currentRunIso, 31);
 }
 
 function getLondonParts(date: Date): { year: number; month: number; day: number } {
@@ -515,6 +547,10 @@ async function processRecurringAutomations(args: {
       ? addDays(automation.next_run_at, 1)
       : automation.schedule_type === 'weekly'
       ? getNextWeeklyRun(automation.next_run_at, automation.recurrence_days)
+      : automation.schedule_type === 'every_n_days'
+      ? addDays(automation.next_run_at, getIntervalDays(automation.recurrence_days))
+      : automation.schedule_type === 'monthly'
+      ? getNextMonthlyRun(automation.next_run_at, automation.recurrence_days)
       : await resolveNextPrayerRunAt({
           admin,
           prayerNames: automation.prayer_names,

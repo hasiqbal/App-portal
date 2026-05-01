@@ -34,6 +34,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts';
+const GENERAL_NOTIFICATION_CHANNEL_ID = 'jmn-general-v2';
 
 interface PushPayload {
   title: string;
@@ -118,6 +119,7 @@ Deno.serve(async (req: Request) => {
       data: payload.data ?? {},
       ...(payload.image ? { image: payload.image } : {}),
       ...(payload.category ? { categoryId: payload.category } : {}),
+      channelId: GENERAL_NOTIFICATION_CHANNEL_ID,
       sound: payload.sound !== undefined ? payload.sound : 'default',
       badge: payload.badge ?? 1,
       ttl: payload.ttl ?? 86400,

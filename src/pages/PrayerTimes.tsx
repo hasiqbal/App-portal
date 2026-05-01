@@ -39,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { usePermissions } from '#/hooks/usePermissions';
+import { logActivity, useAuth } from '#/hooks/useAuth';
 
 // External Supabase config (same as supabase.ts)
 const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
@@ -995,9 +996,10 @@ const DbSetupBanner = ({ onDismiss }: { onDismiss: () => void }) => {
 interface JumuahYearModalProps {
   open: boolean; onClose: () => void; year: number;
   queryClient: ReturnType<typeof useQueryClient>;
+  onApplied?: (summary: { year: number; months: number[]; totalFridays: number }) => void;
 }
 
-const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalProps) => {
+const JumuahYearModal = ({ open, onClose, year, queryClient, onApplied }: JumuahYearModalProps) => {
   const [gmt1, setGmt1] = useState(''); const [gmt2, setGmt2] = useState('');
   const [bst1, setBst1] = useState(''); const [bst2, setBst2] = useState('');
   const [selectedMonths, setSelectedMonths] = useState<Set<number>>(() => new Set([1,2,3,4,5,6,7,8,9,10,11,12]));
@@ -1034,7 +1036,11 @@ const JumuahYearModal = ({ open, onClose, year, queryClient }: JumuahYearModalPr
     }
     setSaving(false); setProgress('');
     if (failedMonths.length > 0) toast.error(`Failed for: ${failedMonths.map((m) => MONTHS_SHORT[m - 1]).join(', ')}`);
-    else { toast.success(`Jumu'ah times set for ${totalFridays} Fridays across ${selectedMonths.size} months in ${year}.`); onClose(); }
+    else {
+      toast.success(`Jumu'ah times set for ${totalFridays} Fridays across ${selectedMonths.size} months in ${year}.`);
+      onApplied?.({ year, months: Array.from(selectedMonths).sort((a, b) => a - b), totalFridays });
+      onClose();
+    }
   };
 
   return (
@@ -1246,6 +1252,7 @@ const HijriMonthLengthModal = ({
 // â”€â”€â”€ Prayer Times page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const PrayerTimes = () => {
+  const { user: currentUser } = useAuth();
   const { canEdit, canDelete } = usePermissions();
   const navigate = useNavigate();
   const initialOffset = readOffsetFromStorage() ?? 0;
@@ -1932,6 +1939,24 @@ const PrayerTimes = () => {
     'jumu_ah_1', 'jumu_ah_2',
   ];
 
+  const logPrayerActivity = useCallback((params: {
+    action: string;
+    entityLabel: string;
+    details?: Record<string, unknown>;
+    entityId?: string;
+  }) => {
+    if (!currentUser?.username) return;
+    void logActivity({
+      username: currentUser.username,
+      user_role: currentUser.role,
+      action: params.action,
+      entity_type: 'prayer',
+      entity_id: params.entityId ?? null,
+      entity_label: params.entityLabel,
+      details: params.details ?? null,
+    });
+  }, [currentUser]);
+
   const visibleData = useMemo(() => {
     if (!data) return data;
     return data.map((row) => {
@@ -1941,10 +1966,32 @@ const PrayerTimes = () => {
   }, [data, pendingPrayerChanges]);
 
   const handleSaved = useCallback((updated: PrayerTime) => {
+    let previousRow: PrayerTime | undefined;
     queryClient.setQueryData<PrayerTime[]>(['prayer_times', selectedMonth], (old) => {
       if (!old) return old;
+      previousRow = old.find((row) => row.id === updated.id);
       return old.map((row) => (row.id === updated.id ? updated : row));
     });
+
+    const changedFields = editablePrayerKeys.filter((key) => {
+      const before = (previousRow?.[key as keyof PrayerTime] as string | null | undefined) ?? null;
+      const after = (updated[key as keyof PrayerTime] as string | null | undefined) ?? null;
+      return before !== after;
+    });
+
+    if (changedFields.length > 0) {
+      const monthName = MONTHS_FULL[(updated.month ?? selectedMonth) - 1] ?? `Month ${updated.month ?? selectedMonth}`;
+      logPrayerActivity({
+        action: 'update',
+        entityId: updated.id,
+        entityLabel: `Prayer times changed - ${monthName} ${updated.day}`,
+        details: {
+          month: updated.month ?? selectedMonth,
+          day: updated.day,
+          fields: changedFields,
+        },
+      });
+    }
 
     setPendingPrayerChanges((prev) => {
       const next = { ...prev };
@@ -1955,7 +2002,7 @@ const PrayerTimes = () => {
     setHighlightDay(updated.day);
     setTimeout(() => setHighlightDay(null), 2500);
     setEditingRow(null);
-  }, [queryClient, selectedMonth]);
+  }, [editablePrayerKeys, logPrayerActivity, queryClient, selectedMonth]);
 
   const pendingPrayerRowsCount = Object.keys(pendingPrayerChanges).length;
   const pendingPrayerCellCount = Object.values(pendingPrayerChanges)
@@ -2006,8 +2053,36 @@ const PrayerTimes = () => {
       toast.error(`Saved ${updatedRows.length}, but ${failedIds.length} failed. Please retry.`);
     }
 
+    if (updatedRows.length > 0) {
+      const uniqueDays = new Set(updatedRows.map((row) => row.day));
+      logPrayerActivity({
+        action: 'update',
+        entityLabel: 'Prayer times changed (bulk)',
+        details: {
+          month: selectedMonth,
+          year: selectedYear,
+          updated_days: uniqueDays.size,
+          updated_rows: updatedRows.length,
+          failed_rows: failedIds.length,
+        },
+      });
+    }
+
     setSavingPendingPrayerChanges(false);
   };
+
+  const handleJumuahApplied = useCallback((summary: { year: number; months: number[]; totalFridays: number }) => {
+    const monthLabels = summary.months.map((month) => MONTHS_SHORT[month - 1]);
+    logPrayerActivity({
+      action: 'update',
+      entityLabel: `Jumu'ah times changed (${summary.year})`,
+      details: {
+        year: summary.year,
+        months: monthLabels,
+        total_fridays: summary.totalFridays,
+      },
+    });
+  }, [logPrayerActivity]);
 
   const handleHijriSaved = useCallback((day: number, entry: HijriCalendarEntry) => {
     setHijriCalendar((prev) => new Map(prev).set(day, entry));
@@ -2472,7 +2547,13 @@ const PrayerTimes = () => {
         )}
       </main>
 
-      <JumuahYearModal open={jumuahModal} onClose={() => setJumuahModal(false)} year={selectedYear} queryClient={queryClient} />
+      <JumuahYearModal
+        open={jumuahModal}
+        onClose={() => setJumuahModal(false)}
+        year={selectedYear}
+        queryClient={queryClient}
+        onApplied={handleJumuahApplied}
+      />
       <HijriMonthLengthModal
         open={monthLengthModal}
         onClose={() => setMonthLengthModal(false)}

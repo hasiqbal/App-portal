@@ -29,6 +29,8 @@ interface ExpoMessage {
   data: Record<string, unknown>;
   image?: string;
   channelId: string;
+  sound: 'default';
+  badge: number;
   priority: string;
 }
 
@@ -203,6 +205,8 @@ serve(async (req) => {
       to: token,
       title: buildBilingualTitle(title, urduTitle),
       body: buildBilingualBody(body, urduBody),
+      sound: 'default',
+      badge: 1,
       priority: 'high',
       channelId: 'jmn-general-v2',
       data: {
