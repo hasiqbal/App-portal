@@ -816,7 +816,7 @@ export default function HowToGuidesPage() {
       setTreeDirty(false);
 
       if (migratedStepCount > 0) {
-        toast.success(`Converted legacy text into blocks for ${migratedStepCount} ${migratedStepCount === 1 ? 'step' : 'steps'}.`);
+        toast.success(`Moved legacy step text into blocks for ${migratedStepCount} ${migratedStepCount === 1 ? 'step' : 'steps'}.`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load guide tree.');
@@ -1110,7 +1110,7 @@ export default function HowToGuidesPage() {
       }
 
       if (migratedStepCount > 0) {
-        toast.success(`Guide tree saved. Converted legacy text into blocks for ${migratedStepCount} ${migratedStepCount === 1 ? 'step' : 'steps'}.`);
+        toast.success(`Guide tree saved. Moved legacy step text into blocks for ${migratedStepCount} ${migratedStepCount === 1 ? 'step' : 'steps'}.`);
       } else {
         toast.success('Guide tree saved.');
       }
