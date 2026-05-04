@@ -927,6 +927,20 @@ export default function HowToGuidesPage() {
     ]));
   };
 
+  const addSectionAt = (insertIndex: number) => {
+    setTreeSections((prev) => {
+      const safeIndex = Math.max(0, Math.min(insertIndex, prev.length));
+      const nextSections = [...prev];
+      nextSections.splice(safeIndex, 0, {
+        section_order: safeIndex,
+        heading: `Section ${safeIndex + 1}`,
+        collapsed: true,
+        steps: [],
+      });
+      return nextSections;
+    });
+  };
+
   const moveSection = (fromIndex: number, toIndex: number) => {
     setTreeSections((prev) => moveItem(prev, fromIndex, toIndex));
   };
@@ -2719,9 +2733,6 @@ export default function HowToGuidesPage() {
                   <p className="text-[11px] text-muted-foreground">Add a section, then add steps inside that section, then add content blocks inside each step.</p>
                   <p className="text-[11px] text-muted-foreground">Tip: Start with <b>Text paragraph</b> for regular instructions.</p>
                 </div>
-                <Button size="sm" onClick={addSection} disabled={!canEdit} className="gap-1 bg-[hsl(142_60%_32%)] text-white hover:bg-[hsl(142_60%_28%)]">
-                  <Plus size={14} /> Add Section
-                </Button>
               </div>
 
               {treeSections.map((section, sectionIndex) => (
@@ -2747,6 +2758,15 @@ export default function HowToGuidesPage() {
                     <span className="w-6 h-6 rounded-full bg-white/20 ring-1 ring-white/30 flex items-center justify-center text-xs font-bold">{sectionIndex + 1}</span>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/90">Section</p>
                     <div className="ml-auto flex items-center gap-1">
+                      <button
+                        className="h-8 px-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 flex items-center gap-1 text-white text-xs font-medium"
+                        onClick={() => addSectionAt(sectionIndex + 1)}
+                        disabled={!canEdit}
+                        title="Add a new section below"
+                        aria-label="Add section below"
+                      >
+                        <Plus size={13} /> <span className="hidden sm:inline">Add Below</span>
+                      </button>
                       <button
                         className="h-8 px-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 flex items-center gap-1 text-white text-xs font-medium"
                         onClick={() => setTreeSections((prev) => prev.map((item, idx) => idx === sectionIndex ? { ...item, collapsed: !item.collapsed } : item))}
@@ -3276,6 +3296,14 @@ export default function HowToGuidesPage() {
               className="flex-1 sm:flex-none"
             >
               Close
+            </Button>
+            <Button
+              variant="outline"
+              onClick={addSection}
+              disabled={!canEdit || treeLoading || saving}
+              className="flex-1 sm:flex-none gap-1"
+            >
+              <Plus size={14} /> Add Section
             </Button>
             <Button
               onClick={() => void saveTree()}
