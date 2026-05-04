@@ -1576,7 +1576,12 @@ export async function saveHowToGuideTree(guideId: string, input: HowToTreeSaveIn
     })))
     .select('*');
 
-  if (sectionsError) throw new Error(`Failed to save sections: ${sectionsError.message}`);
+  if (sectionsError) {
+    if (/row-level security policy/i.test(sectionsError.message)) {
+      throw new Error('Failed to save sections: access denied by permissions policy. Sign out and sign in again with an admin/editor account, then retry.');
+    }
+    throw new Error(`Failed to save sections: ${sectionsError.message}`);
+  }
 
   const sectionByOrder = new Map<number, string>();
   for (const section of sections ?? []) {

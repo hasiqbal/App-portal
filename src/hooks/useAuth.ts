@@ -172,6 +172,13 @@ export function useAuthState(): AuthState {
       throw new Error(`Login session failed: ${sessionError.message}`);
     }
 
+    // Ensure the active access token is freshly minted from the refresh token.
+    // This helps role claims (portal_role) stay in sync for RLS-protected writes.
+    const { error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError) {
+      throw new Error(`Login session refresh failed: ${refreshError.message}`);
+    }
+
     return data.user;
   }, []);
 

@@ -132,10 +132,16 @@ async function ensureServiceSession(admin: ReturnType<typeof createClient>, role
     },
   });
 
+  // Re-sign-in to force a fresh access token that contains updated role claims.
+  const refreshed = await signInServiceUser();
+  if (refreshed.error || !refreshed.data.session) {
+    return { error: refreshed.error?.message || 'Failed to refresh service session.' } as const;
+  }
+
   return {
     session: {
-      access_token: signInData.session.access_token,
-      refresh_token: signInData.session.refresh_token,
+      access_token: refreshed.data.session.access_token,
+      refresh_token: refreshed.data.session.refresh_token,
     },
   } as const;
 }
