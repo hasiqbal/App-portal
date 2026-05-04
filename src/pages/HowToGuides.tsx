@@ -483,15 +483,32 @@ export default function HowToGuidesPage() {
     sections: SectionDraft[];
   } | null>(null);
 
-  const { data: groups = [], isLoading: groupsLoading, refetch: refetchGroups } = useQuery({
+  const {
+    data: groups = [],
+    isLoading: groupsLoading,
+    isError: groupsErrorState,
+    error: groupsError,
+    refetch: refetchGroups,
+  } = useQuery({
     queryKey: GROUPS_KEY,
     queryFn: () => fetchHowToGroups(),
   });
 
-  const { data: guides = [], isLoading: guidesLoading, refetch: refetchGuides } = useQuery({
+  const {
+    data: guides = [],
+    isLoading: guidesLoading,
+    isError: guidesErrorState,
+    error: guidesError,
+    refetch: refetchGuides,
+  } = useQuery({
     queryKey: GUIDES_KEY,
     queryFn: () => fetchHowToGuides(),
   });
+
+  const hasDataLoadError = groupsErrorState || guidesErrorState;
+  const dataLoadErrorMessage = groupsErrorState
+    ? (groupsError instanceof Error ? groupsError.message : 'Failed to load how-to groups.')
+    : (guidesError instanceof Error ? guidesError.message : 'Failed to load how-to guides.');
 
   const groupMap = useMemo(() => {
     const map = new Map<string, HowToGroup>();
@@ -1894,6 +1911,26 @@ export default function HowToGuidesPage() {
         </div>
 
         <div className="px-3 sm:px-8 py-4 sm:py-6 space-y-4 sm:space-y-5">
+          {hasDataLoadError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50/80 px-4 py-3 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-rose-700">How-To data failed to load</p>
+                  <p className="mt-0.5 text-xs text-rose-700/90 break-words">{dataLoadErrorMessage}</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0"
+                  onClick={() => { void refetchGroups(); void refetchGuides(); }}
+                >
+                  Retry
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 shadow-sm">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(142_30%_35%)]">

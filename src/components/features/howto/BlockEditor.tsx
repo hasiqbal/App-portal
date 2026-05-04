@@ -116,7 +116,7 @@ export function BlockEditor({ block, onChange, disabled }: Props) {
     onChange({ ...block, kind, payload: blockKindDefaults(kind) });
   };
 
-  const meta = KIND_META[block.kind];
+  const meta = blockKindMeta(block.kind);
 
   return (
     <div className={`rounded-lg border p-3 space-y-3 ${meta.accent}`}>

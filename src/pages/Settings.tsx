@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '#/components/layout/Sidebar';
 import { supabase, supabaseAdmin } from '#/lib/supabase';
+import { isMasjidSettingsMissingError, markMasjidSettingsMissing, shouldSkipMasjidSettingsRequests } from '#/lib/masjidSettingsCompat';
 import { toast } from 'sonner';
 import { Settings2, MapPin, Phone, Globe, Share2, Clock, Save, Loader2, RefreshCw, Lock, Eye, EyeOff } from 'lucide-react';
 import { Button } from '#/components/ui/button';
@@ -176,8 +177,21 @@ const Settings = () => {
 
   const fetchSettings = async () => {
     setLoading(true);
+    if (shouldSkipMasjidSettingsRequests()) {
+      setSettings([]);
+      setLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase.from('masjid_settings').select('*').order('category').order('key');
-    if (error) { toast.error('Failed to load settings.'); }
+    if (error) {
+      if (isMasjidSettingsMissingError(error)) {
+        markMasjidSettingsMissing();
+        setSettings([]);
+      } else {
+        toast.error('Failed to load settings.');
+      }
+    }
     else { setSettings(data as Setting[]); }
     setLoading(false);
   };
@@ -190,6 +204,10 @@ const Settings = () => {
 
   const handleSave = async () => {
     if (Object.keys(pending).length === 0) { toast.info('No changes to save.'); return; }
+    if (shouldSkipMasjidSettingsRequests()) {
+      toast.error('Settings table is unavailable on this backend.');
+      return;
+    }
     setSaving(true);
     try {
       await Promise.all(
@@ -201,8 +219,13 @@ const Settings = () => {
       setSettings((prev) => prev.map((s) => (pending[s.key] !== undefined ? { ...s, value: pending[s.key] } : s)));
       setPending({});
       toast.success('Settings saved.');
-    } catch {
-      toast.error('Failed to save settings.');
+    } catch (error) {
+      if (isMasjidSettingsMissingError(error)) {
+        markMasjidSettingsMissing();
+        toast.error('Settings table is unavailable on this backend.');
+      } else {
+        toast.error('Failed to save settings.');
+      }
     } finally {
       setSaving(false);
     }

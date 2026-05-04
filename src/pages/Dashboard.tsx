@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import masjidPhoto from '#/assets/masjid-photo.png';
 import { supabaseAdmin } from '#/lib/supabase';
+import { isMasjidSettingsMissingError, markMasjidSettingsMissing, shouldSkipMasjidSettingsRequests } from '#/lib/masjidSettingsCompat';
 import masjidLogo from '#/assets/masjid-logo.png';
 import { fetchEidPrayers, EidPrayer, EidType } from '#/components/features/EidTimesModal';
 import { isBST, gregorianToHijri } from '#/lib/dateUtils';
@@ -523,12 +524,23 @@ const Dashboard = () => {
   useEffect(() => {
     if (hijriOffsetFetched.current) return;
     hijriOffsetFetched.current = true;
+
+    if (shouldSkipMasjidSettingsRequests()) return;
+
     supabaseAdmin
       .from('masjid_settings')
       .select('value')
       .eq('key', 'hijri_offset')
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          if (isMasjidSettingsMissingError(error)) {
+            markMasjidSettingsMissing();
+            return;
+          }
+          return;
+        }
+
         if (data?.value !== null && data?.value !== undefined) {
           const n = parseInt(data.value, 10);
           if (!isNaN(n)) setHijriOffset(n);

@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { isBST } from '#/lib/dateUtils';
 import { supabaseAdmin } from '#/lib/supabase';
+import { isMasjidSettingsMissingError, markMasjidSettingsMissing, shouldSkipMasjidSettingsRequests } from '#/lib/masjidSettingsCompat';
 import React from 'react';
 import EidTimesModal, { fetchEidPrayers, EidPrayer } from '#/components/features/EidTimesModal';
 import {
@@ -731,6 +732,8 @@ async function saveMonthOverridesForYear(
 // â”€â”€â”€ Hijri offset DB helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function saveOffsetToDb(n: number): Promise<{ ok: boolean }> {
+  if (shouldSkipMasjidSettingsRequests()) return { ok: false };
+
   try {
     const nowIso = new Date().toISOString();
     const payload = {
@@ -749,6 +752,10 @@ async function saveOffsetToDb(n: number): Promise<{ ok: boolean }> {
       .limit(1);
 
     if (existingErr) {
+      if (isMasjidSettingsMissingError(existingErr)) {
+        markMasjidSettingsMissing();
+        return { ok: false };
+      }
       console.error('[HijriOffset] Existing row check failed:', existingErr.message);
       return { ok: false };
     }
@@ -759,6 +766,10 @@ async function saveOffsetToDb(n: number): Promise<{ ok: boolean }> {
         .update(payload)
         .eq('id', existingRows[0].id);
       if (updateErr) {
+        if (isMasjidSettingsMissingError(updateErr)) {
+          markMasjidSettingsMissing();
+          return { ok: false };
+        }
         console.error('[HijriOffset] DB update failed:', updateErr.message);
         return { ok: false };
       }
@@ -767,6 +778,10 @@ async function saveOffsetToDb(n: number): Promise<{ ok: boolean }> {
         .from('masjid_settings')
         .insert(payload);
       if (insertErr) {
+        if (isMasjidSettingsMissingError(insertErr)) {
+          markMasjidSettingsMissing();
+          return { ok: false };
+        }
         console.error('[HijriOffset] DB insert failed:', insertErr.message);
         return { ok: false };
       }
@@ -781,6 +796,8 @@ async function saveOffsetToDb(n: number): Promise<{ ok: boolean }> {
 }
 
 async function loadOffsetFromDb(): Promise<number> {
+  if (shouldSkipMasjidSettingsRequests()) return 0;
+
   try {
     const { data, error } = await supabaseAdmin
       .from('masjid_settings')
@@ -788,6 +805,11 @@ async function loadOffsetFromDb(): Promise<number> {
       .eq('key', 'hijri_offset')
       .order('updated_at', { ascending: false })
       .limit(20);
+
+    if (error && isMasjidSettingsMissingError(error)) {
+      markMasjidSettingsMissing();
+      return 0;
+    }
 
     if (!error && Array.isArray(data) && data.length > 0) {
       for (const row of data) {

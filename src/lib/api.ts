@@ -566,17 +566,21 @@ export async function fetchAdhkar(
   category?: string,
   options?: { contentTypes?: AdhkarContentType[] }
 ): Promise<Dhikr[]> {
-  const baseSelect = 'id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,sections,is_active,tafsir,description,file_url,content_type,created_at,updated_at';
+  const legacySelect = 'id,title,arabic_title,arabic,transliteration,translation,urdu_translation,reference,count,prayer_time,group_name,group_order,display_order,sections,is_active,created_at,updated_at';
+  const baseSelect = `${legacySelect},tafsir,description,file_url,content_type`;
   const extendedSelect = `${baseSelect},content_source,content_key`;
 
-  const buildQuery = (selectClause: string) => {
+  const buildQuery = (selectClause: string, includeCreatedOrder = true) => {
     let query = supabase
       .from('adhkar')
       .select(selectClause)
       .order('prayer_time', { ascending: true })
       .order('group_order', { ascending: true })
-      .order('display_order', { ascending: true })
-      .order('created_at', { ascending: true });
+      .order('display_order', { ascending: true });
+
+    if (includeCreatedOrder) {
+      query = query.order('created_at', { ascending: true });
+    }
 
     if (category) {
       query = query.eq('prayer_time', category);
@@ -589,15 +593,27 @@ export async function fetchAdhkar(
     return query;
   };
 
-  let { data, error } = await buildQuery(extendedSelect);
+  const attempts: Array<{ selectClause: string; includeCreatedOrder: boolean }> = [
+    { selectClause: extendedSelect, includeCreatedOrder: true },
+    { selectClause: baseSelect, includeCreatedOrder: true },
+    { selectClause: legacySelect, includeCreatedOrder: false },
+  ];
 
-  if (error && /content_source|content_key/i.test(error.message)) {
-    const fallback = await buildQuery(baseSelect);
-    data = fallback.data;
-    error = fallback.error;
+  let data: any[] | null = null;
+  let lastError: Error | null = null;
+
+  for (const attempt of attempts) {
+    const result = await buildQuery(attempt.selectClause, attempt.includeCreatedOrder);
+    if (!result.error) {
+      data = (result.data ?? []) as any[];
+      lastError = null;
+      break;
+    }
+    lastError = result.error;
   }
 
-  if (error) throw new Error(`Failed to fetch adhkar: ${error.message}`);
+  if (lastError) throw new Error(`Failed to fetch adhkar: ${lastError.message}`);
+
   return (data ?? []).map((row) => ({
     ...row,
     count: String(row.count ?? ''),

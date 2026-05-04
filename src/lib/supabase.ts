@@ -1,8 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 
-// External Supabase database: lhaqqqatdztuijgdfdcf.supabase.co
-const SUPABASE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTkxMTksImV4cCI6MjA5MTE3NTExOX0.Z3MV96PflYqwoexwsoi7ma4yAO3og1juWWu9YWviLbU';
+const LEGACY_EXTERNAL_SUPABASE_URL = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
+const LEGACY_EXTERNAL_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTkxMTksImV4cCI6MjA5MTE3NTExOX0.Z3MV96PflYqwoexwsoi7ma4yAO3og1juWWu9YWviLbU';
+
+const SUPABASE_URL = (
+  import.meta.env.VITE_EXTERNAL_SUPABASE_URL
+  || LEGACY_EXTERNAL_SUPABASE_URL
+  || ''
+).trim();
+
+const SUPABASE_ANON_KEY = (
+  import.meta.env.VITE_EXTERNAL_SUPABASE_ANON_KEY
+  || LEGACY_EXTERNAL_SUPABASE_ANON_KEY
+  || ''
+).trim();
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error(
+    'Missing Supabase configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or VITE_EXTERNAL_SUPABASE_* overrides).',
+  );
+}
 
 /** Standard client — uses anon key + user JWT after login */
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -12,20 +29,18 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 export const supabaseAdmin = supabase;
 
 /**
- * OnSpace Cloud Supabase client — used for STORAGE operations only.
- * The adhkar-images bucket lives in OnSpace Cloud, not the external Supabase.
- * Uses VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY auto-configured by OnSpace.
+ * OnSpace Cloud Supabase client — used for storage workflows.
+ * Falls back to the main supabase client when dedicated OnSpace vars are not present.
  */
 export const onspaceCloud = createClient(
-  import.meta.env.VITE_SUPABASE_URL as string,
-  import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+  (import.meta.env.VITE_SUPABASE_URL as string) || SUPABASE_URL,
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || SUPABASE_ANON_KEY,
   { auth: { persistSession: false } },
 );
 
 /**
- * Invoke an edge function on the EXTERNAL Supabase instance (lhaqqqatdztuijgdfdcf).
- * This is needed because supabase.functions.invoke() routes to OnSpace Cloud,
- * not to the external Supabase project where our edge functions actually live.
+ * Invoke an edge function on the configured Supabase project.
+ * You can override function host via VITE_EXTERNAL_FUNCTIONS_BASE_URL when needed.
  */
 export async function invokeExternalFunction<T = unknown>(
   functionName: string,
@@ -34,9 +49,13 @@ export async function invokeExternalFunction<T = unknown>(
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token ?? SUPABASE_ANON_KEY;
+    const functionsBaseUrl = (
+      import.meta.env.VITE_EXTERNAL_FUNCTIONS_BASE_URL
+      || `${SUPABASE_URL}/functions/v1`
+    ).replace(/\/$/, '');
 
     const res = await fetch(
-      `${SUPABASE_URL}/functions/v1/${functionName}`,
+      `${functionsBaseUrl}/${functionName}`,
       {
         method: 'POST',
         headers: {
