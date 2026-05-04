@@ -23,7 +23,7 @@ const ALL_NAV_ITEMS = [
   { to: '/notifications',     icon: BellRing,        label: 'Notifications',    adminOnly: false },
 
   { to: '/users',             icon: Users,           label: 'User Management',  adminOnly: true  },
-  { to: '/hadith-includes',   icon: BookOpen,        label: 'Hadith Includes',  adminOnly: true  },
+  { to: '/hadith-includes',   icon: BookOpen,        label: 'Hadith Random Pool',  adminOnly: true  },
   { to: '/settings',          icon: Settings2,       label: 'Settings',         adminOnly: true  },
   { to: '/cloud-data',        icon: Database,        label: 'Cloud Data',       adminOnly: true  },
 ];

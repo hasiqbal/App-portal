@@ -486,6 +486,23 @@ export interface HadithInclusionRule {
 
 export type HadithInclusionRulePayload = Omit<HadithInclusionRule, 'id' | 'created_at' | 'updated_at'>;
 
+export type HadithScrapeCollectionKey = 'adab' | 'riyadussalihin' | 'shamail';
+
+export interface HadithScrapeTarget {
+  id: string;
+  collection_key: HadithScrapeCollectionKey;
+  book_number: number;
+  hadith_number: number;
+  enabled: boolean;
+  weight: number;
+  display_order: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type HadithScrapeTargetPayload = Omit<HadithScrapeTarget, 'id' | 'created_at' | 'updated_at'>;
+
 export const GROUP_COLOR_PRESETS = [
   { bg: '#6366f1', label: 'Indigo' },
   { bg: '#8b5cf6', label: 'Purple' },

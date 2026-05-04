@@ -14,6 +14,8 @@ import {
   DonationOptionPayload,
   HadithInclusionRule,
   HadithInclusionRulePayload,
+  HadithScrapeTarget,
+  HadithScrapeTargetPayload,
   IslamicCalendarEvent,
   IslamicCalendarEventPayload,
   IslamicCalendarEventType,
@@ -1920,6 +1922,42 @@ export async function replaceHadithInclusionRules(
 
   if (error) throw new Error(`Failed to save hadith inclusion rules: ${error.message}`);
   return (data ?? []) as HadithInclusionRule[];
+}
+
+export async function fetchHadithScrapeTargets(): Promise<HadithScrapeTarget[]> {
+  const { data, error } = await supabase
+    .from('hadith_scrape_targets')
+    .select('*')
+    .order('display_order', { ascending: true })
+    .order('collection_key', { ascending: true })
+    .order('book_number', { ascending: true })
+    .order('hadith_number', { ascending: true });
+
+  if (error) throw new Error(`Failed to fetch hadith scrape targets: ${error.message}`);
+  return (data ?? []) as HadithScrapeTarget[];
+}
+
+export async function replaceHadithScrapeTargets(
+  targets: HadithScrapeTargetPayload[],
+): Promise<HadithScrapeTarget[]> {
+  const { error: deleteError } = await supabaseAdmin
+    .from('hadith_scrape_targets')
+    .delete()
+    .not('id', 'is', null);
+
+  if (deleteError) {
+    throw new Error(`Failed to clear hadith scrape targets: ${deleteError.message}`);
+  }
+
+  if (targets.length === 0) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from('hadith_scrape_targets')
+    .insert(targets)
+    .select('*');
+
+  if (error) throw new Error(`Failed to save hadith scrape targets: ${error.message}`);
+  return (data ?? []) as HadithScrapeTarget[];
 }
 
 // ─── Bulk prayer time helpers ────────────────────────────────────────────────

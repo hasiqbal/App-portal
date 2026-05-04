@@ -1,103 +1,106 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpenCheck, Loader2, RefreshCw, Save } from 'lucide-react';
+import { BookOpenCheck, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import Sidebar from '#/components/layout/Sidebar';
 import { Button } from '#/components/ui/button';
 import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { toast } from 'sonner';
 import {
-  fetchHadithInclusionRules,
-  replaceHadithInclusionRules,
+  fetchHadithScrapeTargets,
+  replaceHadithScrapeTargets,
 } from '#/lib/api';
-import type { HadithInclusionRulePayload, HadithInclusionRule } from '#/types';
+import type {
+  HadithScrapeCollectionKey,
+  HadithScrapeTarget,
+  HadithScrapeTargetPayload,
+} from '#/types';
 
-type BookConfig = {
-  key: string;
+type CollectionConfig = {
+  key: HadithScrapeCollectionKey;
   label: string;
-  englishEdition: string;
+  pathPattern: string;
 };
 
-const BOOKS: BookConfig[] = [
-  { key: 'nawawi', label: 'Nawawi 40', englishEdition: 'eng-nawawi' },
-  { key: 'bukhari', label: 'Bukhari', englishEdition: 'eng-bukhari' },
-  { key: 'muslim', label: 'Muslim', englishEdition: 'eng-muslim' },
-  { key: 'abudawud', label: 'Abu Dawud', englishEdition: 'eng-abudawud' },
-  { key: 'tirmidhi', label: 'Tirmidhi', englishEdition: 'eng-tirmidhi' },
-  { key: 'nasai', label: 'Nasai', englishEdition: 'eng-nasai' },
-  { key: 'ibnmajah', label: 'Ibn Majah', englishEdition: 'eng-ibnmajah' },
+const COLLECTIONS: CollectionConfig[] = [
+  { key: 'adab', label: 'Al-Adab Al-Mufrad', pathPattern: '/adab/{book}/{hadith}' },
+  { key: 'riyadussalihin', label: 'Riyad as-Salihin', pathPattern: '/riyadussalihin/{book}/{hadith}' },
+  { key: 'shamail', label: 'Ash-Shama\'il Al-Muhammadiyah', pathPattern: '/shamail/{book}/{hadith}' },
 ];
 
-type FormRow = {
+type EditableTarget = {
+  localId: string;
+  id?: string;
+  collection_key: HadithScrapeCollectionKey;
+  book_number: string;
+  hadith_number: string;
   enabled: boolean;
-  sectionsCsv: string;
+  weight: string;
+  notes: string;
 };
 
-function buildDefaultForm(): Record<string, FormRow> {
-  return Object.fromEntries(BOOKS.map((book) => [
-    book.key,
-    { enabled: true, sectionsCsv: '' },
-  ]));
-}
-
-function parseSectionsCsv(value: string): number[] {
-  if (!value.trim()) return [];
-  const set = new Set<number>();
-
-  for (const token of value.split(',').map((part) => part.trim()).filter(Boolean)) {
-    if (token.includes('-')) {
-      const [rawStart, rawEnd] = token.split('-').map((part) => Number(part.trim()));
-      if (Number.isInteger(rawStart) && Number.isInteger(rawEnd) && rawStart > 0 && rawEnd >= rawStart) {
-        for (let i = rawStart; i <= rawEnd; i += 1) set.add(i);
-      }
-      continue;
-    }
-
-    const n = Number(token);
-    if (Number.isInteger(n) && n > 0) set.add(n);
+function nextLocalId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
   }
 
-  return [...set].sort((a, b) => a - b);
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function formatSectionRules(rules: HadithInclusionRule[]): string {
-  const values = rules
-    .filter((rule) => rule.include_scope === 'section' && typeof rule.section_number === 'number')
-    .map((rule) => rule.section_number as number)
-    .sort((a, b) => a - b);
-  return values.join(', ');
+function createEmptyRow(collectionKey: HadithScrapeCollectionKey = 'adab'): EditableTarget {
+  return {
+    localId: nextLocalId(),
+    collection_key: collectionKey,
+    book_number: '1',
+    hadith_number: '1',
+    enabled: true,
+    weight: '1',
+    notes: '',
+  };
+}
+
+function mapTargetToEditable(row: HadithScrapeTarget): EditableTarget {
+  return {
+    localId: row.id,
+    id: row.id,
+    collection_key: row.collection_key,
+    book_number: String(row.book_number),
+    hadith_number: String(row.hadith_number),
+    enabled: row.enabled,
+    weight: String(row.weight),
+    notes: row.notes ?? '',
+  };
+}
+
+function buildSunnahUrl(row: EditableTarget): string {
+  return `https://sunnah.com/${row.collection_key}/${row.book_number}/${row.hadith_number}`;
+}
+
+function labelForCollection(key: HadithScrapeCollectionKey): string {
+  return COLLECTIONS.find((c) => c.key === key)?.label ?? key;
 }
 
 export default function HadithIncludes() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [rules, setRules] = useState<HadithInclusionRule[]>([]);
-  const [form, setForm] = useState<Record<string, FormRow>>(buildDefaultForm());
+  const [targets, setTargets] = useState<EditableTarget[]>([]);
+  const [persistedCount, setPersistedCount] = useState(0);
 
-  const loadRules = async () => {
+  const loadTargets = async () => {
     setLoading(true);
     try {
-      const rows = await fetchHadithInclusionRules();
-      setRules(rows);
-
+      const rows = await fetchHadithScrapeTargets();
+      setPersistedCount(rows.length);
       if (rows.length === 0) {
-        setForm(buildDefaultForm());
-        return;
+        setTargets([
+          createEmptyRow('adab'),
+          createEmptyRow('riyadussalihin'),
+          createEmptyRow('shamail'),
+        ]);
+      } else {
+        setTargets(rows.map((row) => mapTargetToEditable(row)));
       }
-
-      const next = buildDefaultForm();
-      for (const book of BOOKS) {
-        const bookRules = rows.filter((rule) => rule.collection_key === book.key && rule.enabled);
-        const hasBookRule = bookRules.some((rule) => rule.include_scope === 'book');
-        const sectionCsv = formatSectionRules(bookRules);
-        next[book.key] = {
-          enabled: hasBookRule || sectionCsv.length > 0,
-          sectionsCsv: sectionCsv,
-        };
-      }
-
-      setForm(next);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load hadith include rules.';
+      const message = error instanceof Error ? error.message : 'Failed to load hadith scrape targets.';
       toast.error(message);
     } finally {
       setLoading(false);
@@ -105,73 +108,83 @@ export default function HadithIncludes() {
   };
 
   useEffect(() => {
-    void loadRules();
+    void loadTargets();
   }, []);
 
-  const includedCount = useMemo(
-    () => BOOKS.filter((book) => form[book.key]?.enabled).length,
-    [form],
-  );
+  const enabledCount = useMemo(() => targets.filter((row) => row.enabled).length, [targets]);
 
-  const handleToggle = (key: string, enabled: boolean) => {
-    setForm((prev) => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        enabled,
-      },
-    }));
+  const updateTarget = (localId: string, patch: Partial<EditableTarget>) => {
+    setTargets((prev) => prev.map((row) => (
+      row.localId === localId
+        ? { ...row, ...patch }
+        : row
+    )));
   };
 
-  const handleSectionsChange = (key: string, sectionsCsv: string) => {
-    setForm((prev) => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        sectionsCsv,
-      },
-    }));
+  const addRow = () => {
+    setTargets((prev) => [...prev, createEmptyRow('adab')]);
+  };
+
+  const removeRow = (localId: string) => {
+    setTargets((prev) => prev.filter((row) => row.localId !== localId));
   };
 
   const handleSave = async () => {
-    const payload: HadithInclusionRulePayload[] = [];
+    const payload: HadithScrapeTargetPayload[] = [];
+    const dedupe = new Set<string>();
 
-    for (const book of BOOKS) {
-      const row = form[book.key];
-      if (!row?.enabled) continue;
+    for (let index = 0; index < targets.length; index += 1) {
+      const row = targets[index];
+      const book = Number(row.book_number);
+      const hadith = Number(row.hadith_number);
+      const weight = Number(row.weight);
+
+      if (!Number.isInteger(book) || book <= 0) {
+        toast.error(`Row ${index + 1}: book number must be a positive integer.`);
+        return;
+      }
+
+      if (!Number.isInteger(hadith) || hadith <= 0) {
+        toast.error(`Row ${index + 1}: hadith number must be a positive integer.`);
+        return;
+      }
+
+      if (!Number.isInteger(weight) || weight <= 0) {
+        toast.error(`Row ${index + 1}: weight must be a positive integer.`);
+        return;
+      }
+
+      const dedupeKey = `${row.collection_key}:${book}:${hadith}`;
+      if (dedupe.has(dedupeKey)) {
+        toast.error(`Duplicate target found at row ${index + 1}: ${dedupeKey}`);
+        return;
+      }
+      dedupe.add(dedupeKey);
 
       payload.push({
-        collection_key: book.key,
-        edition_key: book.englishEdition,
-        include_scope: 'book',
-        section_number: null,
-        enabled: true,
+        collection_key: row.collection_key,
+        book_number: book,
+        hadith_number: hadith,
+        enabled: row.enabled,
+        weight,
+        display_order: (index + 1) * 10,
+        notes: row.notes.trim() || null,
       });
-
-      const sections = parseSectionsCsv(row.sectionsCsv);
-      for (const section of sections) {
-        payload.push({
-          collection_key: book.key,
-          edition_key: book.englishEdition,
-          include_scope: 'section',
-          section_number: section,
-          enabled: true,
-        });
-      }
     }
 
-    if (payload.length === 0) {
-      toast.error('Select at least one book. Empty rules would default back to all books.');
+    if (targets.length === 0) {
+      toast.error('Add at least one scrape target before saving.');
       return;
     }
 
     setSaving(true);
     try {
-      const updated = await replaceHadithInclusionRules(payload);
-      setRules(updated);
-      toast.success('Hadith include rules saved.');
+      const updated = await replaceHadithScrapeTargets(payload);
+      setPersistedCount(updated.length);
+      setTargets(updated.map((row) => mapTargetToEditable(row)));
+      toast.success('Hadith scrape target pool saved.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save include rules.';
+      const message = error instanceof Error ? error.message : 'Failed to save scrape targets.';
       toast.error(message);
     } finally {
       setSaving(false);
@@ -190,20 +203,23 @@ export default function HadithIncludes() {
                 <BookOpenCheck size={20} className="text-[hsl(142_60%_32%)]" />
               </div>
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Hadith Include Controls</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">Hadith Random Scrape Pool</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Daily random hadith will be selected only from included books and sections.
+                  Daily random scrape runs against curated sunnah.com targets for adab, riyadussalihin, and shamail.
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={loadRules} disabled={loading} className="gap-2">
+              <Button variant="outline" size="sm" onClick={loadTargets} disabled={loading} className="gap-2">
                 <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+              </Button>
+              <Button variant="outline" size="sm" onClick={addRow} disabled={loading || saving} className="gap-2">
+                <Plus size={14} /> Add Row
               </Button>
               <Button size="sm" onClick={handleSave} disabled={loading || saving} className="gap-2">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                {saving ? 'Saving…' : 'Save Rules'}
+                {saving ? 'Saving…' : 'Save Targets'}
               </Button>
             </div>
           </div>
@@ -211,58 +227,129 @@ export default function HadithIncludes() {
 
         <div className="px-4 sm:px-8 py-6 max-w-4xl space-y-4">
           <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 text-sm text-[hsl(150_20%_28%)]">
-            Included books: <strong>{includedCount}</strong> / {BOOKS.length}. 
-            If no rules exist, the backend defaults to all books.
+            Enabled targets: <strong>{enabledCount}</strong> / {targets.length}. Persisted rows: <strong>{persistedCount}</strong>.
+          </div>
+
+          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-white px-4 py-3 text-xs text-[hsl(150_20%_28%)] space-y-1">
+            {COLLECTIONS.map((collection) => (
+              <p key={collection.key}>
+                <strong>{collection.label}</strong>: {collection.pathPattern}
+              </p>
+            ))}
           </div>
 
           {loading ? (
             <div className="flex items-center justify-center h-48 gap-3 text-muted-foreground">
               <Loader2 size={20} className="animate-spin text-[hsl(142_60%_35%)]" />
-              <span className="text-sm">Loading include rules…</span>
+              <span className="text-sm">Loading scrape targets…</span>
             </div>
           ) : (
             <div className="space-y-3">
-              {BOOKS.map((book) => (
-                <div key={book.key} className="rounded-xl border border-[hsl(140_20%_88%)] bg-white px-4 py-4">
-                  <div className="flex items-center justify-between gap-3">
+              {targets.map((target, index) => (
+                <div key={target.localId} className="rounded-xl border border-[hsl(140_20%_88%)] bg-white px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-semibold text-[hsl(150_30%_18%)]">{book.label}</p>
-                      <p className="text-xs text-muted-foreground">Collection key: {book.key}</p>
+                      <p className="font-semibold text-[hsl(150_30%_18%)]">Target #{index + 1}</p>
+                      <p className="text-xs text-muted-foreground">{labelForCollection(target.collection_key)}</p>
                     </div>
 
-                    <Label className="inline-flex items-center gap-2 text-sm font-medium">
-                      <input
-                        type="checkbox"
-                        checked={form[book.key]?.enabled ?? false}
-                        onChange={(e) => handleToggle(book.key, e.target.checked)}
-                      />
-                      Include this book
-                    </Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeRow(target.localId)}
+                      disabled={targets.length <= 1 || saving}
+                      className="gap-2"
+                    >
+                      <Trash2 size={14} /> Remove
+                    </Button>
                   </div>
 
-                  <div className="mt-3 space-y-1.5">
-                    <Label className="text-xs text-[hsl(150_30%_18%)]">
-                      Included sections (optional) — CSV or ranges like 1,3,7-10
-                    </Label>
-                    <Input
-                      value={form[book.key]?.sectionsCsv ?? ''}
-                      onChange={(e) => handleSectionsChange(book.key, e.target.value)}
-                      placeholder="Leave blank to include all sections for this book"
-                      disabled={!form[book.key]?.enabled}
-                    />
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Collection</Label>
+                      <select
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={target.collection_key}
+                        onChange={(e) => updateTarget(target.localId, { collection_key: e.target.value as HadithScrapeCollectionKey })}
+                        disabled={saving}
+                      >
+                        {COLLECTIONS.map((collection) => (
+                          <option key={collection.key} value={collection.key}>{collection.key}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Book #</Label>
+                      <Input
+                        value={target.book_number}
+                        onChange={(e) => updateTarget(target.localId, { book_number: e.target.value })}
+                        inputMode="numeric"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Hadith #</Label>
+                      <Input
+                        value={target.hadith_number}
+                        onChange={(e) => updateTarget(target.localId, { hadith_number: e.target.value })}
+                        inputMode="numeric"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Weight</Label>
+                      <Input
+                        value={target.weight}
+                        onChange={(e) => updateTarget(target.localId, { weight: e.target.value })}
+                        inputMode="numeric"
+                        disabled={saving}
+                      />
+                    </div>
                   </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Notes (optional)</Label>
+                      <Input
+                        value={target.notes}
+                        onChange={(e) => updateTarget(target.localId, { notes: e.target.value })}
+                        placeholder="Optional context for this target"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Preview URL</Label>
+                      <p className="text-xs rounded-md border border-[hsl(140_20%_88%)] px-3 py-2 bg-[hsl(142_50%_97%)] break-all">
+                        {buildSunnahUrl(target)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <Label className="mt-3 inline-flex items-center gap-2 text-xs font-medium">
+                    <input
+                      type="checkbox"
+                      checked={target.enabled}
+                      onChange={(e) => updateTarget(target.localId, { enabled: e.target.checked })}
+                      disabled={saving}
+                    />
+                    Enable this target
+                  </Label>
                 </div>
               ))}
             </div>
           )}
 
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-            Keyword safety filters are hardcoded in the daily edge function and apply only to random daily selection.
+            Daily picker chooses one UTC-day random target globally from enabled rows. If scrape fails, backend retries other targets before returning noCandidate.
           </div>
 
-          {!!rules.length && (
+          {!!persistedCount && (
             <p className="text-xs text-muted-foreground">
-              Persisted rules in DB: {rules.length}
+              Persisted targets in DB: {persistedCount}
             </p>
           )}
         </div>
