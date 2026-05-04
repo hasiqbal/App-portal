@@ -97,6 +97,7 @@ type StepDraft = {
 type SectionDraft = {
   section_order: number;
   heading: string;
+  collapsed?: boolean;
   steps: StepDraft[];
 };
 
@@ -799,6 +800,7 @@ export default function HowToGuidesPage() {
       const nextSections: SectionDraft[] = (tree?.sections ?? []).map((item, sectionIndex) => ({
         section_order: item.section.section_order ?? sectionIndex,
         heading: item.section.heading,
+        collapsed: true,
         steps: item.steps.map((stepItem, stepIndex) => ({
           step_id: stepItem.step.id,
           step_order: stepItem.step.step_order ?? stepIndex,
@@ -919,6 +921,7 @@ export default function HowToGuidesPage() {
       {
         section_order: prev.length,
         heading: `Section ${prev.length + 1}`,
+        collapsed: true,
         steps: [],
       },
     ]));
@@ -2744,6 +2747,14 @@ export default function HowToGuidesPage() {
                     <span className="w-6 h-6 rounded-full bg-white/20 ring-1 ring-white/30 flex items-center justify-center text-xs font-bold">{sectionIndex + 1}</span>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/90">Section</p>
                     <div className="ml-auto flex items-center gap-1">
+                      <button
+                        className="h-8 px-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 flex items-center gap-1 text-white text-xs font-medium"
+                        onClick={() => setTreeSections((prev) => prev.map((item, idx) => idx === sectionIndex ? { ...item, collapsed: !item.collapsed } : item))}
+                        title={section.collapsed ? 'Expand section' : 'Collapse section'}
+                        aria-label={section.collapsed ? 'Expand section' : 'Collapse section'}
+                      >
+                        {section.collapsed ? 'Expand' : 'Collapse'}
+                      </button>
                       <button className="h-8 w-8 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 flex items-center justify-center text-white" disabled={sectionIndex === 0 || !canEdit} onClick={() => moveSection(sectionIndex, sectionIndex - 1)} title="Move up" aria-label="Move section up">↑</button>
                       <button className="h-8 w-8 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 flex items-center justify-center text-white" disabled={sectionIndex === treeSections.length - 1 || !canEdit} onClick={() => moveSection(sectionIndex, sectionIndex + 1)} title="Move down" aria-label="Move section down">↓</button>
                       <button
@@ -2757,7 +2768,15 @@ export default function HowToGuidesPage() {
                     </div>
                   </div>
 
-                  <div className="p-3 sm:p-4 space-y-4">
+                  {section.collapsed ? (
+                    <div className="px-3 sm:px-4 py-3 bg-[hsl(140_25%_97%)] border-t border-[hsl(140_20%_90%)]">
+                      <p className="text-xs text-muted-foreground">
+                        {section.heading || `Section ${sectionIndex + 1}`} - collapsed ({section.steps.length} {section.steps.length === 1 ? 'step' : 'steps'} hidden)
+                      </p>
+                    </div>
+                  ) : null}
+
+                  <div className={section.collapsed ? 'hidden' : 'p-3 sm:p-4 space-y-4'}>
                   <div>
                     <Label>Section Heading <span className="text-rose-600">*</span></Label>
                     <Input
