@@ -512,7 +512,7 @@ export default function HowToGuidesPage() {
   const urduLabelsBackfillStartedRef = useRef(false);
   const urduLabelsBackfillRunningRef = useRef(false);
   const urduPreviewRequestRef = useRef(0);
-  const englishFilterAutoResetRef = useRef(false);
+  const guideFilterAutoResetRef = useRef<Record<EditingLanguage, boolean>>({ en: false, ur: false });
   const treeSavedSnapshotRef = useRef('');
 
   const activeFilters = filtersByLanguage[activeEditingLanguage];
@@ -627,29 +627,28 @@ export default function HowToGuidesPage() {
   };
 
   useEffect(() => {
-    if (activeEditingLanguage !== 'en') {
-      englishFilterAutoResetRef.current = false;
-      return;
-    }
+    if (guidesInActiveLanguage.length === 0) return;
 
-    if (englishGuides.length === 0) return;
     if (filteredGuides.length > 0) {
-      englishFilterAutoResetRef.current = false;
+      guideFilterAutoResetRef.current[activeEditingLanguage] = false;
       return;
     }
-    if (!hasActiveGuideFilters) return;
-    if (englishFilterAutoResetRef.current) return;
 
-    englishFilterAutoResetRef.current = true;
+    if (!hasActiveGuideFilters) return;
+    if (guideFilterAutoResetRef.current[activeEditingLanguage]) return;
+
+    guideFilterAutoResetRef.current[activeEditingLanguage] = true;
     setFiltersByLanguage((prev) => ({
       ...prev,
-      en: { ...EMPTY_GUIDE_FILTERS },
+      [activeEditingLanguage]: { ...EMPTY_GUIDE_FILTERS },
     }));
-    toast.warning('English guides were hidden by filters. Filters have been reset.');
+
+    const languageLabel = activeEditingLanguage === 'ur' ? 'Urdu' : 'English';
+    toast.warning(`${languageLabel} guides were hidden by filters. Filters have been reset.`);
   }, [
     activeEditingLanguage,
-    englishGuides.length,
     filteredGuides.length,
+    guidesInActiveLanguage.length,
     hasActiveGuideFilters,
   ]);
 
