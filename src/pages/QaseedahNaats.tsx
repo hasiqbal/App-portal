@@ -1689,7 +1689,7 @@ function buildBulkLanguageBlocksFromSections(sections: unknown): BulkLanguageBlo
       || lockTranslit
       || lockEnglish
       || lockUrdu
-      typeof savedArabic === 'string'
+      || typeof savedArabic === 'string'
       || typeof savedTranslit === 'string'
       || typeof savedEnglish === 'string'
       || typeof savedUrdu === 'string';

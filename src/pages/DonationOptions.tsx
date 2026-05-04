@@ -303,7 +303,7 @@ const DonationOptions = () => {
       return;
     }
 
-    if (!window.confirm(`Delete donation option \"${option.title}\" permanently?`)) {
+    if (!window.confirm(`Delete donation option "${option.title}" permanently?`)) {
       return;
     }
 

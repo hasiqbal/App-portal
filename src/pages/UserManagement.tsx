@@ -12,26 +12,17 @@ import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '#/components/ui/dialog';
 import Sidebar from '#/components/layout/Sidebar';
-import { supabaseAdmin } from '#/lib/supabase';
+import { invokeExternalFunction, supabaseAdmin } from '#/lib/supabase';
 import { useAuth, logActivity } from '#/hooks/useAuth';
 import { toast } from 'sonner';
 
-// ─── External Supabase — read activity logs from here ────────────────────────
-const ONSPACE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
-const ONSPACE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
-
 async function fetchActivityLogs(): Promise<ActivityLog[]> {
-  const res = await fetch(
-    `${ONSPACE_URL}/rest/v1/activity_log?select=*&order=created_at.desc&limit=500`,
-    {
-      headers: {
-        'apikey':        ONSPACE_ANON_KEY,
-        'Authorization': `Bearer ${ONSPACE_ANON_KEY}`,
-      },
-    }
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const { data, error } = await invokeExternalFunction<ActivityLog[]>('portal-auth', {
+    action: 'listActivityLogs',
+    limit: 500,
+  });
+  if (error) throw new Error(error);
+  return Array.isArray(data) ? data : [];
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

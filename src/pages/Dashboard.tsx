@@ -511,6 +511,7 @@ function getFallbackHijriDate(offsetDays = 0): string {
 
 const Dashboard = () => {
   const now = new Date();
+  const year = now.getFullYear();
   const month = now.getMonth() + 1;
   const day = now.getDate();
   const isFriday = now.getDay() === 5;
@@ -560,7 +561,7 @@ const Dashboard = () => {
   });
 
   const { data: yearPrayerTimes = [] } = useQuery({
-    queryKey: ['prayer-times-year-snapshot', now.getFullYear()],
+    queryKey: ['prayer-times-year-snapshot', year],
     queryFn: async () => {
       const months = await Promise.all(Array.from({ length: 12 }, (_, i) => fetchPrayerTimes(i + 1)));
       return months.flat();
@@ -575,12 +576,12 @@ const Dashboard = () => {
   });
 
   const { data: todayHijriDate = null } = useQuery({
-    queryKey: ['dashboard-today-hijri', now.getFullYear(), month, day],
+    queryKey: ['dashboard-today-hijri', year, month, day],
     queryFn: async () => {
       const { data, error } = await supabaseAdmin
         .from('hijri_calendar')
         .select('hijri_date')
-        .eq('gregorian_year', now.getFullYear())
+        .eq('gregorian_year', year)
         .eq('gregorian_month', month)
         .eq('gregorian_day', day)
         .maybeSingle();
@@ -591,13 +592,13 @@ const Dashboard = () => {
   });
 
   const { data: keyHijriCalendarRows = [] } = useQuery({
-    queryKey: ['dashboard-key-hijri-dates', now.getFullYear(), now.getFullYear() + 1],
+    queryKey: ['dashboard-key-hijri-dates', year, year + 1],
     queryFn: async () => {
       const { data, error } = await supabaseAdmin
         .from('hijri_calendar')
         .select('gregorian_year, gregorian_month, gregorian_day, hijri_date')
-        .gte('gregorian_year', now.getFullYear())
-        .lte('gregorian_year', now.getFullYear() + 1)
+        .gte('gregorian_year', year)
+        .lte('gregorian_year', year + 1)
         .order('gregorian_year', { ascending: true })
         .order('gregorian_month', { ascending: true })
         .order('gregorian_day', { ascending: true });
@@ -612,11 +613,11 @@ const Dashboard = () => {
   const activeAdhkar = adhkar.filter((a) => a.is_active);
 
   const jumuahRows = yearPrayerTimes.filter((row) => {
-    const date = new Date(now.getFullYear(), row.month - 1, row.day);
+    const date = new Date(year, row.month - 1, row.day);
     return date.getDay() === 5;
   });
-  const gmtJumuahRows = jumuahRows.filter((row) => !monthIsBstByMidMonth(now.getFullYear(), row.month));
-  const bstJumuahRows = jumuahRows.filter((row) => monthIsBstByMidMonth(now.getFullYear(), row.month));
+  const gmtJumuahRows = jumuahRows.filter((row) => !monthIsBstByMidMonth(year, row.month));
+  const bstJumuahRows = jumuahRows.filter((row) => monthIsBstByMidMonth(year, row.month));
   const gmtTimes = getDominantJumuahPair(gmtJumuahRows);
   const bstTimes = getDominantJumuahPair(bstJumuahRows);
 
@@ -641,7 +642,7 @@ const Dashboard = () => {
         .sort((a, b) => a.jamaat_number - b.jamaat_number)
     : [];
   const keyHijriDates = useMemo(() => {
-    const todayTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const todayTime = new Date(year, month - 1, day).getTime();
 
     return DASHBOARD_KEY_HIJRI_DATES.map((spec) => {
       const matches = keyHijriCalendarRows.filter((row) => {
@@ -660,7 +661,7 @@ const Dashboard = () => {
           : null,
       };
     });
-  }, [keyHijriCalendarRows, now]);
+  }, [day, keyHijriCalendarRows, month, year]);
 
   return (
     <div className="flex min-h-screen bg-[hsl(140_30%_97%)]">
@@ -691,7 +692,7 @@ const Dashboard = () => {
                   Jami' Masjid Noorani
                 </h1>
                 <p className="text-sm text-green-200 mt-0.5">
-                  Admin Portal · {dayName}, {MONTHS_FULL[now.getMonth()]} {now.getDate()}, {now.getFullYear()}
+                  Admin Portal · {dayName}, {MONTHS_FULL[month - 1]} {day}, {year}
                 </p>
                 <p className="text-xs text-green-300/80 mt-0.5">{hijriDate}</p>
                 <div className="flex items-center gap-2 flex-wrap mt-3">

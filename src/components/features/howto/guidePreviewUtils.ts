@@ -37,7 +37,7 @@ export type PreviewGuideBlock =
     };
 
 export const ARABIC_CHAR_REGEX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-export const ARABIC_SEGMENT_MATCH_REGEX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF][\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\s\u0640\u064B-\u065F\u0670\u06D6-\u06ED]*/g;
+export const ARABIC_SEGMENT_MATCH_REGEX = /\p{Script=Arabic}+/gu;
 
 const GUIDANCE_PREFIX_REGEX = /^(Note|Tip|Important|Reminder|Safety|Warning|Hanafi note|Fasting note|Key reminder)\s*:\s*/i;
 
@@ -149,7 +149,7 @@ const transliterateArabic = (text: string) => {
       prevLatin = latin;
       continue;
     }
-    if (/[.,;:!?()\[\]{}"'\-]/.test(ch)) {
+    if (/[.,;:!?()[\]{}"'-]/.test(ch)) {
       out += ch;
     }
   }

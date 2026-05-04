@@ -41,42 +41,12 @@ import {
 import { usePermissions } from '#/hooks/usePermissions';
 import { logActivity, useAuth } from '#/hooks/useAuth';
 
-// External Supabase config (same as supabase.ts)
-const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
-const EXT_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
-
-/**
- * Run raw SQL on the external Supabase via the pg REST SQL endpoint.
- * Requires service role key. Used only for schema migrations.
- */
 async function runExternalSql(sql: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const res = await fetch(`${EXT_URL}/rest/v1/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${EXT_SERVICE_KEY}`,
-        'apikey': EXT_SERVICE_KEY,
-        'Prefer': 'resolution=ignore-duplicates',
-      },
-      body: JSON.stringify({ query: sql }),
-    });
-    // Try the SQL API endpoint
-    const res2 = await fetch(`${EXT_URL}/pg/query`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${EXT_SERVICE_KEY}`,
-        'apikey': EXT_SERVICE_KEY,
-      },
-      body: JSON.stringify({ query: sql }),
-    });
-    if (res2.ok) return { ok: true };
-    const text = await res2.text().catch(() => '');
-    return { ok: false, error: text };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+  void sql;
+  return {
+    ok: false,
+    error: 'Automatic SQL migration is disabled in the client. Run the SQL manually in Supabase dashboard.',
+  };
 }
 
 // â”€â”€â”€ Schema migration: ensure hijri_calendar has all required columns â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1932,12 +1902,12 @@ const PrayerTimes = () => {
     staleTime: 30_000,
   });
 
-  const editablePrayerKeys: (keyof PrayerTimeUpdate)[] = [
+  const editablePrayerKeys = useMemo<(keyof PrayerTimeUpdate)[]>(() => [
     'fajr', 'fajr_jamat', 'sunrise', 'ishraq', 'zawaal',
     'zuhr', 'zuhr_jamat', 'asr', 'asr_jamat',
     'maghrib', 'maghrib_jamat', 'isha', 'isha_jamat',
     'jumu_ah_1', 'jumu_ah_2',
-  ];
+  ], []);
 
   const logPrayerActivity = useCallback((params: {
     action: string;

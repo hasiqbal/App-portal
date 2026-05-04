@@ -2,7 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 
 const SOURCE_URL = 'https://salawat.com/qasida-burda/';
 const SUPABASE_URL = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
-const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!SUPABASE_SERVICE_KEY) {
+  throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable.');
+}
 
 const chapterNames = [
   'Chapter One',

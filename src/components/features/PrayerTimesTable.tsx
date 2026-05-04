@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PrayerTime, HijriCalendarEntry, PrayerTimeUpdate } from '#/types';
 import { Pencil, ChevronDown, ChevronRight, Star } from 'lucide-react';
 import { getDayInfo } from '#/lib/dateUtils';
@@ -489,34 +489,38 @@ const PrayerTimesTable = ({
   const maxDay = data.reduce((max, row) => Math.max(max, row.day), 0);
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1;
   const currentDay = isCurrentMonth ? today.getDate() : null;
-  const weekRanges: Array<{ key: string; start: number; end: number; rows: PrayerTime[]; openByDefault: boolean }> = [];
+  const weekRanges = useMemo<Array<{ key: string; start: number; end: number; rows: PrayerTime[]; openByDefault: boolean }>>(() => {
+    const ranges: Array<{ key: string; start: number; end: number; rows: PrayerTime[]; openByDefault: boolean }> = [];
 
-  if (maxDay > 0) {
-    const firstEnd = Math.min(6, maxDay);
-    const firstRows = data.filter((row) => row.day >= 1 && row.day <= firstEnd);
-    if (firstRows.length > 0) {
-      weekRanges.push({
-        key: `1-${firstEnd}`,
-        start: 1,
-        end: firstEnd,
-        rows: firstRows,
-        openByDefault: currentDay ? (currentDay >= 1 && currentDay <= firstEnd) : true,
-      });
+    if (maxDay > 0) {
+      const firstEnd = Math.min(6, maxDay);
+      const firstRows = data.filter((row) => row.day >= 1 && row.day <= firstEnd);
+      if (firstRows.length > 0) {
+        ranges.push({
+          key: `1-${firstEnd}`,
+          start: 1,
+          end: firstEnd,
+          rows: firstRows,
+          openByDefault: currentDay ? (currentDay >= 1 && currentDay <= firstEnd) : true,
+        });
+      }
+
+      for (let start = 7; start <= maxDay; start += 7) {
+        const end = Math.min(start + 6, maxDay);
+        const rows = data.filter((row) => row.day >= start && row.day <= end);
+        if (rows.length === 0) continue;
+        ranges.push({
+          key: `${start}-${end}`,
+          start,
+          end,
+          rows,
+          openByDefault: !!(currentDay && currentDay >= start && currentDay <= end),
+        });
+      }
     }
 
-    for (let start = 7; start <= maxDay; start += 7) {
-      const end = Math.min(start + 6, maxDay);
-      const rows = data.filter((row) => row.day >= start && row.day <= end);
-      if (rows.length === 0) continue;
-      weekRanges.push({
-        key: `${start}-${end}`,
-        start,
-        end,
-        rows,
-        openByDefault: !!(currentDay && currentDay >= start && currentDay <= end),
-      });
-    }
-  }
+    return ranges;
+  }, [currentDay, data, maxDay]);
 
   const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
 
@@ -534,7 +538,7 @@ const PrayerTimesTable = ({
       });
       return next;
     });
-  }, [month, year, maxDay]);
+  }, [weekRanges]);
 
   if (data.length === 0) {
     return (

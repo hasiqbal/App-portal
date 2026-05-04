@@ -115,12 +115,21 @@ Deno.serve(async (req: Request) => {
 
     const targetTables = body.tables ?? DEFAULT_TABLES;
     const dryRun       = body.dryRun ?? false;
+    const targetUrl = Deno.env.get('EXT_SUPABASE_URL') ?? 'https://lhaqqqatdztuijgdfdcf.supabase.co';
+    const targetServiceRoleKey = Deno.env.get('EXT_SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+    if (!targetServiceRoleKey) {
+      return new Response(JSON.stringify({ ok: false, error: 'Missing EXT_SUPABASE_SERVICE_ROLE_KEY.' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Target = external Supabase (where the app now points)
     // Uses service role key so it bypasses RLS for bulk insert
     const supabase = createClient(
-      'https://lhaqqqatdztuijgdfdcf.supabase.co',
-      Deno.env.get('EXT_SUPABASE_SERVICE_ROLE_KEY') ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w',
+      targetUrl,
+      targetServiceRoleKey,
     );
 
     console.log(`[migrate] Starting migration — tables: ${targetTables.join(', ')} | dryRun: ${dryRun}`);

@@ -2594,7 +2594,7 @@ const Notifications = () => {
     else toast.success('Deleted from history.');
   };
 
-  const handleBulkDeleteHistory = async (ids: string[]) => {
+  const handleBulkDeleteHistory = useCallback(async (ids: string[]) => {
     if (!canManageHistoryDelete) {
       toast.error('Your role is read-only for deleting notifications.');
       return;
@@ -2621,7 +2621,7 @@ const Notifications = () => {
     }
 
     toast.success(`Deleted ${ids.length} notification${ids.length !== 1 ? 's' : ''}.`);
-  };
+  }, [canManageHistoryDelete, queryClient, refetch]);
 
   const handleLoadIntoCompose = (notif: PushNotification) => {
     if (!canEdit) {
@@ -2852,7 +2852,7 @@ const Notifications = () => {
 
   const handleDeleteAllFilteredHistory = useCallback(async () => {
     await handleBulkDeleteHistory(filtered.map((n) => n.id));
-  }, [filtered]);
+  }, [filtered, handleBulkDeleteHistory]);
 
   const scheduledNotifs = notifications.filter((n) => n.status === 'scheduled');
 

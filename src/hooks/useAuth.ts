@@ -11,11 +11,7 @@
 
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
 import { toast } from 'sonner';
-import { supabase, supabaseAdmin } from '#/lib/supabase';
-
-// ─── External Supabase — activity log destination ────────────────────────────
-const ONSPACE_URL      = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
-const ONSPACE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
+import { invokeExternalFunction, supabase } from '#/lib/supabase';
 
 // ─── Activity Log Helper ──────────────────────────────────────────────────────
 
@@ -39,22 +35,15 @@ export async function logActivity(params: {
   };
 
   try {
-    const res = await fetch(`${ONSPACE_URL}/rest/v1/activity_log`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey':        ONSPACE_ANON_KEY,
-        'Authorization': `Bearer ${ONSPACE_ANON_KEY}`,
-        'Prefer':        'return=minimal',
-      },
-      body: JSON.stringify(row),
+    const { error } = await invokeExternalFunction('portal-auth', {
+      action: 'logActivity',
+      row,
     });
 
-    if (res.ok) {
+    if (!error) {
       console.log('[ActivityLog] ✓ logged:', params.action, 'for', params.username);
     } else {
-      const text = await res.text().catch(() => res.statusText);
-      console.error('[ActivityLog] ✗ failed:', res.status, text);
+      console.error('[ActivityLog] ✗ failed:', error);
     }
   } catch (e) {
     console.error('[ActivityLog] ✗ network error:', e);
@@ -89,10 +78,13 @@ const TIMEOUT_MS     = 30 * 60 * 1000;  // 30 minutes
 const WARNING_BEFORE =  2 * 60 * 1000;  // warn 2 minutes before
 const CHECK_INTERVAL = 30 * 1000;       // check every 30 seconds
 
-// Shared Supabase Auth service account — gives portal sessions the `authenticated`
-// role so RLS write policies are satisfied on the external Supabase.
-const PORTAL_SERVICE_EMAIL    = 'portal@jmn-masjid.internal';
-const PORTAL_SERVICE_PASSWORD = 'JMN_Portal_2024!Secure';
+type PortalAuthLoginResult = {
+  user: LocalUser;
+  session: {
+    access_token: string;
+    refresh_token: string;
+  };
+};
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
@@ -157,133 +149,31 @@ export function useAuthState(): AuthState {
     return ts ? parseInt(ts, 10) : Date.now();
   };
 
-  // ── Supabase Auth sign-in (gets authenticated JWT for write access) ─────
-  const signIntoSupabase = useCallback(async () => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email:    PORTAL_SERVICE_EMAIL,
-      password: PORTAL_SERVICE_PASSWORD,
-    });
-    if (error) {
-      console.warn('[Auth] Supabase sign-in failed — authenticated writes may be blocked:', error.message);
-    }
-  }, []);
-
-  const syncPortalRoleClaims = useCallback(async (role: UserRole, username: string) => {
-    const { error } = await supabase.auth.updateUser({
-      data: {
-        portal_role: role,
-        portal_username: username,
-      },
-    });
-
-    if (error) {
-      console.warn('[Auth] Failed to sync portal role claims:', error.message);
-    }
-  }, []);
-
   // ── DB login ──────────────────────────────────────────────────────────────
   const dbLogin = useCallback(async (username: string, password: string): Promise<LocalUser> => {
     const normalised = username.trim().toLowerCase().replace(/^@+/, '').replace(/\s+/g, '_');
     console.log('[Auth] dbLogin attempt for:', normalised);
-
-    // Use admin client to bypass RLS on external Supabase portal_users
-    const { data, error } = await supabaseAdmin
-      .from('portal_users')
-      .select('id, username, name, role, is_active, password')
-      .eq('username', normalised)
-      .maybeSingle();
-
-    console.log('[Auth] portal_users result:', {
-      found: !!data,
-      error: error?.message,
-      username: data?.username,
-      role: data?.role,
+    const { data, error } = await invokeExternalFunction<PortalAuthLoginResult>('portal-auth', {
+      action: 'login',
+      username: normalised,
+      password,
     });
 
-    if (!error && data) {
-      if (!data.is_active) {
-        throw new Error('Your account has been deactivated. Contact the administrator.');
-      }
-      if (data.password !== password) {
-        throw new Error('Incorrect password. Please try again.');
-      }
-
-      // Update last_login (fire-and-forget)
-      supabaseAdmin
-        .from('portal_users')
-        .update({ last_login: new Date().toISOString() })
-        .eq('id', data.id)
-        .then(() => {});
-
-      // Establish Supabase Auth session for write access
-      await signIntoSupabase();
-      await syncPortalRoleClaims(data.role as UserRole, data.username);
-
-      const localUser: LocalUser = {
-        id:       data.id,
-        username: data.username,
-        name:     data.name || data.username,
-        role:     data.role as UserRole,
-      };
-
-      // Log to OnSpace Cloud activity_log
-      await logActivity({
-        username:     data.username,
-        user_role:    data.role,
-        action:       'login',
-        entity_type:  'session',
-        entity_label: `Signed in as ${data.role}`,
-        details:      { name: data.name, platform: navigator.platform },
-      });
-
-      return localUser;
+    if (error || !data?.user || !data.session?.access_token || !data.session?.refresh_token) {
+      throw new Error(error || 'Login failed.');
     }
 
-    // ── Fallback: root admin hardcoded ─────────────────────────────────────
-    const storedCreds = (() => {
-      try { return JSON.parse(localStorage.getItem('__jmn_admin_creds__') ?? 'null'); } catch { return null; }
-    })();
-    const adminPassword: string = storedCreds?.password ?? 'admin';
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+    });
 
-    if (normalised === 'admin' && password === adminPassword) {
-      // Seed default users on first admin login
-      supabaseAdmin.from('portal_users').upsert(
-        { username: 'admin', name: 'Root Administrator', password: adminPassword, role: 'admin', is_active: true, created_by: 'system' },
-        { onConflict: 'username' }
-      ).then(() => {
-        supabaseAdmin.from('portal_users').upsert(
-          [
-            { username: 'masjid_editor', name: 'Masjid Editor', password: 'editor123', role: 'editor', is_active: true, created_by: 'admin' },
-          ],
-          { onConflict: 'username', ignoreDuplicates: true }
-        ).then(() => {});
-      });
-
-      await signIntoSupabase();
-      await syncPortalRoleClaims('admin', 'admin');
-
-      await logActivity({
-        username:     'admin',
-        user_role:    'admin',
-        action:       'login',
-        entity_type:  'session',
-        entity_label: 'Signed in as admin',
-        details:      { platform: navigator.platform },
-      });
-
-      return { id: 'root-admin', username: 'admin', name: 'Root Administrator', role: 'admin' };
+    if (sessionError) {
+      throw new Error(`Login session failed: ${sessionError.message}`);
     }
 
-    // User not found — list available usernames for debugging
-    const { data: allUsers } = await supabaseAdmin
-      .from('portal_users')
-      .select('username')
-      .order('username');
-    const hint = allUsers && allUsers.length > 0
-      ? ` Available: ${allUsers.map((u: { username: string }) => u.username).join(', ')}`
-      : '';
-    throw new Error(`Username "${normalised}" not found.${hint}`);
-  }, [signIntoSupabase, syncPortalRoleClaims]);
+    return data.user;
+  }, []);
 
   // ── Local login ────────────────────────────────────────────────────────────
   const localLogin = useCallback((u: LocalUser) => {
@@ -303,8 +193,11 @@ export function useAuthState(): AuthState {
           if (idle < TIMEOUT_MS) {
             setUser(parsed);
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) await signIntoSupabase();
-            await syncPortalRoleClaims(parsed.role, parsed.username);
+            if (!session) {
+              localStorage.removeItem(SESSION_KEY);
+              localStorage.removeItem(SESSION_TS_KEY);
+              setUser(null);
+            }
           } else {
             localStorage.removeItem(SESSION_KEY);
             localStorage.removeItem(SESSION_TS_KEY);
@@ -317,7 +210,7 @@ export function useAuthState(): AuthState {
       setLoading(false);
     };
     restore();
-  }, [signIntoSupabase, syncPortalRoleClaims]);
+  }, []);
 
   // ── Activity listeners ─────────────────────────────────────────────────────
   useEffect(() => {

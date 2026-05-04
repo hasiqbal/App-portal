@@ -409,7 +409,7 @@ const parseQuickPasteFields = (raw: string): QuickPasteFields => {
 
   for (const rawLine of lines) {
     const line = rawLine.trimEnd();
-    const match = line.match(/^\s*([A-Za-z _]+)\s*[:\-]\s*(.*)$/);
+    const match = line.match(/^\s*([A-Za-z _]+)\s*[:-]\s*(.*)$/);
     if (match) {
       const key = resolveKey(match[1]);
       if (key) {

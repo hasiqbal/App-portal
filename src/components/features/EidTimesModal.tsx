@@ -115,36 +115,12 @@ async function saveEidPrayers(
 
 // ─── Auto-create table attempt ────────────────────────────────────────────────
 
-const EXT_URL         = 'https://lhaqqqatdztuijgdfdcf.supabase.co';
-const EXT_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYXFxcWF0ZHp0dWlqZ2RmZGNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTU5OTExOSwiZXhwIjoyMDkxMTc1MTE5fQ.Dlt1Dkkh7WzUPLOVh1JgNU7h6u3m1PyttSlHuNxho4w';
-
 async function tryAutoCreateTable(): Promise<{ ok: boolean; message: string }> {
-  // Try Supabase SQL API endpoint (available in some Supabase versions)
-  try {
-    const endpoints = [
-      `${EXT_URL}/rest/v1/rpc/exec_sql`,
-      `${EXT_URL}/pg/query`,
-      `${EXT_URL}/sql`,
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${EXT_SERVICE_KEY}`,
-            'apikey': EXT_SERVICE_KEY,
-          },
-          body: JSON.stringify({ query: EID_SQL_SETUP }),
-        });
-        if (res.ok) return { ok: true, message: 'Table created automatically' };
-      } catch { /* try next endpoint */ }
-    }
-    return { ok: false, message: 'Auto-create failed — please run SQL manually' };
-  } catch (e) {
-    return { ok: false, message: String(e) };
-  }
+  void EID_SQL_SETUP;
+  return {
+    ok: false,
+    message: 'Auto-create is disabled in the client. Please run SQL manually in Supabase dashboard.',
+  };
 }
 
 // ─── SQL Banner ───────────────────────────────────────────────────────────────
