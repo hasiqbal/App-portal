@@ -323,12 +323,12 @@ export const notificationAutomationService = {
   },
 
   /** Create a new automation rule. */
-  create: async (payload: UpsertAutomationPayload): Promise<NotificationAutomation> => {
+  create: async (payload: UpsertAutomationPayload): Promise<void> => {
     if (payload.schedule_type === 'prayer') {
       throw new Error('Prayer-linked automations are disabled to avoid duplicate mobile prayer notifications.');
     }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('notification_automations')
       .insert({
         ...payload,
@@ -336,20 +336,17 @@ export const notificationAutomationService = {
         prayer_names: payload.prayer_names ?? [],
         audience: payload.audience ?? 'all',
         category: payload.category ?? 'general',
-      })
-      .select('*')
-      .single();
+      });
     if (error) throw new Error(`Failed to create automation rule: ${error.message}`);
-    return data as NotificationAutomation;
   },
 
   /** Update an existing automation rule. */
-  update: async (id: string, payload: UpsertAutomationPayload): Promise<NotificationAutomation> => {
+  update: async (id: string, payload: UpsertAutomationPayload): Promise<void> => {
     if (payload.schedule_type === 'prayer') {
       throw new Error('Prayer-linked automations are disabled to avoid duplicate mobile prayer notifications.');
     }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('notification_automations')
       .update({
         ...payload,
@@ -358,11 +355,8 @@ export const notificationAutomationService = {
         audience: payload.audience ?? 'all',
         category: payload.category ?? 'general',
       })
-      .eq('id', id)
-      .select('*')
-      .single();
+      .eq('id', id);
     if (error) throw new Error(`Failed to update automation rule: ${error.message}`);
-    return data as NotificationAutomation;
   },
 
   /** Enable/disable an automation rule. */
