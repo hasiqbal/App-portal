@@ -41,6 +41,12 @@ interface ExpoPushTicket {
   details?: { error?: string };
 }
 
+interface ExpoPushReceipt {
+  status: 'ok' | 'error';
+  message?: string;
+  details?: { error?: string };
+}
+
 interface JwtClaims {
   role?: string;
   portal_role?: string;
@@ -236,6 +242,7 @@ serve(async (req) => {
     let successCount = 0;
     const errorDetails: string[] = [];
     const invalidTokenIds: string[] = [];
+    const ticketToDevice = new Map<string, DeviceTokenRow>();
 
     for (const chunk of chunks) {
       const messages = chunk.map((t) => buildMessage(t.token));
@@ -262,6 +269,9 @@ serve(async (req) => {
       tickets.forEach((ticket, idx) => {
         if (ticket.status === 'ok') {
           successCount++;
+          if (ticket.id) {
+            ticketToDevice.set(ticket.id, chunk[idx]);
+          }
           return;
         }
 
@@ -272,6 +282,53 @@ serve(async (req) => {
           invalidTokenIds.push(chunk[idx].id);
         }
       });
+    }
+
+    // Expo tickets only confirm acceptance, not final delivery. Query receipts
+    // to capture downstream provider errors (FCM/APNs credentials, etc.).
+    if (ticketToDevice.size > 0) {
+      const receiptIds = Array.from(ticketToDevice.keys());
+      const RECEIPT_CHUNK_SIZE = 300;
+
+      for (let i = 0; i < receiptIds.length; i += RECEIPT_CHUNK_SIZE) {
+        const receiptChunk = receiptIds.slice(i, i + RECEIPT_CHUNK_SIZE);
+
+        const receiptRes = await fetch('https://exp.host/--/api/v2/push/getReceipts', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Accept-Encoding': 'gzip, deflate',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ids: receiptChunk }),
+        });
+
+        if (!receiptRes.ok) {
+          const receiptErr = await receiptRes.text().catch(() => 'unknown receipt error');
+          errorDetails.push(`Expo receipts API ${receiptRes.status}: ${receiptErr.slice(0, 200)}`);
+          continue;
+        }
+
+        const receiptPayload = await receiptRes.json().catch(() => null) as { data?: Record<string, ExpoPushReceipt> } | null;
+        const receiptData = receiptPayload?.data ?? {};
+
+        for (const id of receiptChunk) {
+          const receipt = receiptData[id];
+          if (!receipt || receipt.status === 'ok') continue;
+
+          const device = ticketToDevice.get(id);
+          if (successCount > 0) {
+            successCount--;
+          }
+
+          const reason = receipt.message ?? receipt.details?.error ?? 'Unknown receipt error';
+          errorDetails.push(`receipt:${device?.platform ?? 'unknown'}: ${reason}`);
+
+          if (receipt.details?.error === 'DeviceNotRegistered' && device?.id) {
+            invalidTokenIds.push(device.id);
+          }
+        }
+      }
     }
 
     if (invalidTokenIds.length > 0) {

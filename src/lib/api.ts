@@ -45,6 +45,7 @@ const ANNOUNCEMENTS_URDU_TITLE_COLUMN = (import.meta.env.VITE_ANNOUNCEMENTS_URDU
 const ANNOUNCEMENTS_URDU_GUESTS_COLUMN = 'guest_urdu';
 const ANNOUNCEMENTS_GUESTS_COLUMN = 'guests';
 const ANNOUNCEMENTS_TIME_COLUMN = 'time';
+const ANNOUNCEMENTS_EVENTS_BUCKET = (import.meta.env.VITE_ANNOUNCEMENTS_EVENTS_BUCKET ?? '').trim();
 
 type AnnouncementDbRow = Omit<Announcement, 'type' | 'urdu_title' | 'urdu_body' | 'tag' | 'urdu_lead_names'> & {
   type?: string | null;
@@ -136,6 +137,75 @@ function extractAnnouncementTimeParts(value: string): { primaryTime: string | nu
   }
 
   return { primaryTime, richTimeText };
+}
+
+function parseSupabaseStoragePublicUrl(value: string): { bucket: string; path: string } | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  // Legacy rows may store only the object path.
+  if (!trimmed.includes('://')) {
+    if (!ANNOUNCEMENTS_EVENTS_BUCKET) return null;
+
+    const normalizedPath = trimmed
+      .replace(/^\/+/, '')
+      .replace(new RegExp(`^${ANNOUNCEMENTS_EVENTS_BUCKET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\/`), '')
+      .trim();
+
+    if (!normalizedPath) return null;
+    return { bucket: ANNOUNCEMENTS_EVENTS_BUCKET, path: normalizedPath };
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const markers = [
+      '/storage/v1/object/public/',
+      '/storage/v1/object/sign/',
+      '/storage/v1/object/authenticated/',
+    ];
+
+    const marker = markers.find((entry) => parsed.pathname.includes(entry));
+    if (!marker) return null;
+
+    const markerIndex = parsed.pathname.indexOf(marker);
+    const suffix = parsed.pathname.slice(markerIndex + marker.length);
+    const slashIndex = suffix.indexOf('/');
+    if (slashIndex <= 0) return null;
+
+    const bucket = decodeURIComponent(suffix.slice(0, slashIndex)).trim();
+    const path = decodeURIComponent(suffix.slice(slashIndex + 1)).trim();
+    if (!bucket || !path) return null;
+
+    return { bucket, path };
+  } catch {
+    return null;
+  }
+}
+
+async function removeAnnouncementImageObject(imageUrl: string | null | undefined): Promise<void> {
+  if (!imageUrl) return;
+
+  const objectRef = parseSupabaseStoragePublicUrl(imageUrl);
+  if (!objectRef) return;
+
+  const { error } = await supabaseAdmin.storage
+    .from(objectRef.bucket)
+    .remove([objectRef.path]);
+
+  if (!error) return;
+
+  const message = (error.message ?? '').toLowerCase();
+  const missingObject = message.includes('not found')
+    || message.includes('no such')
+    || message.includes('404');
+
+  if (!missingObject) {
+    console.warn('[announcements] image cleanup failed during delete', {
+      bucket: objectRef.bucket,
+      path: objectRef.path,
+      message: error.message,
+    });
+  }
 }
 
 type ErrorWithMessage = { message: string };
@@ -1776,11 +1846,46 @@ export async function updateAnnouncement(id: string, data: Partial<AnnouncementP
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {
-  const { error } = await supabaseAdmin
+  const { data: existingAnnouncement, error: fetchError } = await supabaseAdmin
     .from(ANNOUNCEMENTS_TABLE)
-    .delete()
-    .eq('id', id);
-  if (error) throw new Error(`Failed to delete announcement: ${error.message}`);
+    .select('id,image_url')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch announcement before delete: ${fetchError.message}`);
+  }
+
+  if (!existingAnnouncement) {
+    return;
+  }
+
+  const announcementWithImage = existingAnnouncement as { image_url?: string | null };
+
+  const { error: cascadeError } = await supabaseAdmin.rpc('delete_announcement_cascade', {
+    p_announcement_id: id,
+  });
+
+  if (cascadeError) {
+    const rpcMessage = cascadeError.message ?? '';
+    const rpcMissing = rpcMessage.includes('delete_announcement_cascade')
+      || rpcMessage.includes('Could not find the function');
+
+    if (!rpcMissing) {
+      throw new Error(`Failed to delete announcement: ${rpcMessage}`);
+    }
+
+    const { error: directDeleteError } = await supabaseAdmin
+      .from(ANNOUNCEMENTS_TABLE)
+      .delete()
+      .eq('id', id);
+
+    if (directDeleteError) {
+      throw new Error(`Failed to delete announcement: ${directDeleteError.message}`);
+    }
+  }
+
+  await removeAnnouncementImageObject(announcementWithImage.image_url ?? null);
 }
 
 // ─── Donation Options ───────────────────────────────────────────────────────
