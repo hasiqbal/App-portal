@@ -54,10 +54,52 @@ interface JwtClaims {
   user_metadata?: { role?: string; portal_role?: string };
 }
 
+type SupportedPlatform = 'ios' | 'android';
+
+type PlatformCounter = Record<SupportedPlatform, number>;
+
+function emptyPlatformCounter(): PlatformCounter {
+  return { ios: 0, android: 0 };
+}
+
+function normalizePlatform(value: string | null | undefined): SupportedPlatform | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'ios' || normalized === 'android') {
+    return normalized;
+  }
+  return null;
+}
+
+function isExpoPushToken(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const token = value.trim();
+  return token.startsWith('ExpoPushToken[') || token.startsWith('ExponentPushToken[');
+}
+
 function asTrimmedString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+const BODY_URL_PATTERN = /((?:https?:\/\/|www\.)[^\s<>()]+(?:\([^\s<>()]*\))?[^\s<>()\],.!?;:'"\)])/i;
+
+function normalizeExternalUrl(value: string | null | undefined): string | null {
+  const trimmed = asTrimmedString(value);
+  if (!trimmed) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed.replace(/^\/+/, '')}`;
+}
+
+function extractFirstBodyUrl(value: string | null | undefined): string | null {
+  const source = asTrimmedString(value);
+  if (!source) return null;
+  const match = source.match(BODY_URL_PATTERN);
+  if (!match?.[1]) return null;
+  return normalizeExternalUrl(match[1]);
 }
 
 function buildBilingualTitle(english: string, urdu?: string): string {
@@ -150,10 +192,17 @@ serve(async (req) => {
       });
     }
 
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? 'https://lhaqqqatdztuijgdfdcf.supabase.co',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')?.trim();
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      return new Response(JSON.stringify({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
     let tokenQuery = supabaseAdmin
       .from('device_tokens')
@@ -174,7 +223,18 @@ serve(async (req) => {
       throw new Error(`DB error fetching tokens: ${tokenError.message}`);
     }
 
-    const tokens: DeviceTokenRow[] = tokenRows ?? [];
+    const rawTokens: DeviceTokenRow[] = tokenRows ?? [];
+    const tokens = rawTokens.filter((row) => {
+      const platform = normalizePlatform(row.platform);
+      return platform !== null && isExpoPushToken(row.token);
+    });
+
+    const invalidTokenIds = rawTokens
+      .filter((row) => {
+        const platform = normalizePlatform(row.platform);
+        return platform === null || !isExpoPushToken(row.token);
+      })
+      .map((row) => row.id);
 
     const payloadJson = {
       formatVersion,
@@ -183,18 +243,29 @@ serve(async (req) => {
       urduTitle: urduTitle ?? null,
       ctaLabel: ctaLabel ?? null,
       imageUrl: imageUrl ?? null,
-      linkUrl: linkUrl ?? null,
+      linkUrl: normalizeExternalUrl(linkUrl) ?? extractFirstBodyUrl(body),
       urduBody: urduBody ?? null,
     };
 
+    const resolvedLinkUrl = payloadJson.linkUrl;
+
     if (tokens.length === 0) {
+      if (invalidTokenIds.length > 0) {
+        await supabaseAdmin
+          .from('device_tokens')
+          .update({ is_active: false })
+          .in('id', invalidTokenIds);
+      }
+
       await supabaseAdmin
         .from('push_notifications')
         .update({
           status: 'sent',
           sent_at: new Date().toISOString(),
           recipient_count: 0,
-          error_message: 'No registered devices found for selected audience.',
+          error_message: invalidTokenIds.length > 0
+            ? 'No valid Expo device tokens found for selected audience. Invalid tokens were deactivated.'
+            : 'No registered devices found for selected audience.',
           urdu_body: urduBody ?? null,
           cta_label: ctaLabel ?? null,
           payload_json: payloadJson,
@@ -202,9 +273,28 @@ serve(async (req) => {
         })
         .eq('id', notificationId);
 
-      return new Response(JSON.stringify({ success: true, sent: 0, total: 0, errors: [] }), {
+      return new Response(JSON.stringify({
+        success: true,
+        sent: 0,
+        total: 0,
+        errors: [],
+        invalidTokenRowsDeactivated: invalidTokenIds.length,
+        platformBreakdown: {
+          attempted: emptyPlatformCounter(),
+          sent: emptyPlatformCounter(),
+          failed: emptyPlatformCounter(),
+        },
+      }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    const attemptedByPlatform = emptyPlatformCounter();
+    for (const tokenRow of tokens) {
+      const platform = normalizePlatform(tokenRow.platform);
+      if (platform) {
+        attemptedByPlatform[platform] += 1;
+      }
     }
 
     const buildMessage = (token: string): ExpoMessage => ({
@@ -223,7 +313,7 @@ serve(async (req) => {
         title,
         body,
         urduTitle: urduTitle ?? null,
-        url: linkUrl ?? null,
+        url: resolvedLinkUrl,
         ctaLabel: ctaLabel ?? null,
         urduBody: urduBody ?? null,
         imageUrl: imageUrl ?? null,
@@ -241,7 +331,8 @@ serve(async (req) => {
 
     let successCount = 0;
     const errorDetails: string[] = [];
-    const invalidTokenIds: string[] = [];
+    const sentByPlatform = emptyPlatformCounter();
+    const failedByPlatform = emptyPlatformCounter();
     const ticketToDevice = new Map<string, DeviceTokenRow>();
 
     for (const chunk of chunks) {
@@ -267,8 +358,12 @@ serve(async (req) => {
       const tickets: ExpoPushTicket[] = result.data ?? [];
 
       tickets.forEach((ticket, idx) => {
+        const platform = normalizePlatform(chunk[idx].platform);
         if (ticket.status === 'ok') {
           successCount++;
+          if (platform) {
+            sentByPlatform[platform] += 1;
+          }
           if (ticket.id) {
             ticketToDevice.set(ticket.id, chunk[idx]);
           }
@@ -277,6 +372,9 @@ serve(async (req) => {
 
         const reason = ticket.message ?? ticket.details?.error ?? 'Unknown error';
         errorDetails.push(`${chunk[idx].platform}: ${reason}`);
+        if (platform) {
+          failedByPlatform[platform] += 1;
+        }
 
         if (ticket.details?.error === 'DeviceNotRegistered') {
           invalidTokenIds.push(chunk[idx].id);
@@ -317,8 +415,13 @@ serve(async (req) => {
           if (!receipt || receipt.status === 'ok') continue;
 
           const device = ticketToDevice.get(id);
+          const platform = normalizePlatform(device?.platform);
           if (successCount > 0) {
             successCount--;
+          }
+          if (platform && sentByPlatform[platform] > 0) {
+            sentByPlatform[platform] -= 1;
+            failedByPlatform[platform] += 1;
           }
 
           const reason = receipt.message ?? receipt.details?.error ?? 'Unknown receipt error';
@@ -349,7 +452,14 @@ serve(async (req) => {
         error_message: errorDetails.length > 0 ? errorDetails.slice(0, 5).join(' | ') : null,
         urdu_body: urduBody ?? null,
         cta_label: ctaLabel ?? null,
-        payload_json: payloadJson,
+        payload_json: {
+          ...payloadJson,
+          delivery_breakdown: {
+            attempted: attemptedByPlatform,
+            sent: sentByPlatform,
+            failed: failedByPlatform,
+          },
+        },
         format_version: formatVersion,
       })
       .eq('id', notificationId);
@@ -359,6 +469,12 @@ serve(async (req) => {
       sent: successCount,
       total: tokens.length,
       errors: errorDetails,
+      invalidTokenRowsDeactivated: invalidTokenIds.length,
+      platformBreakdown: {
+        attempted: attemptedByPlatform,
+        sent: sentByPlatform,
+        failed: failedByPlatform,
+      },
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

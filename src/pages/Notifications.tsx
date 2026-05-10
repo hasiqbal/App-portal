@@ -117,12 +117,6 @@ interface NotificationAutomationEvent {
   created_at: string;
 }
 
-function isCompletedOneTimeAutomation(automation: NotificationAutomation): boolean {
-  return automation.schedule_type === 'one_time'
-    && !automation.next_run_at
-    && (automation.run_count ?? 0) > 0;
-}
-
 interface AppSettingRow {
   key: string;
   value: string;
@@ -1666,21 +1660,8 @@ const AutomationsPanel = ({
 }) => {
   const [saving, setSaving] = useState(false);
   const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
-  const [showCompletedOneTime, setShowCompletedOneTime] = useState(false);
   const [draft, setDraft] = useState<AutomationDraft>(EMPTY_AUTOMATION_DRAFT);
   const isEditing = Boolean(draft.id);
-
-  const activeAutomations = useMemo(
-    () => automations.filter((automation) => !isCompletedOneTimeAutomation(automation)),
-    [automations],
-  );
-  const completedOneTimeAutomations = useMemo(
-    () => automations.filter((automation) => isCompletedOneTimeAutomation(automation)),
-    [automations],
-  );
-  const listedAutomations = showCompletedOneTime
-    ? automations
-    : activeAutomations;
 
   const setDraftField = useCallback(<K extends keyof AutomationDraft>(key: K, value: AutomationDraft[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -1761,36 +1742,16 @@ const AutomationsPanel = ({
       <div className="px-5 py-4 border-b border-border">
         <div className="flex items-center gap-2">
           <Clock size={14} style={{ color: 'hsl(var(--primary))' }} />
-          <h3 className="text-sm font-bold text-foreground">Recurring Rules</h3>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">{activeAutomations.length}</span>
+          <h3 className="text-sm font-bold text-foreground">Automation Rules</h3>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">{automations.length}</span>
         </div>
-        <p className="text-[11px] text-muted-foreground mt-1">One-time sends are handled in Queue above. Recurring rules stay here.</p>
+        <p className="text-[11px] text-muted-foreground mt-1">Build recurring notification rules in the same compose-style flow.</p>
       </div>
 
       <div className="px-5 py-4 space-y-4">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             Automated sends run in Europe/London timezone.
           </p>
-
-          <div className="rounded-xl border border-[hsl(140_20%_88%)] bg-[hsl(142_50%_97%)] px-3 py-2 flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="px-2 py-0.5 rounded-full bg-white border border-[hsl(140_20%_88%)] font-semibold text-[hsl(150_30%_18%)]">
-              Active rules: {activeAutomations.length}
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-white border border-[hsl(140_20%_88%)] font-semibold text-muted-foreground">
-              Completed one-time: {completedOneTimeAutomations.length}
-            </span>
-            {completedOneTimeAutomations.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowCompletedOneTime((prev) => !prev)}
-                className="ml-auto px-2.5 py-1 rounded-lg border border-[hsl(140_20%_84%)] bg-white font-semibold text-[10px] text-[hsl(150_30%_24%)] hover:bg-[hsl(142_50%_95%)]"
-              >
-                {showCompletedOneTime
-                  ? `Hide completed one-time (${completedOneTimeAutomations.length})`
-                  : `Show completed one-time (${completedOneTimeAutomations.length})`}
-              </button>
-            )}
-          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 sm:gap-5 min-w-0">
             <div className="min-w-0 space-y-4">
@@ -2128,16 +2089,12 @@ const AutomationsPanel = ({
           </div>
 
           <div className="rounded-xl border border-border bg-background overflow-hidden">
-            <div className="px-3 py-2 border-b border-border text-xs font-bold text-foreground">
-              Existing rules
-            </div>
-            {listedAutomations.length === 0 ? (
-              <p className="px-3 py-3 text-[11px] text-muted-foreground">
-                No active recurring rules. Create one above, or use Queue for one-time sends.
-              </p>
+            <div className="px-3 py-2 border-b border-border text-xs font-bold text-foreground">Existing rules</div>
+            {automations.length === 0 ? (
+              <p className="px-3 py-3 text-[11px] text-muted-foreground">No automation rules yet. Create one above to schedule one-time, daily, weekly, every-N-days, or monthly sends.</p>
             ) : (
               <div className="divide-y divide-border/60">
-                {listedAutomations.slice(0, 20).map((automation) => (
+                {automations.slice(0, 20).map((automation) => (
                   <div key={automation.id} className="px-3 py-3 flex items-start justify-between gap-3 hover:bg-muted/20 transition-colors">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
@@ -2148,11 +2105,6 @@ const AutomationsPanel = ({
                         <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${getCategoryMeta(automation.category).color}`}>
                           {getCategoryMeta(automation.category).label}
                         </span>
-                        {isCompletedOneTimeAutomation(automation) && (
-                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border bg-slate-100 text-slate-600 border-slate-200">
-                            completed
-                          </span>
-                        )}
                       </div>
                       <p className="text-[10px] text-muted-foreground truncate">
                         next {automation.next_run_at ? new Date(automation.next_run_at).toLocaleString('en-GB') : 'not scheduled'} - runs {automation.run_count}
@@ -2616,7 +2568,6 @@ const Notifications = () => {
 
   const {
     data: automations = [],
-    isFetching: isFetchingAutomations,
     refetch: refetchAutomations,
     isError: automationsQueryError,
     error: automationsError,
@@ -2627,7 +2578,6 @@ const Notifications = () => {
 
   const {
     data: automationEvents = [],
-    isFetching: isFetchingAutomationEvents,
     refetch: refetchAutomationEvents,
     isError: automationEventsQueryError,
     error: automationEventsError,
@@ -2656,25 +2606,6 @@ const Notifications = () => {
       return (data ?? null) as AppSettingRow | null;
     },
   });
-
-  // Keep JWT claims fresh so RLS reads for automation tables reflect current portal role.
-  useEffect(() => {
-    let active = true;
-    const refreshClaimsAndRules = async () => {
-      const { error } = await supabase.auth.refreshSession();
-      if (error) {
-        console.warn('[notifications] session refresh before automation fetch failed:', error.message);
-        return;
-      }
-      if (!active) return;
-      await Promise.all([refetchAutomations(), refetchAutomationEvents()]);
-    };
-
-    void refreshClaimsAndRules();
-    return () => {
-      active = false;
-    };
-  }, [refetchAutomations, refetchAutomationEvents]);
 
   const {
     data: composeTemplateSetting,
@@ -2999,10 +2930,6 @@ const Notifications = () => {
   }, [filtered, handleBulkDeleteHistory]);
 
   const scheduledNotifs = notifications.filter((n) => n.status === 'scheduled');
-  const activeAutomations = useMemo(
-    () => automations.filter((automation) => !isCompletedOneTimeAutomation(automation)),
-    [automations],
-  );
 
   const updateTemplateField = useCallback(
     (
@@ -3078,12 +3005,6 @@ const Notifications = () => {
   }, [notifications]);
 
   const activeDeviceCount = deviceTokens.filter((t) => isTokenRecentlyActive(t)).length;
-  const isRefreshingDashboard = isFetching
-    || isFetchingDeviceTokens
-    || isFetchingAutomations
-    || isFetchingAutomationEvents
-    || localTemplateSettingFetching
-    || composeTemplateSettingFetching;
 
   const queryErrors = [
     notificationsQueryError ? `History failed to load: ${getErrorMessage(notificationsError)}` : null,
@@ -3307,21 +3228,8 @@ const Notifications = () => {
                     <Send size={13} /> New notification
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void Promise.all([
-                    refetch(),
-                    refetchDeviceTokens(),
-                    refetchAutomations(),
-                    refetchAutomationEvents(),
-                    refetchLocalTemplateSetting(),
-                    refetchComposeTemplateSetting(),
-                  ])}
-                  disabled={isRefreshingDashboard}
-                  className="gap-2"
-                >
-                  <RefreshCw size={14} className={isRefreshingDashboard ? 'animate-spin' : ''} /> Refresh
+                <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
+                  <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
                 </Button>
               </div>
             </div>
@@ -3354,8 +3262,8 @@ const Notifications = () => {
               </TabsTrigger>
               <TabsTrigger value="automations" className={tabTriggerClass}>
                 <Clock size={13} /> Scheduling
-                {(activeAutomations.length + scheduledNotifs.length) > 0 && (
-                  <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{activeAutomations.length + scheduledNotifs.length}</span>
+                {(automations.length + scheduledNotifs.length) > 0 && (
+                  <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{automations.length + scheduledNotifs.length}</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="app-templates" className={tabTriggerClass}>
