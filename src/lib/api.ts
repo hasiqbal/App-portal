@@ -817,7 +817,13 @@ async function updateAdhkarGroupWithFallback(id: string, payload: Record<string,
 }
 
 export async function createAdhkarGroup(data: Partial<AdhkarGroupPayload>): Promise<AdhkarGroup> {
-  return createAdhkarGroupWithFallback(data as Record<string, unknown>);
+  const normalizedData: Partial<AdhkarGroupPayload> = {
+    ...data,
+    content_type: data.content_type ?? 'adhkar',
+    content_source: data.content_source ?? 'db',
+  };
+
+  return createAdhkarGroupWithFallback(normalizedData as Record<string, unknown>);
 }
 
 export async function updateAdhkarGroup(id: string, data: Partial<AdhkarGroupPayload>): Promise<AdhkarGroup> {

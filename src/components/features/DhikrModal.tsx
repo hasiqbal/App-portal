@@ -1066,6 +1066,9 @@ const DhikrModal = ({
   const [showAdvancedTools, setShowAdvancedTools] = useState(false);
   const [showQuickFill, setShowQuickFill] = useState(false);
   const [quickPasteText, setQuickPasteText] = useState('');
+  const [selectedGroupNames, setSelectedGroupNames] = useState<string[]>([]);
+  const [selectedPrayerTimes, setSelectedPrayerTimes] = useState<string[]>([EMPTY.prayer_time]);
+  const [newGroupName, setNewGroupName] = useState('');
   const groupInputRef = useRef<HTMLInputElement>(null);
   const entryContentType: AdhkarContentType | null = forcedContentType ?? row?.content_type ?? null;
   const scopedGroups = useMemo(() => {
@@ -1073,6 +1076,19 @@ const DhikrModal = ({
     return existingGroups.filter((group) => group.content_type === entryContentType);
   }, [entryContentType, existingGroups]);
   const existingGroupNames = scopedGroups.map((group) => group.name).sort((left, right) => left.localeCompare(right));
+  const normalizedSelectedGroups = useMemo(() => (
+    Array.from(new Set(selectedGroupNames.map((name) => name.trim()).filter(Boolean)))
+  ), [selectedGroupNames]);
+  const normalizedSelectedPrayerTimes = useMemo(() => (
+    Array.from(new Set(selectedPrayerTimes.filter(Boolean)))
+  ), [selectedPrayerTimes]);
+  const saveTargets = useMemo(() => {
+    const groups = normalizedSelectedGroups.length > 0 ? normalizedSelectedGroups : [null];
+    const prayers = normalizedSelectedPrayerTimes.length > 0
+      ? normalizedSelectedPrayerTimes
+      : [form.prayer_time || EMPTY.prayer_time];
+    return prayers.flatMap((prayerTime) => groups.map((groupName) => ({ prayerTime, groupName })));
+  }, [form.prayer_time, normalizedSelectedGroups, normalizedSelectedPrayerTimes]);
 
   useEffect(() => {
     if (!open) return;
@@ -1097,6 +1113,8 @@ const DhikrModal = ({
 
   useEffect(() => {
     if (row) {
+      const initialGroupSelection = row.group_name ? [row.group_name] : [];
+      const initialPrayerSelection = [row.prayer_time || EMPTY.prayer_time];
       setForm({
         title: row.title, arabic_title: row.arabic_title ?? '', arabic: row.arabic,
         transliteration: row.transliteration ?? '', translation: row.translation ?? '',
@@ -1107,7 +1125,10 @@ const DhikrModal = ({
         sections: row.sections, file_url: row.file_url ?? '', tafsir: row.tafsir ?? '',
         description: row.description ?? '',
       });
+      setSelectedGroupNames(initialGroupSelection);
+      setSelectedPrayerTimes(initialPrayerSelection);
       setShowGroupInput(false);
+      setNewGroupName('');
       setShowQuranPicker(false);
       setShowMetaSection(false);
       setShowTafsirEditor(false);
@@ -1124,7 +1145,10 @@ const DhikrModal = ({
         prayer_time: defaultPrayerTime ?? EMPTY.prayer_time,
         ...(presetGroup ? { group_name: presetGroup.name, prayer_time: presetGroup.prayerTime } : {}),
       });
+      setSelectedGroupNames(presetGroup?.name ? [presetGroup.name] : []);
+      setSelectedPrayerTimes([presetGroup?.prayerTime ?? defaultPrayerTime ?? EMPTY.prayer_time]);
       setShowGroupInput(false);
+      setNewGroupName('');
       setShowQuranPicker(false);
       setShowMetaSection(false);
       setShowTafsirEditor(false);
@@ -1139,27 +1163,27 @@ const DhikrModal = ({
     }
   }, [defaultPrayerTime, row, open, presetGroup]);
 
-  const duplicateInGroup = useMemo(() => {
+  const duplicateGroups = useMemo(() => {
     const title = form.title.trim().toLowerCase();
-    const group = (form.group_name ?? '').trim().toLowerCase();
-    if (!title || !group) return null;
+    if (!title || normalizedSelectedGroups.length === 0) return [];
 
-    const duplicate = existingEntries.find((entry) => {
-      if (isEdit && row?.id && entry.id === row.id) return false;
-      return (entry.title ?? '').trim().toLowerCase() === title && (entry.group_name ?? '').trim().toLowerCase() === group;
-    });
-
-    return duplicate ?? null;
-  }, [existingEntries, form.group_name, form.title, isEdit, row?.id]);
+    return normalizedSelectedGroups.filter((groupName) => (
+      existingEntries.some((entry) => {
+        if (isEdit && row?.id && entry.id === row.id) return false;
+        return (entry.title ?? '').trim().toLowerCase() === title
+          && (entry.group_name ?? '').trim().toLowerCase() === groupName.toLowerCase();
+      })
+    ));
+  }, [existingEntries, form.title, isEdit, normalizedSelectedGroups, row?.id]);
 
   const hasAnyLanguageText = useMemo(() => {
     return [form.arabic, form.transliteration, form.translation, form.urdu_translation]
       .some((value) => value.trim().length > 0);
   }, [form.arabic, form.transliteration, form.translation, form.urdu_translation]);
 
-  const resolveUniqueTitle = (rawTitle: string): string => {
+  const resolveUniqueTitle = (rawTitle: string, groupName: string): string => {
     const trimmed = rawTitle.trim();
-    const group = form.group_name.trim().toLowerCase();
+    const group = groupName.trim().toLowerCase();
     if (!trimmed || !group) return trimmed;
 
     const usedTitles = new Set(
@@ -1184,6 +1208,53 @@ const DhikrModal = ({
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  const syncPrimaryGroup = (groups: string[]) => {
+    const primaryGroup = groups[0] ?? '';
+    const autoOrder = primaryGroup && primaryGroup in groupOrderMap
+      ? groupOrderMap[primaryGroup]
+      : null;
+    setForm((prev) => ({
+      ...prev,
+      group_name: primaryGroup,
+      group_order: autoOrder !== null && autoOrder !== undefined ? autoOrder : (primaryGroup ? prev.group_order : ''),
+    }));
+  };
+
+  const toggleGroupSelection = (groupName: string, checked: boolean) => {
+    setSelectedGroupNames((prev) => {
+      const next = checked
+        ? Array.from(new Set([...prev, groupName]))
+        : prev.filter((name) => name !== groupName);
+      syncPrimaryGroup(next);
+      return next;
+    });
+  };
+
+  const applyNewGroup = () => {
+    const trimmed = newGroupName.trim();
+    if (!trimmed) return;
+    setSelectedGroupNames((prev) => {
+      const next = Array.from(new Set([...prev, trimmed]));
+      syncPrimaryGroup(next);
+      return next;
+    });
+    setShowGroupInput(false);
+    setNewGroupName('');
+  };
+
+  const togglePrayerSelection = (prayerTime: string, checked: boolean) => {
+    setSelectedPrayerTimes((prev) => {
+      const next = checked
+        ? Array.from(new Set([...prev, prayerTime]))
+        : prev.filter((time) => time !== prayerTime);
+      if (next.length === 0) {
+        return prev;
+      }
+      set('prayer_time', next[0]);
+      return next;
+    });
+  };
 
   const handleQuranImport = (fields: {
     arabic: string; transliteration: string; translation: string;
@@ -1213,7 +1284,17 @@ const DhikrModal = ({
 
   const isPlaceholder = !form.arabic.trim();
 
-  const buildPayload = (resolvedGroupOrder?: number, resolvedTitle?: string) => ({
+  const buildPayload = ({
+    prayerTime,
+    groupName,
+    resolvedGroupOrder,
+    resolvedTitle,
+  }: {
+    prayerTime: string;
+    groupName: string | null;
+    resolvedGroupOrder?: number;
+    resolvedTitle?: string;
+  }) => ({
     title: (resolvedTitle ?? form.title).trim(),
     arabic_title: form.arabic_title?.trim() || null,
     arabic: form.arabic.trim() || '',
@@ -1222,8 +1303,8 @@ const DhikrModal = ({
     urdu_translation: form.urdu_translation?.trim() || null,
     reference: form.reference?.trim() || null,
     count: form.count || '1',
-    prayer_time: form.prayer_time,
-    group_name: form.group_name?.trim() || null,
+    prayer_time: prayerTime,
+    group_name: groupName,
     group_order: form.group_order !== '' ? Number(form.group_order) : (resolvedGroupOrder ?? 0),
     display_order: form.display_order !== '' ? Number(form.display_order) : 0,
     is_active: form.is_active,
@@ -1235,22 +1316,23 @@ const DhikrModal = ({
     description: form.description?.trim() || null,
   });
 
-  const ensureGroupExists = async (): Promise<AdhkarGroup | null> => {
-    const groupName = form.group_name?.trim();
-    if (!groupName) return null;
+  const ensureGroupExists = async (groupName: string | null, prayerTime: string): Promise<AdhkarGroup | null> => {
+    const normalizedName = groupName?.trim() ?? '';
+    if (!normalizedName) return null;
 
     const existingGroup = existingGroups.find((group) => (
-      group.name === groupName
+      group.name === normalizedName
       && (entryContentType ? group.content_type === entryContentType : true)
     ));
     if (existingGroup) return existingGroup;
 
     const maxDisplayOrder = existingGroups.reduce((maxValue, group) => Math.max(maxValue, group.display_order ?? 0), 0);
-    const displayOrder = form.group_order !== '' ? Number(form.group_order) : maxDisplayOrder + 10;
+    const knownOrder = normalizedName in groupOrderMap ? groupOrderMap[normalizedName] : null;
+    const displayOrder = knownOrder ?? (form.group_order !== '' ? Number(form.group_order) : maxDisplayOrder + 10);
 
     const createdGroup = await createAdhkarGroup({
-      name: groupName,
-      prayer_time: form.prayer_time,
+      name: normalizedName,
+      prayer_time: prayerTime,
       content_type: entryContentType,
       content_source: entryContentType ? 'db' : null,
       icon: '📿',
@@ -1271,7 +1353,11 @@ const DhikrModal = ({
   // ── Save as New Copy: creates a new entry, original stays intact ──────────
   const handleSaveAsCopy = async () => {
     if (!form.title.trim()) { toast.error('Title is required.'); return; }
-    if (forcedContentType && !form.group_name.trim()) {
+    if (normalizedSelectedPrayerTimes.length === 0) {
+      toast.error('Select at least one prayer time.');
+      return;
+    }
+    if (forcedContentType && normalizedSelectedGroups.length === 0) {
       toast.error('Group is required before saving Qaseedahs & Naats entries.');
       return;
     }
@@ -1280,27 +1366,57 @@ const DhikrModal = ({
       return;
     }
     setSaving(true);
-    let tempId: string | null = null;
+    const createdTemps: string[] = [];
+    const queuedSaves: Array<{ tempId: string; payload: ReturnType<typeof buildPayload> }> = [];
     try {
-      const groupMeta = await ensureGroupExists();
-      const resolvedTitle = forcedContentType
-        ? resolveUniqueTitle(form.title)
-        : form.title.trim();
-      if (resolvedTitle !== form.title.trim()) {
-        set('title', resolvedTitle);
-        toast.info(`Title already existed in this group. Saved as "${resolvedTitle}".`);
-      }
-      const payload = buildPayload(groupMeta?.display_order ?? undefined, resolvedTitle);
-      tempId = `temp-${crypto.randomUUID()}`;
       const now = new Date().toISOString();
-      const optimistic: Dhikr = { id: tempId, ...payload, created_at: now, updated_at: now };
-      onSaved(optimistic);
+
+      for (const target of saveTargets) {
+        const groupMeta = await ensureGroupExists(target.groupName, target.prayerTime);
+        const resolvedTitle = forcedContentType && target.groupName
+          ? resolveUniqueTitle(form.title, target.groupName)
+          : form.title.trim();
+
+        const payload = buildPayload({
+          prayerTime: target.prayerTime,
+          groupName: target.groupName,
+          resolvedGroupOrder: groupMeta?.display_order ?? undefined,
+          resolvedTitle,
+        });
+
+        const tempId = `temp-${crypto.randomUUID()}`;
+        createdTemps.push(tempId);
+        queuedSaves.push({ tempId, payload });
+        const optimistic: Dhikr = { id: tempId, ...payload, created_at: now, updated_at: now };
+        onSaved(optimistic);
+      }
+
       onClose();
-      const real = await saveDhikrViaEdge('create', payload);
-      onFinalized?.(tempId, real);
-      toast.success(isEdit ? 'Saved as new entry.' : 'Dhikr added.');
+
+      let successCount = 0;
+      let failedCount = 0;
+      for (const save of queuedSaves) {
+        try {
+          const real = await saveDhikrViaEdge('create', save.payload);
+          onFinalized?.(save.tempId, real);
+          successCount += 1;
+        } catch {
+          onRevert?.(save.tempId);
+          failedCount += 1;
+        }
+      }
+
+      if (failedCount > 0 && successCount > 0) {
+        toast.error(`Saved ${successCount} entr${successCount === 1 ? 'y' : 'ies'}, but ${failedCount} failed.`);
+      } else if (failedCount > 0) {
+        toast.error(`Failed to save ${failedCount} entr${failedCount === 1 ? 'y' : 'ies'}.`);
+      } else {
+        toast.success(isEdit
+          ? `Saved ${successCount} new entr${successCount === 1 ? 'y' : 'ies'}.`
+          : `Added ${successCount} dhikr entr${successCount === 1 ? 'y' : 'ies'}.`);
+      }
     } catch (err: unknown) {
-      if (tempId) onRevert?.(tempId);
+      createdTemps.forEach((tempId) => onRevert?.(tempId));
       const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to save: ${msg}`);
     } finally {
@@ -1312,8 +1428,16 @@ const DhikrModal = ({
   const handleSaveChanges = async () => {
     if (!row?.id) return;
     if (!form.title.trim()) { toast.error('Title is required.'); return; }
-    if (forcedContentType && !form.group_name.trim()) {
+    if (normalizedSelectedPrayerTimes.length === 0) {
+      toast.error('Select at least one prayer time.');
+      return;
+    }
+    if (forcedContentType && normalizedSelectedGroups.length === 0) {
       toast.error('Group is required before saving Qaseedahs & Naats entries.');
+      return;
+    }
+    if (saveTargets.length !== 1) {
+      toast.error('Save Changes supports one group and one prayer time. Use Duplicate and save as new copy for multiple selections.');
       return;
     }
     if (forcedContentType && !hasAnyLanguageText && !form.file_url.trim()) {
@@ -1322,15 +1446,21 @@ const DhikrModal = ({
     }
     setSaving(true);
     try {
-      const groupMeta = await ensureGroupExists();
-      const resolvedTitle = forcedContentType
-        ? resolveUniqueTitle(form.title)
+      const target = saveTargets[0];
+      const groupMeta = await ensureGroupExists(target.groupName, target.prayerTime);
+      const resolvedTitle = forcedContentType && target.groupName
+        ? resolveUniqueTitle(form.title, target.groupName)
         : form.title.trim();
       if (resolvedTitle !== form.title.trim()) {
         set('title', resolvedTitle);
         toast.info(`Title already existed in this group. Saved as "${resolvedTitle}".`);
       }
-      const payload = buildPayload(groupMeta?.display_order ?? undefined, resolvedTitle);
+      const payload = buildPayload({
+        prayerTime: target.prayerTime,
+        groupName: target.groupName,
+        resolvedGroupOrder: groupMeta?.display_order ?? undefined,
+        resolvedTitle,
+      });
       const optimistic: Dhikr = { ...row, ...payload, updated_at: new Date().toISOString() };
       onUpdated?.(optimistic);
       onClose();
@@ -1469,10 +1599,10 @@ const DhikrModal = ({
             <span className="hidden sm:inline text-[10px] text-muted-foreground">Enter to save · Ctrl+Enter quick save</span>
           </div>
 
-          {duplicateInGroup && (
+          {duplicateGroups.length > 0 && (
             <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 flex items-center gap-2">
               <AlertTriangle size={13} />
-              Same title exists in this group. Saving will auto-append a copy suffix.
+              Same title exists in {duplicateGroups.length} selected group{duplicateGroups.length === 1 ? '' : 's'}. Saving will auto-append a copy suffix.
             </div>
           )}
         </DialogHeader>
@@ -1495,45 +1625,78 @@ const DhikrModal = ({
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="group_name" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Group Name</Label>
-                {!showGroupInput ? (
-                  <div className="flex gap-1.5">
-                    <select
-                      id="group_name"
-                      value={form.group_name}
-                      onChange={(e) => {
-                        if (e.target.value === '__new__') {
-                          setShowGroupInput(true); set('group_name', '');
-                          setTimeout(() => groupInputRef.current?.focus(), 50);
-                        } else {
-                          set('group_name', e.target.value);
-                          if (e.target.value && e.target.value in groupOrderMap) {
-                            const autoOrder = groupOrderMap[e.target.value];
-                            set('group_order', autoOrder !== null ? autoOrder : '');
-                          }
-                        }
+                <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Groups <span className="text-muted-foreground font-normal">(tick one or more)</span></Label>
+                <div className="rounded-md border border-input bg-background p-2 space-y-2">
+                  <div className="max-h-32 overflow-y-auto pr-1 space-y-1">
+                    {existingGroupNames.length === 0 && (
+                      <p className="text-xs text-muted-foreground">No groups yet. Add a custom group below.</p>
+                    )}
+                    {existingGroupNames.map((groupName) => (
+                      <label key={groupName} className="flex items-center gap-2 text-xs py-0.5">
+                        <input
+                          type="checkbox"
+                          checked={normalizedSelectedGroups.includes(groupName)}
+                          onChange={(e) => toggleGroupSelection(groupName, e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="truncate">{groupName}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {!showGroupInput ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowGroupInput(true);
+                        setNewGroupName('');
+                        setTimeout(() => groupInputRef.current?.focus(), 50);
                       }}
-                      className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="h-8 w-full rounded-md border border-dashed border-[hsl(142_35%_72%)] text-xs font-semibold text-[hsl(142_60%_32%)] hover:bg-[hsl(142_50%_96%)]"
                     >
-                      <option value="">— None —</option>
-                      {existingGroupNames.map((g) => <option key={g} value={g}>{g}</option>)}
-                      <option value="__new__">+ Add new group…</option>
-                    </select>
-                  </div>
-                ) : (
-                  <div className="flex gap-1.5">
-                    <Input ref={groupInputRef} id="group_name" value={form.group_name} onChange={(e) => set('group_name', e.target.value)} placeholder="New group name…" className="flex-1" />
-                    <button type="button" onClick={() => { setShowGroupInput(false); if (!existingGroupNames.includes(form.group_name as string) && !(form.group_name as string).trim()) set('group_name', ''); }} className="px-2 h-9 rounded-md border border-input text-xs text-muted-foreground hover:bg-secondary transition-colors" title="Back to list">↩</button>
-                  </div>
-                )}
+                      + Add custom group
+                    </button>
+                  ) : (
+                    <div className="flex gap-1.5">
+                      <Input
+                        ref={groupInputRef}
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        placeholder="New group name..."
+                        className="flex-1"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            applyNewGroup();
+                          }
+                        }}
+                      />
+                      <button type="button" onClick={applyNewGroup} className="px-2 h-9 rounded-md border border-input text-xs text-[hsl(142_60%_32%)] hover:bg-secondary transition-colors" title="Add group">Add</button>
+                      <button type="button" onClick={() => { setShowGroupInput(false); setNewGroupName(''); }} className="px-2 h-9 rounded-md border border-input text-xs text-muted-foreground hover:bg-secondary transition-colors" title="Cancel">Cancel</button>
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-muted-foreground">
+                    Selected: {normalizedSelectedGroups.length === 0 ? 'Ungrouped' : `${normalizedSelectedGroups.length} group${normalizedSelectedGroups.length === 1 ? '' : 's'}`}
+                  </p>
+                </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="prayer_time" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Prayer Time</Label>
-                <select id="prayer_time" value={form.prayer_time} onChange={(e) => set('prayer_time', e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
+                <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Prayer Time <span className="text-muted-foreground font-normal">(tick one or more)</span></Label>
+                <div className="rounded-md border border-input bg-background p-2 max-h-40 overflow-y-auto pr-1 space-y-1">
                   {PRAYER_TIME_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>{PRAYER_TIME_LABELS[cat] ?? cat}</option>
+                    <label key={cat} className="flex items-center gap-2 text-xs py-0.5">
+                      <input
+                        type="checkbox"
+                        checked={normalizedSelectedPrayerTimes.includes(cat)}
+                        onChange={(e) => togglePrayerSelection(cat, e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>{PRAYER_TIME_LABELS[cat] ?? cat}</span>
+                    </label>
                   ))}
-                </select>
+                  <p className="pt-1 text-[10px] text-muted-foreground">Selected: {normalizedSelectedPrayerTimes.length} prayer time{normalizedSelectedPrayerTimes.length === 1 ? '' : 's'}</p>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="count" className="text-xs font-semibold text-[hsl(150_30%_18%)]">Count / Repetitions</Label>

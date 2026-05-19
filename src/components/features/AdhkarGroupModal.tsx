@@ -339,6 +339,7 @@ const AdhkarGroupModal = ({
     setSaving(true);
     const newName = form.name.trim();
     const bgUrl   = form.bg_image_url?.trim() || null;
+    const resolvedContentType = forcedContentType ?? group?.content_type ?? 'adhkar';
 
     const basePayload = {
       name:          newName,
@@ -353,8 +354,8 @@ const AdhkarGroupModal = ({
       arabic_title:  form.arabic_title?.trim() || null,
       card_reference: form.card_reference?.trim() || null,
       display_order: Number(form.display_order) || 0,
-      content_type: forcedContentType ?? group?.content_type ?? null,
-      content_source: (forcedContentType ?? group?.content_type) ? 'db' : null,
+      content_type: resolvedContentType,
+      content_source: 'db',
     };
 
     try {
