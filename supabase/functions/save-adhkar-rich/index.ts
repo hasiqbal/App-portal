@@ -14,6 +14,8 @@ interface SaveAuditMeta {
   mode: SaveMode;
   saved_at: string;
   tafsir_sanitized: boolean;
+  removed_columns?: string[];
+  schema_retry_count?: number;
 }
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? 'https://lhaqqqatdztuijgdfdcf.supabase.co';
@@ -135,6 +137,67 @@ function normalizePayload(data: Record<string, unknown>): Record<string, unknown
   return normalized;
 }
 
+function extractMissingColumnName(errorMessage: string): string | null {
+  const patterns = [
+    /could not find the ['"]([^'"]+)['"] column/i,
+    /column ['"]([^'"]+)['"] does not exist/i,
+    /column ([a-z0-9_]+) does not exist/i,
+    /column ['"]([^'"]+)['"] not found/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = errorMessage.match(pattern);
+    if (match && match[1]) return match[1];
+  }
+
+  return null;
+}
+
+type MutationResult<T> = {
+  data: T | null;
+  error: { message?: string } | null;
+};
+
+async function retryWithoutMissingColumns<T>(
+  payload: Record<string, unknown>,
+  execute: (rowPayload: Record<string, unknown>) => Promise<MutationResult<T>>,
+): Promise<{
+  data: T | null;
+  error: { message?: string } | null;
+  removedColumns: string[];
+  retryCount: number;
+}> {
+  let currentPayload = { ...payload };
+  let { data, error } = await execute(currentPayload);
+  const removedColumns = new Set<string>();
+  let retryCount = 0;
+
+  while (error?.message) {
+    const missingColumn = extractMissingColumnName(error.message);
+    if (!missingColumn) break;
+
+    const payloadKey = Object.keys(currentPayload).find((key) => key.toLowerCase() === missingColumn.toLowerCase());
+    if (!payloadKey) break;
+
+    const normalizedKey = payloadKey.toLowerCase();
+    if (removedColumns.has(normalizedKey)) break;
+    removedColumns.add(normalizedKey);
+
+    const nextPayload = { ...currentPayload };
+    delete nextPayload[payloadKey];
+    currentPayload = nextPayload;
+    retryCount += 1;
+    ({ data, error } = await execute(currentPayload));
+  }
+
+  return {
+    data,
+    error,
+    removedColumns: Array.from(removedColumns),
+    retryCount,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -208,11 +271,19 @@ serve(async (req) => {
     });
 
     if (body.mode === 'create') {
-      const { data, error } = await admin
-        .from('adhkar')
-        .insert(normalized)
-        .select()
-        .single();
+      const createResult = await retryWithoutMissingColumns(normalized, async (payload) => (
+        await admin
+          .from('adhkar')
+          .insert(payload)
+          .select()
+          .single()
+      ));
+
+      const { data, error } = createResult;
+      if (createResult.removedColumns.length > 0) {
+        audit.removed_columns = createResult.removedColumns;
+        audit.schema_retry_count = createResult.retryCount;
+      }
 
       if (error) {
         return new Response(JSON.stringify({ error: `Failed to create dhikr: ${error.message}` }), {
@@ -227,12 +298,20 @@ serve(async (req) => {
       });
     }
 
-    const { data, error } = await admin
-      .from('adhkar')
-      .update(normalized)
-      .eq('id', body.id)
-      .select()
-      .single();
+    const updateResult = await retryWithoutMissingColumns(normalized, async (payload) => (
+      await admin
+        .from('adhkar')
+        .update(payload)
+        .eq('id', body.id)
+        .select()
+        .single()
+    ));
+
+    const { data, error } = updateResult;
+    if (updateResult.removedColumns.length > 0) {
+      audit.removed_columns = updateResult.removedColumns;
+      audit.schema_retry_count = updateResult.retryCount;
+    }
 
     if (error) {
       return new Response(JSON.stringify({ error: `Failed to update dhikr: ${error.message}` }), {
