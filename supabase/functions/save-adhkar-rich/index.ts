@@ -84,7 +84,7 @@ function sanitizeRichHtml(input: string): string {
   return html.trim();
 }
 
-function normalizePayload(mode: SaveMode, data: Record<string, unknown>): Record<string, unknown> {
+function normalizePayload(data: Record<string, unknown>): Record<string, unknown> {
   const normalized: Record<string, unknown> = { ...data };
 
   const asTrimmedStringOrNull = (value: unknown): string | null => {
@@ -110,26 +110,8 @@ function normalizePayload(mode: SaveMode, data: Record<string, unknown>): Record
   const prayerTime = asTrimmedStringOrNull(data.prayer_time);
   normalized.prayer_time = prayerTime;
 
-  const hasContentType = Object.prototype.hasOwnProperty.call(data, 'content_type');
-  const parsedContentType = asTrimmedStringOrNull(data.content_type);
-  if (mode === 'create') {
-    normalized.content_type = parsedContentType ?? 'adhkar';
-  } else if (hasContentType && parsedContentType) {
-    normalized.content_type = parsedContentType;
-  } else {
-    delete normalized.content_type;
-  }
-
-  const hasContentSource = Object.prototype.hasOwnProperty.call(data, 'content_source');
-  const parsedContentSource = asTrimmedStringOrNull(data.content_source);
-  if (mode === 'create') {
-    normalized.content_source = parsedContentSource ?? 'db';
-  } else if (hasContentSource && parsedContentSource) {
-    normalized.content_source = parsedContentSource;
-  } else {
-    delete normalized.content_source;
-  }
-
+  normalized.content_type = asTrimmedStringOrNull(data.content_type);
+  normalized.content_source = asTrimmedStringOrNull(data.content_source);
   normalized.content_key = asTrimmedStringOrNull(data.content_key);
 
   const countValue = asTrimmedStringOrNull(data.count);
@@ -179,7 +161,6 @@ type MutationResult<T> = {
 async function retryWithoutMissingColumns<T>(
   payload: Record<string, unknown>,
   execute: (rowPayload: Record<string, unknown>) => Promise<MutationResult<T>>,
-  options?: { protectedColumns?: string[] },
 ): Promise<{
   data: T | null;
   error: { message?: string } | null;
@@ -189,7 +170,6 @@ async function retryWithoutMissingColumns<T>(
   let currentPayload = { ...payload };
   let { data, error } = await execute(currentPayload);
   const removedColumns = new Set<string>();
-  const protectedColumns = new Set((options?.protectedColumns ?? []).map((column) => column.toLowerCase()));
   let retryCount = 0;
 
   while (error?.message) {
@@ -200,7 +180,6 @@ async function retryWithoutMissingColumns<T>(
     if (!payloadKey) break;
 
     const normalizedKey = payloadKey.toLowerCase();
-    if (protectedColumns.has(normalizedKey)) break;
     if (removedColumns.has(normalizedKey)) break;
     removedColumns.add(normalizedKey);
 
@@ -254,7 +233,7 @@ serve(async (req) => {
       return badRequest('id is required for update mode.');
     }
 
-    const normalized = normalizePayload(body.mode, body.data);
+    const normalized = normalizePayload(body.data);
     const rawTafsir = typeof body.data.tafsir === 'string'
       ? body.data.tafsir.trim()
       : (typeof body.data.description === 'string' ? body.data.description.trim() : null);
@@ -292,22 +271,13 @@ serve(async (req) => {
     });
 
     if (body.mode === 'create') {
-      normalized.content_type = typeof normalized.content_type === 'string' && normalized.content_type.trim().length > 0
-        ? normalized.content_type
-        : 'adhkar';
-      normalized.content_source = typeof normalized.content_source === 'string' && normalized.content_source.trim().length > 0
-        ? normalized.content_source
-        : 'db';
-
       const createResult = await retryWithoutMissingColumns(normalized, async (payload) => (
         await admin
           .from('adhkar')
           .insert(payload)
           .select()
           .single()
-      ), {
-        protectedColumns: ['content_type', 'content_source'],
-      });
+      ));
 
       const { data, error } = createResult;
       if (createResult.removedColumns.length > 0) {
