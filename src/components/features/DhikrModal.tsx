@@ -5,7 +5,7 @@ import { Input } from '#/components/ui/input';
 import { Label } from '#/components/ui/label';
 import { Textarea } from '#/components/ui/textarea';
 import { Switch } from '#/components/ui/switch';
-import { AdhkarContentType, AdhkarGroup, Dhikr, PRAYER_TIME_CATEGORIES, PRAYER_TIME_LABELS } from '#/types';
+import { ADHKAR_PRAYER_TIME_CATEGORIES, AdhkarContentType, AdhkarGroup, Dhikr, PRAYER_TIME_LABELS } from '#/types';
 import { createAdhkarGroup, fetchAdhkar, fetchAdhkarGroups, saveDhikrViaEdge } from '#/lib/api';
 import { toast } from 'sonner';
 import { BookOpen, Loader2, ChevronDown, ChevronUp, CheckCircle2, X, ImagePlus, Trash2, ExternalLink, Copy, Languages, AlertTriangle, Maximize2, Minimize2, Eye, Bold, Italic, Underline, Type, Palette, List, ListOrdered, Strikethrough, Quote, Undo2, Redo2, Eraser } from 'lucide-react';
@@ -1031,6 +1031,10 @@ const EMPTY = {
 
 type FormState = typeof EMPTY;
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const ADHKAR_PRAYER_TIME_SET = new Set<string>(ADHKAR_PRAYER_TIME_CATEGORIES);
+const sanitizePrayerTime = (value?: string | null) => (
+  value && ADHKAR_PRAYER_TIME_SET.has(value) ? value : EMPTY.prayer_time
+);
 
 const DhikrModal = ({
   open,
@@ -1113,13 +1117,14 @@ const DhikrModal = ({
 
   useEffect(() => {
     if (row) {
+      const sanitizedPrayerTime = sanitizePrayerTime(row.prayer_time);
       const initialGroupSelection = row.group_name ? [row.group_name] : [];
-      const initialPrayerSelection = [row.prayer_time || EMPTY.prayer_time];
+      const initialPrayerSelection = [sanitizedPrayerTime];
       setForm({
         title: row.title, arabic_title: row.arabic_title ?? '', arabic: row.arabic,
         transliteration: row.transliteration ?? '', translation: row.translation ?? '',
         urdu_translation: row.urdu_translation ?? '',
-        reference: row.reference ?? '', count: row.count, prayer_time: row.prayer_time,
+        reference: row.reference ?? '', count: row.count, prayer_time: sanitizedPrayerTime,
         group_name: row.group_name ?? '', group_order: row.group_order ?? '',
         display_order: row.display_order ?? '', is_active: row.is_active,
         sections: row.sections, file_url: row.file_url ?? '', tafsir: row.tafsir ?? '',
@@ -1140,13 +1145,14 @@ const DhikrModal = ({
       setShowQuickFill(false);
       setQuickPasteText('');
     } else {
+      const sanitizedDefaultPrayerTime = sanitizePrayerTime(presetGroup?.prayerTime ?? defaultPrayerTime ?? EMPTY.prayer_time);
       setForm({
         ...EMPTY,
-        prayer_time: defaultPrayerTime ?? EMPTY.prayer_time,
-        ...(presetGroup ? { group_name: presetGroup.name, prayer_time: presetGroup.prayerTime } : {}),
+        prayer_time: sanitizedDefaultPrayerTime,
+        ...(presetGroup ? { group_name: presetGroup.name, prayer_time: sanitizePrayerTime(presetGroup.prayerTime) } : {}),
       });
       setSelectedGroupNames(presetGroup?.name ? [presetGroup.name] : []);
-      setSelectedPrayerTimes([presetGroup?.prayerTime ?? defaultPrayerTime ?? EMPTY.prayer_time]);
+      setSelectedPrayerTimes([sanitizedDefaultPrayerTime]);
       setShowGroupInput(false);
       setNewGroupName('');
       setShowQuranPicker(false);
@@ -1395,21 +1401,25 @@ const DhikrModal = ({
 
       let successCount = 0;
       let failedCount = 0;
+      let firstErrorMessage: string | null = null;
       for (const save of queuedSaves) {
         try {
           const real = await saveDhikrViaEdge('create', save.payload);
           onFinalized?.(save.tempId, real);
           successCount += 1;
-        } catch {
+        } catch (err: unknown) {
           onRevert?.(save.tempId);
+          if (!firstErrorMessage) {
+            firstErrorMessage = err instanceof Error ? err.message : 'Unknown save error';
+          }
           failedCount += 1;
         }
       }
 
       if (failedCount > 0 && successCount > 0) {
-        toast.error(`Saved ${successCount} entr${successCount === 1 ? 'y' : 'ies'}, but ${failedCount} failed.`);
+        toast.error(`Saved ${successCount} entr${successCount === 1 ? 'y' : 'ies'}, but ${failedCount} failed. ${firstErrorMessage ?? ''}`.trim());
       } else if (failedCount > 0) {
-        toast.error(`Failed to save ${failedCount} entr${failedCount === 1 ? 'y' : 'ies'}.`);
+        toast.error(`Failed to save ${failedCount} entr${failedCount === 1 ? 'y' : 'ies'}. ${firstErrorMessage ?? ''}`.trim());
       } else {
         toast.success(isEdit
           ? `Saved ${successCount} new entr${successCount === 1 ? 'y' : 'ies'}.`
@@ -1684,7 +1694,7 @@ const DhikrModal = ({
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-[hsl(150_30%_18%)]">Prayer Time <span className="text-muted-foreground font-normal">(tick one or more)</span></Label>
                 <div className="rounded-md border border-input bg-background p-2 max-h-40 overflow-y-auto pr-1 space-y-1">
-                  {PRAYER_TIME_CATEGORIES.map((cat) => (
+                  {ADHKAR_PRAYER_TIME_CATEGORIES.map((cat) => (
                     <label key={cat} className="flex items-center gap-2 text-xs py-0.5">
                       <input
                         type="checkbox"

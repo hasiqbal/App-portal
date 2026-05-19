@@ -603,7 +603,7 @@ const SortableGroupSection = ({
 
           {/* Add entry */}
           <button
-            onClick={() => onAddToGroup(groupName, items[0]?.prayer_time ?? 'after-fajr')}
+            onClick={() => onAddToGroup(groupName, items[0]?.prayer_time ?? sectionPrayerTime)}
             className="h-7 px-2 sm:px-2.5 rounded-lg text-[11px] sm:text-[12px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 inline-flex items-center gap-1"
             title="Add entry to this group"
             aria-label="Add entry to this group"
@@ -760,10 +760,22 @@ const PrayerTimeSection = ({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const colors = CATEGORY_COLORS[cat];
 
+  const sectionScopedGroups = allGroups.filter((group) => {
+    const type = group.content_type ?? 'adhkar';
+    if (!['adhkar', 'quran'].includes(type)) return false;
+    return group.prayer_time === cat;
+  });
+
   const groupOrder: Record<string, number> = {};
   catItems.forEach((d) => {
     const key = d.group_name ?? '(Ungrouped)';
     if (!(key in groupOrder)) groupOrder[key] = d.group_order ?? 9999;
+  });
+  sectionScopedGroups.forEach((group) => {
+    if (!group.name || group.name === '(Ungrouped)') return;
+    if (!(group.name in groupOrder)) {
+      groupOrder[group.name] = group.display_order ?? 9999;
+    }
   });
   const sortedGroupNames = Object.keys(groupOrder).sort((a, b) => (groupOrder[a] ?? 9999) - (groupOrder[b] ?? 9999));
 
@@ -772,6 +784,10 @@ const PrayerTimeSection = ({
     const key = d.group_name ?? '(Ungrouped)';
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(d);
+  });
+  sectionScopedGroups.forEach((group) => {
+    if (!group.name || group.name === '(Ungrouped)') return;
+    if (!grouped[group.name]) grouped[group.name] = [];
   });
   Object.keys(grouped).forEach((key) => {
     grouped[key].sort((a, b) => (a.display_order ?? 9999) - (b.display_order ?? 9999));
