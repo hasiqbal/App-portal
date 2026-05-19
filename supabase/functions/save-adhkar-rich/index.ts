@@ -179,6 +179,7 @@ type MutationResult<T> = {
 async function retryWithoutMissingColumns<T>(
   payload: Record<string, unknown>,
   execute: (rowPayload: Record<string, unknown>) => Promise<MutationResult<T>>,
+  options?: { protectedColumns?: string[] },
 ): Promise<{
   data: T | null;
   error: { message?: string } | null;
@@ -188,6 +189,7 @@ async function retryWithoutMissingColumns<T>(
   let currentPayload = { ...payload };
   let { data, error } = await execute(currentPayload);
   const removedColumns = new Set<string>();
+  const protectedColumns = new Set((options?.protectedColumns ?? []).map((column) => column.toLowerCase()));
   let retryCount = 0;
 
   while (error?.message) {
@@ -198,6 +200,7 @@ async function retryWithoutMissingColumns<T>(
     if (!payloadKey) break;
 
     const normalizedKey = payloadKey.toLowerCase();
+    if (protectedColumns.has(normalizedKey)) break;
     if (removedColumns.has(normalizedKey)) break;
     removedColumns.add(normalizedKey);
 
@@ -289,13 +292,22 @@ serve(async (req) => {
     });
 
     if (body.mode === 'create') {
+      normalized.content_type = typeof normalized.content_type === 'string' && normalized.content_type.trim().length > 0
+        ? normalized.content_type
+        : 'adhkar';
+      normalized.content_source = typeof normalized.content_source === 'string' && normalized.content_source.trim().length > 0
+        ? normalized.content_source
+        : 'db';
+
       const createResult = await retryWithoutMissingColumns(normalized, async (payload) => (
         await admin
           .from('adhkar')
           .insert(payload)
           .select()
           .single()
-      ));
+      ), {
+        protectedColumns: ['content_type', 'content_source'],
+      });
 
       const { data, error } = createResult;
       if (createResult.removedColumns.length > 0) {
