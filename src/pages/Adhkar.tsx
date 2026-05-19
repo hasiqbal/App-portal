@@ -2039,8 +2039,18 @@ const Adhkar = () => {
                       <span className="text-[10px] text-muted-foreground">· {PRAYER_TIME_LABELS[g.prayer_time] ?? g.prayer_time}</span>
                     )}
                     <button
+                      onClick={() => {
+                        setEditGroup(g);
+                        setGroupModalOpen(true);
+                      }}
+                      className="ml-1 p-0.5 rounded hover:bg-amber-100 transition-colors"
+                      title={`Edit "${g.name}"`}
+                    >
+                      <Pencil size={11} className="text-amber-700" />
+                    </button>
+                    <button
                       onClick={() => handleDeleteOrphanGroup(g)}
-                      className="ml-1 p-0.5 rounded hover:bg-red-100 transition-colors"
+                      className="p-0.5 rounded hover:bg-red-100 transition-colors"
                       title={`Delete "${g.name}"`}
                     >
                       <Trash2 size={11} className="text-destructive" />
