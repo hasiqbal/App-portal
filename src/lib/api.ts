@@ -715,11 +715,15 @@ export async function createDhikr(data: Partial<DhikrPayload>): Promise<Dhikr> {
 }
 
 export async function updateDhikr(id: string, data: Partial<DhikrPayload>): Promise<Dhikr> {
-  const normalizedData: Partial<DhikrPayload> = {
-    ...data,
-    content_type: data.content_type ?? 'adhkar',
-    content_source: data.content_source ?? 'db',
-  };
+  const normalizedData: Partial<DhikrPayload> = { ...data };
+
+  if (normalizedData.content_type == null) {
+    delete normalizedData.content_type;
+  }
+
+  if (normalizedData.content_source == null) {
+    delete normalizedData.content_source;
+  }
 
   const { data: rows, error } = await supabase
     .from('adhkar')
@@ -736,11 +740,19 @@ export async function saveDhikrViaEdge(
   data: Partial<DhikrPayload>,
   id?: string,
 ): Promise<Dhikr> {
-  const normalizedData: Partial<DhikrPayload> = {
-    ...data,
-    content_type: data.content_type ?? 'adhkar',
-    content_source: data.content_source ?? 'db',
-  };
+  const normalizedData: Partial<DhikrPayload> = { ...data };
+
+  if (mode === 'create') {
+    normalizedData.content_type = normalizedData.content_type ?? 'adhkar';
+    normalizedData.content_source = normalizedData.content_source ?? 'db';
+  } else {
+    if (normalizedData.content_type == null) {
+      delete normalizedData.content_type;
+    }
+    if (normalizedData.content_source == null) {
+      delete normalizedData.content_source;
+    }
+  }
 
   const { data: result, error } = await invokeExternalFunction<{ data?: Dhikr; error?: string }>('save-adhkar-rich', {
     mode,

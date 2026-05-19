@@ -84,7 +84,7 @@ function sanitizeRichHtml(input: string): string {
   return html.trim();
 }
 
-function normalizePayload(data: Record<string, unknown>): Record<string, unknown> {
+function normalizePayload(mode: SaveMode, data: Record<string, unknown>): Record<string, unknown> {
   const normalized: Record<string, unknown> = { ...data };
 
   const asTrimmedStringOrNull = (value: unknown): string | null => {
@@ -110,8 +110,26 @@ function normalizePayload(data: Record<string, unknown>): Record<string, unknown
   const prayerTime = asTrimmedStringOrNull(data.prayer_time);
   normalized.prayer_time = prayerTime;
 
-  normalized.content_type = asTrimmedStringOrNull(data.content_type);
-  normalized.content_source = asTrimmedStringOrNull(data.content_source);
+  const hasContentType = Object.prototype.hasOwnProperty.call(data, 'content_type');
+  const parsedContentType = asTrimmedStringOrNull(data.content_type);
+  if (mode === 'create') {
+    normalized.content_type = parsedContentType ?? 'adhkar';
+  } else if (hasContentType && parsedContentType) {
+    normalized.content_type = parsedContentType;
+  } else {
+    delete normalized.content_type;
+  }
+
+  const hasContentSource = Object.prototype.hasOwnProperty.call(data, 'content_source');
+  const parsedContentSource = asTrimmedStringOrNull(data.content_source);
+  if (mode === 'create') {
+    normalized.content_source = parsedContentSource ?? 'db';
+  } else if (hasContentSource && parsedContentSource) {
+    normalized.content_source = parsedContentSource;
+  } else {
+    delete normalized.content_source;
+  }
+
   normalized.content_key = asTrimmedStringOrNull(data.content_key);
 
   const countValue = asTrimmedStringOrNull(data.count);
@@ -233,7 +251,7 @@ serve(async (req) => {
       return badRequest('id is required for update mode.');
     }
 
-    const normalized = normalizePayload(body.data);
+    const normalized = normalizePayload(body.mode, body.data);
     const rawTafsir = typeof body.data.tafsir === 'string'
       ? body.data.tafsir.trim()
       : (typeof body.data.description === 'string' ? body.data.description.trim() : null);
