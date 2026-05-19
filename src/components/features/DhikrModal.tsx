@@ -1074,7 +1074,7 @@ const DhikrModal = ({
   const [selectedPrayerTimes, setSelectedPrayerTimes] = useState<string[]>([EMPTY.prayer_time]);
   const [newGroupName, setNewGroupName] = useState('');
   const groupInputRef = useRef<HTMLInputElement>(null);
-  const entryContentType: AdhkarContentType | null = forcedContentType ?? row?.content_type ?? null;
+  const entryContentType: AdhkarContentType = forcedContentType ?? row?.content_type ?? 'adhkar';
   const scopedGroups = useMemo(() => {
     if (!entryContentType) return existingGroups;
     return existingGroups.filter((group) => group.content_type === entryContentType);
@@ -1317,7 +1317,7 @@ const DhikrModal = ({
     sections: form.sections,
     file_url: form.file_url?.trim() || null,
     content_type: entryContentType,
-    content_source: entryContentType ? 'db' : null,
+    content_source: 'db',
     tafsir: stripHtmlToText(form.tafsir ?? '') ? form.tafsir.trim() : null,
     description: form.description?.trim() || null,
   });
@@ -1328,7 +1328,7 @@ const DhikrModal = ({
 
     const existingGroup = existingGroups.find((group) => (
       group.name === normalizedName
-      && (entryContentType ? group.content_type === entryContentType : true)
+      && group.content_type === entryContentType
     ));
     if (existingGroup) return existingGroup;
 
@@ -1340,7 +1340,7 @@ const DhikrModal = ({
       name: normalizedName,
       prayer_time: prayerTime,
       content_type: entryContentType,
-      content_source: entryContentType ? 'db' : null,
+      content_source: 'db',
       icon: '📿',
       icon_color: '#ffffff',
       icon_bg_color: '#0f766e',

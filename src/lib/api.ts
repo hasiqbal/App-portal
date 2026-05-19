@@ -699,9 +699,15 @@ export async function fetchAdhkar(
 }
 
 export async function createDhikr(data: Partial<DhikrPayload>): Promise<Dhikr> {
+  const normalizedData: Partial<DhikrPayload> = {
+    ...data,
+    content_type: data.content_type ?? 'adhkar',
+    content_source: data.content_source ?? 'db',
+  };
+
   const { data: rows, error } = await supabase
     .from('adhkar')
-    .insert(data)
+    .insert(normalizedData)
     .select()
     .single();
   if (error) throw new Error(`Failed to create dhikr: ${error.message}`);
@@ -709,9 +715,15 @@ export async function createDhikr(data: Partial<DhikrPayload>): Promise<Dhikr> {
 }
 
 export async function updateDhikr(id: string, data: Partial<DhikrPayload>): Promise<Dhikr> {
+  const normalizedData: Partial<DhikrPayload> = {
+    ...data,
+    content_type: data.content_type ?? 'adhkar',
+    content_source: data.content_source ?? 'db',
+  };
+
   const { data: rows, error } = await supabase
     .from('adhkar')
-    .update(data)
+    .update(normalizedData)
     .eq('id', id)
     .select()
     .single();
@@ -724,10 +736,16 @@ export async function saveDhikrViaEdge(
   data: Partial<DhikrPayload>,
   id?: string,
 ): Promise<Dhikr> {
+  const normalizedData: Partial<DhikrPayload> = {
+    ...data,
+    content_type: data.content_type ?? 'adhkar',
+    content_source: data.content_source ?? 'db',
+  };
+
   const { data: result, error } = await invokeExternalFunction<{ data?: Dhikr; error?: string }>('save-adhkar-rich', {
     mode,
     id,
-    data,
+    data: normalizedData,
   });
 
   if (error) {
