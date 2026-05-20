@@ -117,7 +117,7 @@ const TABLES: TableDef[] = [
       { name: 'body', type: 'text', notes: 'Notification message' },
       { name: 'image_url', type: 'text', notes: 'Nullable' },
       { name: 'link_url', type: 'text', notes: 'Nullable' },
-      { name: 'audience', type: 'text', notes: 'all | active | new' },
+      { name: 'audience', type: 'text', notes: 'all | active | new | installed_today | installed_last_3_days | ios | android' },
       { name: 'status', type: 'text', notes: 'draft | sent | failed | scheduled' },
       { name: 'sent_at', type: 'timestamptz', notes: 'Nullable' },
       { name: 'recipient_count', type: 'integer', notes: 'Nullable' },

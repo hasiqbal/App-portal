@@ -11,7 +11,7 @@ interface NotificationPayload {
   imageUrl?: string;
   linkUrl?: string;
   ctaLabel?: string;
-  audience?: 'all' | 'active' | 'new';
+  audience?: 'all' | 'active' | 'new' | 'installed_today' | 'installed_last_3_days' | 'ios' | 'android';
   category?: string;
   formatVersion?: string;
 }
@@ -21,6 +21,7 @@ interface DeviceTokenRow {
   token: string;
   installation_id?: string | null;
   platform: string;
+  registered_at?: string | null;
 }
 
 interface ExpoMessage {
@@ -76,6 +77,12 @@ function isExpoPushToken(value: string | null | undefined): boolean {
   if (!value) return false;
   const token = value.trim();
   return token.startsWith('ExpoPushToken[') || token.startsWith('ExponentPushToken[');
+}
+
+function startOfUtcDayIso(now = new Date()): string {
+  const copy = new Date(now);
+  copy.setUTCHours(0, 0, 0, 0);
+  return copy.toISOString();
 }
 
 function asTrimmedString(value: unknown): string | null {
@@ -207,15 +214,36 @@ serve(async (req) => {
 
     let tokenQuery = supabaseAdmin
       .from('device_tokens')
-      .select('id, token, platform')
+      .select('id, token, platform, registered_at')
       .eq('is_active', true);
 
-    if (audience === 'active') {
-      const threshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      tokenQuery = tokenQuery.gte('last_active', threshold);
-    } else if (audience === 'new') {
-      const threshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      tokenQuery = tokenQuery.gte('registered_at', threshold);
+    switch (audience) {
+      case 'active': {
+        const threshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        tokenQuery = tokenQuery.gte('last_active', threshold);
+        break;
+      }
+      case 'new': {
+        const threshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        tokenQuery = tokenQuery.gte('registered_at', threshold);
+        break;
+      }
+      case 'installed_today':
+        tokenQuery = tokenQuery.gte('registered_at', startOfUtcDayIso());
+        break;
+      case 'installed_last_3_days': {
+        const threshold = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+        tokenQuery = tokenQuery.gte('registered_at', threshold);
+        break;
+      }
+      case 'ios':
+        tokenQuery = tokenQuery.eq('platform', 'ios');
+        break;
+      case 'android':
+        tokenQuery = tokenQuery.eq('platform', 'android');
+        break;
+      default:
+        break;
     }
 
     const { data: tokenRows, error: tokenError } = await tokenQuery;

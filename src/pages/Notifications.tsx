@@ -144,7 +144,17 @@ type LocalNotificationTemplateConfig = Record<
 
 // â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const AUDIENCE_OPTIONS = [
+const NOTIFICATION_AUDIENCE_OPTIONS = [
+  { value: 'all',                    label: 'All Users',              desc: 'Every registered device' },
+  { value: 'active',                 label: 'Active Users',           desc: 'Active in last 30 days' },
+  { value: 'new',                    label: 'New Users',              desc: 'Joined in last 7 days' },
+  { value: 'installed_today',        label: 'Installed Today',        desc: 'Registered today only' },
+  { value: 'installed_last_3_days',   label: 'Installed Last 3 Days',  desc: 'Registered in the last 3 days' },
+  { value: 'ios',                    label: 'iPhone / iPad',         desc: 'Apple devices only' },
+  { value: 'android',                label: 'Android',                desc: 'Android devices only' },
+];
+
+const AUTOMATION_AUDIENCE_OPTIONS = [
   { value: 'all',    label: 'All Users',    desc: 'Every registered device' },
   { value: 'active', label: 'Active Users', desc: 'Active in last 30 days' },
   { value: 'new',    label: 'New Users',    desc: 'Joined in last 7 days' },
@@ -1113,7 +1123,7 @@ const ComposePanel = ({
           <div className="space-y-1.5">
             <Label>Audience</Label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {AUDIENCE_OPTIONS.map((opt) => (
+              {NOTIFICATION_AUDIENCE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
@@ -1358,8 +1368,8 @@ const HistoryRow = ({
             </div>
           </div>
           <div className="flex items-center gap-3 mt-1 flex-wrap">
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Users size={10} /> {AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience}
+              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Users size={10} /> {NOTIFICATION_AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience}
             </span>
             {notif.status === 'sent' && notif.recipient_count !== null && (
               <span className={`flex items-center gap-1 text-[10px] font-semibold ${notif.recipient_count > 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -1414,7 +1424,7 @@ const HistoryRow = ({
                 ...(payloadString(notif.payload_json, 'urduTitle') ? [{ label: 'Urdu title', value: payloadString(notif.payload_json, 'urduTitle') }] : []),
                 { label: 'Message',   value: notif.body  },
                 ...(notif.urdu_body ? [{ label: 'Urdu', value: notif.urdu_body }] : []),
-                { label: 'Audience',  value: AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience },
+                { label: 'Audience',  value: NOTIFICATION_AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience },
                 { label: 'Category',  value: getCategoryMeta(notif.category ?? 'general').label },
                 ...(notif.format_version ? [{ label: 'Format', value: notif.format_version }] : []),
                 ...(notif.recipient_count !== null ? [{ label: 'Delivered', value: `${notif.recipient_count.toLocaleString()} device${notif.recipient_count !== 1 ? 's' : ''}` }] : []),
@@ -1585,7 +1595,7 @@ const ScheduledQueuePanel = ({
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <Users size={9} className="text-blue-400" />
-                      <span className="text-[10px] text-blue-600">{AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience}</span>
+                      <span className="text-[10px] text-blue-600">{NOTIFICATION_AUDIENCE_OPTIONS.find((o) => o.value === notif.audience)?.label ?? notif.audience}</span>
                       {notif.image_url && <><ImageIcon size={9} className="text-blue-400" /><span className="text-[10px] text-blue-500">image</span></>}
                     </div>
                   </div>
@@ -2029,7 +2039,7 @@ const AutomationsPanel = ({
                 onChange={(e) => setDraftField('audience', e.target.value)}
                 disabled={!canEdit || saving}
               >
-                {AUDIENCE_OPTIONS.map((audience) => (
+                {AUTOMATION_AUDIENCE_OPTIONS.map((audience) => (
                   <option key={audience.value} value={audience.value}>
                     {audience.label}
                   </option>
