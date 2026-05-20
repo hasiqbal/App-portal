@@ -19,6 +19,7 @@ interface NotificationPayload {
 interface DeviceTokenRow {
   id: string;
   token: string;
+  installation_id?: string | null;
   platform: string;
 }
 

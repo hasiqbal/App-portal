@@ -48,6 +48,7 @@ interface DeviceToken {
   id: string;
   token: string;
   device_id?: string | null;
+  installation_id?: string | null;
   platform: string;
   app_version: string | null;
   device_model: string | null;

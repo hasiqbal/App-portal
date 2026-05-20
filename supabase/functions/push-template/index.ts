@@ -52,6 +52,7 @@ interface PushPayload {
 interface DeviceToken {
   id: string;
   token: string;
+  installation_id?: string | null;
   platform: string;
   is_active: boolean;
 }

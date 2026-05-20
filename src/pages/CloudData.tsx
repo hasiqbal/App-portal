@@ -99,6 +99,7 @@ const TABLES: TableDef[] = [
     columns: [
       { name: 'id', type: 'uuid', notes: 'Primary key' },
       { name: 'token', type: 'text', notes: 'Unique Expo push token' },
+      { name: 'installation_id', type: 'text', notes: 'Nullable install-scoped ID; changes on reinstall' },
       { name: 'platform', type: 'text', notes: 'ios | android | unknown' },
       { name: 'app_version', type: 'text', notes: 'Nullable' },
       { name: 'device_model', type: 'text', notes: 'Nullable' },
