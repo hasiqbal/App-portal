@@ -851,6 +851,7 @@ const MONTHS_SHORT  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oc
 const MONTHS_FULL   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR  = new Date().getFullYear();
 const CURRENT_MONTH = new Date().getMonth() + 1;
+const AUTO_FILL_FUTURE_YEARS_AHEAD = 100;
 
 function monthIsBST(year: number, month: number): boolean { return isBST(year, month, 15); }
 function fridayCount(year: number, month: number): number {
@@ -1288,11 +1289,13 @@ const PrayerTimes = () => {
   const [monthOverridesSaving, setMonthOverridesSaving] = useState(false);
   const [monthOverridesDirty, setMonthOverridesDirty] = useState(false);
   const [monthOverridesSchemaError, setMonthOverridesSchemaError] = useState<string | null>(null);
+  const [autoFillingFuture, setAutoFillingFuture] = useState(false);
   const [pendingPrayerChanges, setPendingPrayerChanges] = useState<Record<string, PrayerTimeUpdate>>({});
   const [savingPendingPrayerChanges, setSavingPendingPrayerChanges] = useState(false);
   const [showLegend,      setShowLegend]      = useState(true);
   const [showPreviewHint, setShowPreviewHint] = useState(true);
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoFillFutureInFlightRef = useRef(false);
 
   // Hijri calendar data: day â†’ entry
   const [hijriCalendar, setHijriCalendar] = useState<Map<number, HijriCalendarEntry>>(new Map());
@@ -1543,7 +1546,11 @@ const PrayerTimes = () => {
     setMonthOverridesSchemaError(null);
     setMonthOverridesDirty(false);
     setOffsetDirty(true);
-    toast.success(`Saved Hijri month lengths for ${hijriOverrideYear}. Run Fill to persist adjusted dates in hijri_calendar.`);
+    toast.success(`Saved Hijri month lengths for ${hijriOverrideYear}. Future dates will auto-fill in background.`);
+    void runAutoFillFutureDates('month-lengths', {
+      clearAdjustmentDirty: true,
+      overrideSnapshot: fresh.map,
+    });
     setMonthOverridesSaving(false);
   };
 
@@ -1554,6 +1561,183 @@ const PrayerTimes = () => {
       toast.error('Failed to copy SQL.');
     });
   };
+
+  const runAutoFillFutureDates = useCallback(async (
+    source: 'offset' | 'month-lengths' | 'manual-hijri',
+    options?: {
+      startAfter?: HijriCalendarEntry;
+      clearAdjustmentDirty?: boolean;
+      overrideSnapshot?: Map<string, 29 | 30>;
+    },
+  ) => {
+    if (schemaError) return;
+    if (autoFillFutureInFlightRef.current) return;
+    if (populatingHijri || populatingAllMonths || populatingMissing) return;
+
+    const now = new Date();
+    const todayYear = now.getUTCFullYear();
+    const todayMonth = now.getUTCMonth() + 1;
+    const todayDay = now.getUTCDate();
+    const todayStart = new Date(Date.UTC(todayYear, todayMonth - 1, todayDay));
+
+    let rangeStart = todayStart;
+
+    if (options?.startAfter) {
+      const entry = options.startAfter;
+      const fromColumns = buildDateParts(
+        Number(entry.gregorian_year),
+        Number(entry.gregorian_month),
+        Number(entry.gregorian_day),
+      );
+      const fromText = parseDatePartsFromText(entry.gregorian_date, {
+        defaultYear: selectedYear,
+        defaultMonth: selectedMonth,
+      });
+      const anchor = fromColumns ?? fromText;
+      if (anchor) {
+        const afterAnchor = new Date(Date.UTC(anchor.year, anchor.month - 1, anchor.day));
+        afterAnchor.setUTCDate(afterAnchor.getUTCDate() + 1);
+        if (afterAnchor > rangeStart) rangeStart = afterAnchor;
+      }
+    }
+
+    const rangeEndYear = Math.max(todayYear + AUTO_FILL_FUTURE_YEARS_AHEAD, selectedYear);
+    if (rangeStart.getUTCFullYear() > rangeEndYear) return;
+
+    const rangeLabel = `${rangeStart.getUTCFullYear()}-${rangeEndYear}`;
+
+    autoFillFutureInFlightRef.current = true;
+    setAutoFillingFuture(true);
+    const sourceLabel = source === 'offset'
+      ? 'offset change'
+      : source === 'month-lengths'
+        ? 'month-length change'
+        : 'manual Hijri edit';
+    const toastId = 'auto-fill-future-hijri';
+    toast.loading(
+      `Auto-filling future Hijri dates in background (${rangeLabel}, ${sourceLabel})...`,
+      { id: toastId },
+    );
+
+    try {
+      const snapshotBase = getHijriAdjustmentSnapshot();
+      const snapshot = options?.overrideSnapshot
+        ? {
+          ...snapshotBase,
+          overrides: new Map(options.overrideSnapshot),
+        }
+        : snapshotBase;
+      const startYear = rangeStart.getUTCFullYear();
+      const endYear = rangeEndYear;
+      const chunkSize = 250;
+      const pendingEntries: Omit<HijriCalendarEntry, 'id' | 'created_at' | 'updated_at'>[] = [];
+      let missingApiDays = 0;
+      let saved = 0;
+      let prepared = 0;
+      const errors: string[] = [];
+
+      const flushPending = async (force = false) => {
+        while (pendingEntries.length >= chunkSize || (force && pendingEntries.length > 0)) {
+          const chunk = pendingEntries.splice(0, chunkSize).map((entry) => ({
+            ...entry,
+            updated_at: new Date().toISOString(),
+          }));
+          const { error } = await supabaseAdmin
+            .from('hijri_calendar')
+            .upsert(chunk, { onConflict: 'gregorian_year,gregorian_month,gregorian_day' });
+
+          if (error) {
+            errors.push(`DB upsert failed: ${error.message}`);
+            continue;
+          }
+          saved += chunk.length;
+        }
+      };
+
+      for (let year = startYear; year <= endYear; year++) {
+        const firstMonth = year === startYear ? rangeStart.getUTCMonth() + 1 : 1;
+        for (let month = firstMonth; month <= 12; month++) {
+          try {
+            const monthMap = await fetchHijriMonthFromApi(year, month, snapshot.offset);
+            const adjustedMap = applyCurrentHijriAdjustments(monthMap, snapshot.overrides);
+            const firstDay = year === startYear && month === firstMonth
+              ? rangeStart.getUTCDate()
+              : 1;
+            const lastDay = new Date(year, month, 0).getDate();
+
+            for (let day = firstDay; day <= lastDay; day++) {
+              const result = adjustedMap.get(day);
+              if (!result) {
+                missingApiDays += 1;
+                continue;
+              }
+              pendingEntries.push({
+                gregorian_year: year,
+                gregorian_month: month,
+                gregorian_day: day,
+                gregorian_date: result.gregorian,
+                hijri_date: result.hijri,
+              });
+              prepared += 1;
+            }
+            await flushPending(false);
+          } catch (e) {
+            const reason = e instanceof Error ? e.message : String(e);
+            errors.push(`API ${year}-${String(month).padStart(2, '0')} failed: ${reason}`);
+          }
+        }
+      }
+
+      await flushPending(true);
+
+      if (prepared === 0 && errors.length === 0) {
+        toast.message('No future Hijri dates needed an update.', { id: toastId });
+        return;
+      }
+
+      if (errors.length > 0) {
+        toast.warning(
+          `Auto-fill saved ${saved}/${prepared} future dates. First issue: ${errors[0]}`,
+          { id: toastId, duration: 7000 },
+        );
+      } else if (missingApiDays > 0) {
+        toast.warning(
+          `Auto-fill saved ${saved} future dates, but ${missingApiDays} day(s) were missing from API data.`,
+          { id: toastId, duration: 6000 },
+        );
+      } else {
+        toast.success(`Auto-filled ${saved} future Hijri dates for ${rangeLabel}.`, {
+          id: toastId,
+          duration: 4500,
+        });
+        if (options?.clearAdjustmentDirty) {
+          setLoadedOffset(snapshot.offset);
+          setOffsetDirty(false);
+          setMonthOverridesDirty(false);
+        }
+      }
+
+      const updated = await fetchHijriCalendarMonth(selectedYear, selectedMonth);
+      setHijriCalendar(updated);
+    } catch (e) {
+      toast.error(`Background Hijri auto-fill failed: ${e instanceof Error ? e.message : String(e)}`, {
+        id: toastId,
+        duration: 7000,
+      });
+    } finally {
+      setAutoFillingFuture(false);
+      autoFillFutureInFlightRef.current = false;
+    }
+  }, [
+    applyCurrentHijriAdjustments,
+    getHijriAdjustmentSnapshot,
+    populatingAllMonths,
+    populatingHijri,
+    populatingMissing,
+    schemaError,
+    selectedMonth,
+    selectedYear,
+  ]);
 
   const changeOffset = (delta: number) => {
     setHijriOffset((prev) => {
@@ -1569,6 +1753,9 @@ const PrayerTimes = () => {
       offsetDebounceRef.current = setTimeout(async () => {
         const { ok } = await saveOffsetToDb(next);
         setOffsetStatus(ok ? 'saved' : 'error');
+        if (ok) {
+          void runAutoFillFutureDates('offset', { clearAdjustmentDirty: true });
+        }
         // Auto-clear after 3 seconds
         offsetStatusTimerRef.current = setTimeout(() => setOffsetStatus('idle'), 3000);
       }, 800);
@@ -1586,6 +1773,9 @@ const PrayerTimes = () => {
     setOffsetStatus('saving');
     saveOffsetToDb(0).then(({ ok }) => {
       setOffsetStatus(ok ? 'saved' : 'error');
+      if (ok) {
+        void runAutoFillFutureDates('offset', { clearAdjustmentDirty: true });
+      }
       offsetStatusTimerRef.current = setTimeout(() => setOffsetStatus('idle'), 3000);
     });
   };
@@ -1644,6 +1834,10 @@ const PrayerTimes = () => {
   // â”€â”€ Fill Missing Only: Aladhan API â†’ skips days already in hijri_calendar â”€
   // Uses monthly calendar endpoint (12 calls/year) for speed
   const handleFillMissingOnly = async () => {
+    if (autoFillFutureInFlightRef.current) {
+      toast.message('Background Hijri auto-fill is running. Please wait a moment.');
+      return;
+    }
     const adjustmentSnapshot = getHijriAdjustmentSnapshot();
     const effectiveOffset = adjustmentSnapshot.offset;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
@@ -1780,6 +1974,10 @@ const PrayerTimes = () => {
   // â”€â”€ Fill All 12 Months: Aladhan API â†’ hijri_calendar table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Uses gToHCalendar (1 call/month = 12 calls total instead of 365)
   const handlePopulateAllMonths = async () => {
+    if (autoFillFutureInFlightRef.current) {
+      toast.message('Background Hijri auto-fill is running. Please wait a moment.');
+      return;
+    }
     const adjustmentSnapshot = getHijriAdjustmentSnapshot();
     const effectiveOffset = adjustmentSnapshot.offset;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
@@ -1854,6 +2052,10 @@ const PrayerTimes = () => {
 
   // â”€â”€ Fill Dates: Aladhan API â†’ hijri_calendar table (single month, batch call) â”€
   const handlePopulateHijriDates = async () => {
+    if (autoFillFutureInFlightRef.current) {
+      toast.message('Background Hijri auto-fill is running. Please wait a moment.');
+      return;
+    }
     const adjustmentSnapshot = getHijriAdjustmentSnapshot();
     const effectiveOffset = adjustmentSnapshot.offset;
     if (schemaError) { toast.error('Fix the DB schema first (see the red banner above).'); return; }
@@ -2078,7 +2280,8 @@ const PrayerTimes = () => {
 
   const handleHijriSaved = useCallback((day: number, entry: HijriCalendarEntry) => {
     setHijriCalendar((prev) => new Map(prev).set(day, entry));
-  }, []);
+    void runAutoFillFutureDates('manual-hijri', { startAfter: entry, clearAdjustmentDirty: false });
+  }, [runAutoFillFutureDates]);
 
   const handleCsvImported = useCallback((updatedByMonth: Map<number, PrayerTime[]>) => {
     updatedByMonth.forEach((rows, m) => {
@@ -2365,7 +2568,11 @@ const PrayerTimes = () => {
               {hijriAdjustmentsDirty && hijriCalendar.size > 0 && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 animate-pulse">
                   <span className="text-[11px]">!</span>
-                  <span className="text-[10px] font-semibold">Hijri adjustments changed (offset/month lengths) - click <strong>Fill Month</strong> or <strong>Fill All {selectedYear}</strong> to apply updates to DB</span>
+                  <span className="text-[10px] font-semibold">
+                    {autoFillingFuture
+                      ? 'Hijri adjustments changed - auto-filling all future years in background...'
+                      : 'Hijri adjustments changed - all future years now auto-fill in background.'}
+                  </span>
                 </div>
               )}
 
